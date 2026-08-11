@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # ADR-001 조건 2-a — 타르볼 무결성 검증.
+      # SheetJS는 npm이 아니라 cdn.sheetjs.com 타르볼에서 온다. npm 레지스트리와 달리
+      # 불변성 보장이 없으므로, package-lock의 integrity 해시와 실제 내려받은 타르볼이
+      # 다르면 여기서 빌드가 깨져야 한다.
+      #
+      # `npm ci`여야 한다 — `npm install`은 해시가 어긋나면 lock을 조용히 고쳐 쓴다.
+      - name: Install (integrity-verified)
+        run: npm ci
+
+      # lock이 손대지지 않았는지 확인. npm ci는 lock을 수정하지 않으므로
+      # diff가 생겼다면 무결성 대조를 우회한 것이다.
+      - name: Assert lockfile untouched
+        run: git diff --exit-code package-lock.json
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
