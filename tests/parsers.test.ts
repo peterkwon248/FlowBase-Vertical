@@ -8,7 +8,7 @@ import { dateToRaw } from "../src/core/import/parsers/sheetjs-common.js"
 import { charsetFromMeta } from "../src/core/import/parsers/html-table.js"
 import { parserFor } from "../src/core/import/parsers/index.js"
 import { sniff } from "../src/core/import/recognition/sniff.js"
-import { FIXTURES, readFixture, fixturesPresent } from "./fixtures.js"
+import { FIXTURES, readFixture, fixturesPresent, RAW_DIR } from "./fixtures.js"
 
 describe("delimited — C-8이 지목한 멀티라인 quoted 셀 버그", () => {
   it("따옴표 안의 줄바꿈을 셀 내용으로 유지한다", () => {
@@ -157,15 +157,28 @@ describe.runIf(fixturesPresent())("파서 4종 — 픽스처 15개", () => {
     src.close()
   })
 
-  it("#8 — 라이브러리 경고를 삼키지 않고 표면화한다", async () => {
-    // #8의 zip은 data descriptor 방식이라 로컬 헤더의 크기 필드가 0이다.
-    // SheetJS는 경고를 stderr로 흘리고 정상 복구한다 — 그 경고를 잡아야 한다.
+  it.runIf(fixturesPresent(RAW_DIR))(
+    "#8 원본 — 라이브러리 경고를 삼키지 않고 표면화한다",
+    async () => {
+      // #8 **원본**의 zip은 data descriptor 방식이라 로컬 헤더의 크기 필드가 0이고,
+      // SheetJS가 경고를 stderr로 흘리며 정상 복구한다. 그 경고를 잡는지 확인한다.
+      //
+      // 비식별화본에는 이 성질이 없다 — 재압축하면서 평범한 zip이 됐다. 그래서
+      // 이 테스트는 원본이 있는 개발 기기에서만 돈다 (CI에서는 건너뛴다).
+      const f = FIXTURES.find((x) => x.id === 8)!
+      const src = await parserFor("xlsx").open(readFixture(f, RAW_DIR))
+      expect(src.warnings.some((w) => w.includes("Bad uncompressed size"))).toBe(true)
+
+      // 경고가 있어도 데이터는 온전하다 — 대조표: 헤더 1행 + 데이터 160행, 15컬럼.
+      expect(src.sheets[0]!.columnCount).toBe(15)
+      expect(src.sheets[0]!.physicalRowCount).toBe(161)
+      src.close()
+    },
+  )
+
+  it("#8 — 비식별화본도 같은 구조로 읽힌다", async () => {
     const f = FIXTURES.find((x) => x.id === 8)!
     const src = await parserFor("xlsx").open(readFixture(f))
-    expect(src.warnings.length).toBeGreaterThan(0)
-    expect(src.warnings.some((w) => w.includes("Bad uncompressed size"))).toBe(true)
-
-    // 경고가 있어도 데이터는 온전하다 — 대조표: 헤더 1행 + 데이터 160행, 15컬럼.
     expect(src.sheets[0]!.columnCount).toBe(15)
     expect(src.sheets[0]!.physicalRowCount).toBe(161)
     src.close()

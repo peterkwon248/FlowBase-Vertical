@@ -14,7 +14,25 @@ import { dirname, join } from "node:path"
 import type { ContainerFormat, EncodingLabel } from "../src/core/import/types.js"
 
 const here = dirname(fileURLToPath(import.meta.url))
+
+/** 실명이 든 원본. gitignore로 막혀 있고 커밋되지 않는다 (헌장 E-10). */
 export const RAW_DIR = join(here, "..", "fixtures", "raw")
+/** 비식별화본. 이쪽이 커밋되고 CI가 쓰는 것이다. */
+export const CLEAN_DIR = join(here, "..", "fixtures", "clean")
+
+/**
+ * 어느 쪽을 쓸지.
+ *
+ * 기본은 **비식별화본**이다 — 커밋되는 것이 그것이고, 개발 기기에만 있는
+ * 원본에서만 통과하는 테스트는 CI에서 의미가 없다.
+ * `FIXTURE_DIR=raw`로 원본 대조가 필요할 때만 바꾼다.
+ */
+export const FIXTURE_DIR =
+  process.env.FIXTURE_DIR === "raw"
+    ? RAW_DIR
+    : existsSync(CLEAN_DIR)
+      ? CLEAN_DIR
+      : RAW_DIR
 
 export interface FixtureDef {
   /** 대조표의 # 번호. */
@@ -142,15 +160,15 @@ export const FIXTURES: readonly FixtureDef[] = [
   },
 ]
 
-export function fixturePath(f: FixtureDef): string {
-  return join(RAW_DIR, f.file)
+export function fixturePath(f: FixtureDef, dir: string = FIXTURE_DIR): string {
+  return join(dir, f.file)
 }
 
-export function readFixture(f: FixtureDef): Uint8Array {
-  return new Uint8Array(readFileSync(fixturePath(f)))
+export function readFixture(f: FixtureDef, dir: string = FIXTURE_DIR): Uint8Array {
+  return new Uint8Array(readFileSync(fixturePath(f, dir)))
 }
 
-/** 원본이 아직 배치되지 않았으면 테스트를 건너뛰게 한다 — 조용히 통과시키지 않는다. */
-export function fixturesPresent(): boolean {
-  return FIXTURES.every((f) => existsSync(fixturePath(f)))
+/** 픽스처가 아직 배치되지 않았으면 테스트를 건너뛰게 한다 — 조용히 통과시키지 않는다. */
+export function fixturesPresent(dir: string = FIXTURE_DIR): boolean {
+  return FIXTURES.every((f) => existsSync(fixturePath(f, dir)))
 }

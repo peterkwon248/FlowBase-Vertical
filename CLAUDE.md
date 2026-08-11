@@ -13,7 +13,8 @@
 | [docs/인계-문서.md](docs/인계-문서.md) | 손익 3층·Canonical 흐름·Library 설계 |
 | [docs/지시서-v1.md](docs/지시서-v1.md) | 제품 정의·티어·신규 화면 4종 원본 지시 |
 | [docs/upstream-sync.md](docs/upstream-sync.md) | upstream `peterkwon248/FlowBase`와의 어휘 정렬 기록 |
-| [docs/ADR-001-파이프라인-스택.md](docs/ADR-001-파이프라인-스택.md) | 파이프라인 = 전부 TypeScript. 조건 4개 + SheetJS 버전·무결성 고정 |
+| [docs/ADR-001-파이프라인-스택.md](docs/ADR-001-파이프라인-스택.md) | 파이프라인 = 전부 TypeScript. 조건 4개 + SheetJS 버전·무결성 고정 + 성능 판정 |
+| [docs/ADR-002-파싱-원칙.md](docs/ADR-002-파싱-원칙.md) | 날짜는 UTC 게터 · 타입 체계 유무로 추론 주체 결정 · 확장자 어긋남 3층 |
 | [docs/픽스처-대조표.md](docs/픽스처-대조표.md) | **독립 실측 대조표.** `expected*` 매니페스트의 채점 기준 — 우리 파서로 만들지 않았다 |
 
 `mockup/`은 **동결본**이다. 읽기 전용 참조 — 편집하지 않는다.
@@ -78,5 +79,17 @@ Recognition은 **매직 바이트가 1순위**, 확장자는 힌트에 불과하
 
 ## 커밋
 
-- 픽스처 원본(실명·연락처·주소 포함)은 **커밋 금지**. 비식별화 후에만 테스트 저장소에 넣는다.
+- 픽스처 원본(실명·연락처·주소 포함)은 **커밋 금지**. `fixtures/raw/`는 gitignore.
+  커밋되는 것은 `fixtures/clean/`(비식별화본)이고 테스트는 기본으로 그쪽을 쓴다.
+  원본 대조가 필요할 때만 `FIXTURE_DIR=raw`.
 - `_ref/`는 사용자 참고 자료(스크린샷·대행사 리포트)이며 git에서 제외돼 있다.
+
+## 픽스처 도구
+
+```bash
+npm run harness   # expected 매니페스트 생성 (fixtures/manifest/manifest.json)
+npm run perf      # 성능 게이트 — 30초 / 256MB
+```
+
+`tools/deident/` — `scan` (PII 탐지) · `apply` (raw→clean 치환) · `verify` (잔존·구조 검증).
+`tools/harness/` — `dump-sheet` · `check-excluded` · `classify-check` · `verify-fast-path`.

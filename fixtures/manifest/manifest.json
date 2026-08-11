@@ -40,11 +40,12 @@
         "excludedCounts": {
           "total": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": null
       }
     ],
     "dataSheetCount": 1,
-    "elapsedMs": 5
+    "elapsedMs": 6
   },
   {
     "id": 2,
@@ -87,11 +88,12 @@
         "excludedCounts": {
           "total": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": null
       }
     ],
     "dataSheetCount": 1,
-    "elapsedMs": 2
+    "elapsedMs": 3
   },
   {
     "id": 3,
@@ -108,7 +110,7 @@
         "name": "메인 A",
         "index": 0,
         "role": "summary",
-        "roleReason": "시트명에 \"메인\" — 파생 시트로 본다 (헤더 확신 0.97, 직사각형도 1.00, 데이터 행 32)",
+        "roleReason": "시트명에 \"메인\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.97, 직사각형도 1.00, 데이터 행 32)",
         "physicalRowCount": 1000,
         "columnCount": 9,
         "headerRow": 2,
@@ -129,13 +131,14 @@
           "trailing-blank": 1,
           "subtitle": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.96
       },
       {
         "name": "메인 B",
         "index": 1,
         "role": "summary",
-        "roleReason": "시트명에 \"메인\" — 파생 시트로 본다 (헤더 확신 0.99, 직사각형도 1.00, 데이터 행 32)",
+        "roleReason": "시트명에 \"메인\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.99, 직사각형도 1.00, 데이터 행 32)",
         "physicalRowCount": 1000,
         "columnCount": 19,
         "headerRow": 2,
@@ -159,13 +162,14 @@
           "trailing-blank": 1,
           "subtitle": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.965
       },
       {
         "name": "통합_상품분석",
         "index": 2,
         "role": "summary",
-        "roleReason": "시트명에 \"분석\" — 파생 시트로 본다 (헤더 확신 0.97, 직사각형도 1.00, 데이터 행 146)",
+        "roleReason": "시트명에 \"분석\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.97, 직사각형도 1.00, 데이터 행 146)",
         "physicalRowCount": 1000,
         "columnCount": 16,
         "headerRow": 2,
@@ -190,7 +194,8 @@
           "subtitle": 1,
           "total": 10
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.993
       },
       {
         "name": "이베이",
@@ -221,7 +226,8 @@
           "subtitle": 1,
           "total": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.96
       },
       {
         "name": "11번가",
@@ -252,7 +258,8 @@
           "subtitle": 1,
           "total": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.965
       },
       {
         "name": "B2B",
@@ -282,7 +289,8 @@
           "subtitle": 1,
           "total": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.976
       },
       {
         "name": "매출정리 raw",
@@ -311,7 +319,8 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.771
       },
       {
         "name": "파워클릭 raw",
@@ -339,7 +348,8 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0
       },
       {
         "name": "Ai매출업 raw",
@@ -368,7 +378,8 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0
       },
       {
         "name": "상품별원가 raw",
@@ -392,13 +403,14 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0
       },
       {
         "name": "이베이_상품분석",
         "index": 10,
         "role": "summary",
-        "roleReason": "시트명에 \"분석\" — 파생 시트로 본다 (헤더 확신 0.85, 직사각형도 0.97, 데이터 행 32)",
+        "roleReason": "시트명에 \"분석\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.85, 직사각형도 0.97, 데이터 행 32)",
         "physicalRowCount": 999,
         "columnCount": 24,
         "headerRow": 2,
@@ -422,7 +434,8 @@
           "trailing-blank": 1,
           "subtitle": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.955
       },
       {
         "name": "11_매출정리",
@@ -449,7 +462,8 @@
         ],
         "dataRowCount": 999,
         "excludedCounts": {},
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.205
       },
       {
         "name": "11_광고비정리",
@@ -478,7 +492,8 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 35
+        "mergeCount": 35,
+        "formulaRatio": 0
       },
       {
         "name": "11_상품별원가",
@@ -502,13 +517,14 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0
       },
       {
         "name": "11_상품분석",
         "index": 14,
         "role": "summary",
-        "roleReason": "시트명에 \"분석\" — 파생 시트로 본다 (헤더 확신 0.85, 직사각형도 0.17, 데이터 행 44)",
+        "roleReason": "시트명에 \"분석\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.85, 직사각형도 0.17, 데이터 행 44)",
         "physicalRowCount": 1000,
         "columnCount": 24,
         "headerRow": 2,
@@ -532,7 +548,8 @@
           "trailing-blank": 1,
           "subtitle": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.964
       },
       {
         "name": "B2B_매출정리",
@@ -559,7 +576,8 @@
         ],
         "dataRowCount": 3071,
         "excludedCounts": {},
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.174
       },
       {
         "name": "B2B_반품정리",
@@ -586,7 +604,8 @@
         ],
         "dataRowCount": 2999,
         "excludedCounts": {},
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.67
       },
       {
         "name": "B2B_상품별원가",
@@ -610,13 +629,14 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.002
       },
       {
         "name": "B2B_상품분석",
         "index": 18,
         "role": "summary",
-        "roleReason": "시트명에 \"분석\" — 파생 시트로 본다 (헤더 확신 0.83, 직사각형도 0.97, 데이터 행 116)",
+        "roleReason": "시트명에 \"분석\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.83, 직사각형도 0.97, 데이터 행 116)",
         "physicalRowCount": 4000,
         "columnCount": 22,
         "headerRow": 2,
@@ -640,11 +660,12 @@
           "trailing-blank": 1,
           "subtitle": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.989
       }
     ],
     "dataSheetCount": 13,
-    "elapsedMs": 875
+    "elapsedMs": 1162
   },
   {
     "id": 4,
@@ -661,7 +682,7 @@
         "name": "파워클릭_종합요약",
         "index": 0,
         "role": "summary",
-        "roleReason": "시트명에 \"요약\" — 파생 시트로 본다 (헤더 확신 0.58, 직사각형도 0.00, 데이터 행 15)",
+        "roleReason": "시트명에 \"요약\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.58, 직사각형도 0.00, 데이터 행 15)",
         "physicalRowCount": 84,
         "columnCount": 13,
         "headerRow": 6,
@@ -687,13 +708,14 @@
           "blank": 42,
           "total": 4
         },
-        "mergeCount": 26
+        "mergeCount": 26,
+        "formulaRatio": 0.575
       },
       {
         "name": "파워클릭_주간요약",
         "index": 1,
         "role": "summary",
-        "roleReason": "시트명에 \"요약\" — 파생 시트로 본다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 53)",
+        "roleReason": "시트명에 \"요약\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 53), 수식 33%",
         "physicalRowCount": 148,
         "columnCount": 16,
         "headerRow": null,
@@ -703,13 +725,14 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 11
+        "mergeCount": 11,
+        "formulaRatio": 0.33
       },
       {
         "name": "G_주차별",
         "index": 2,
         "role": "summary",
-        "roleReason": "구조 점수 0.03 — 일정한 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 53)",
+        "roleReason": "헤더를 찾지 못했다 — 단일 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 53), 수식 33%",
         "physicalRowCount": 145,
         "columnCount": 16,
         "headerRow": null,
@@ -719,7 +742,8 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 11
+        "mergeCount": 11,
+        "formulaRatio": 0.33
       },
       {
         "name": "G_상품별",
@@ -749,7 +773,8 @@
           "subtitle": 2,
           "total": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0.027
       },
       {
         "name": "G_키워드별",
@@ -778,13 +803,14 @@
           "subtitle": 2,
           "total": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0.001
       },
       {
         "name": "G_카테고리",
         "index": 5,
-        "role": "summary",
-        "roleReason": "데이터 행이 0개뿐 — 표로 보기 어렵다 (헤더 확신 0.95, 직사각형도 0.00, 데이터 행 0)",
+        "role": "data",
+        "roleReason": "구조는 표이나 이번 파일에 내용이 없다 (헤더 확신 0.95, 직사각형도 측정불가(표본부족), 데이터 행 0)",
         "physicalRowCount": 7,
         "columnCount": 11,
         "headerRow": 5,
@@ -808,13 +834,14 @@
           "subtitle": 2,
           "total": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0.455
       },
       {
         "name": "A_주차별",
         "index": 6,
         "role": "summary",
-        "roleReason": "구조 점수 0.03 — 일정한 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 53)",
+        "roleReason": "헤더를 찾지 못했다 — 단일 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 53), 수식 33%",
         "physicalRowCount": 147,
         "columnCount": 16,
         "headerRow": null,
@@ -824,7 +851,8 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 11
+        "mergeCount": 11,
+        "formulaRatio": 0.33
       },
       {
         "name": "A_상품별",
@@ -854,7 +882,8 @@
           "subtitle": 2,
           "total": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0.024
       },
       {
         "name": "A_키워드별",
@@ -883,13 +912,14 @@
           "subtitle": 2,
           "total": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0.001
       },
       {
         "name": "Auction_카테고리",
         "index": 9,
-        "role": "summary",
-        "roleReason": "데이터 행이 0개뿐 — 표로 보기 어렵다 (헤더 확신 0.95, 직사각형도 0.00, 데이터 행 0)",
+        "role": "data",
+        "roleReason": "구조는 표이나 이번 파일에 내용이 없다 (헤더 확신 0.95, 직사각형도 측정불가(표본부족), 데이터 행 0)",
         "physicalRowCount": 7,
         "columnCount": 11,
         "headerRow": 5,
@@ -913,13 +943,14 @@
           "subtitle": 2,
           "total": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0.455
       },
       {
         "name": "파워클릭_월별비교",
         "index": 10,
         "role": "summary",
-        "roleReason": "시트명에 \"비교\" — 파생 시트로 본다 (헤더 확신 0.95, 직사각형도 1.00, 데이터 행 11)",
+        "roleReason": "시트명에 \"비교\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.95, 직사각형도 1.00, 데이터 행 11)",
         "physicalRowCount": 76,
         "columnCount": 11,
         "headerRow": 4,
@@ -942,13 +973,14 @@
           "trailing-blank": 1,
           "subtitle": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0
       },
       {
         "name": "AI매출업_종합요약",
         "index": 11,
         "role": "summary",
-        "roleReason": "시트명에 \"요약\" — 파생 시트로 본다 (헤더 확신 0.57, 직사각형도 0.00, 데이터 행 15)",
+        "roleReason": "시트명에 \"요약\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.57, 직사각형도 0.00, 데이터 행 15)",
         "physicalRowCount": 84,
         "columnCount": 15,
         "headerRow": 6,
@@ -974,13 +1006,14 @@
           "blank": 42,
           "total": 4
         },
-        "mergeCount": 25
+        "mergeCount": 25,
+        "formulaRatio": 0.6
       },
       {
         "name": "AI매출업_주간요약",
         "index": 12,
         "role": "summary",
-        "roleReason": "시트명에 \"요약\" — 파생 시트로 본다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 54)",
+        "roleReason": "시트명에 \"요약\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 54), 수식 31%",
         "physicalRowCount": 148,
         "columnCount": 18,
         "headerRow": null,
@@ -990,13 +1023,14 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 11
+        "mergeCount": 11,
+        "formulaRatio": 0.314
       },
       {
         "name": "G_주차별AI",
         "index": 13,
         "role": "summary",
-        "roleReason": "구조 점수 0.03 — 일정한 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 54)",
+        "roleReason": "헤더를 찾지 못했다 — 단일 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 54), 수식 31%",
         "physicalRowCount": 145,
         "columnCount": 18,
         "headerRow": null,
@@ -1006,7 +1040,8 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 11
+        "mergeCount": 11,
+        "formulaRatio": 0.314
       },
       {
         "name": "G_상품별AI",
@@ -1036,13 +1071,14 @@
           "subtitle": 2,
           "total": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0.02
       },
       {
         "name": "A_주차별AI",
         "index": 15,
         "role": "summary",
-        "roleReason": "구조 점수 0.03 — 일정한 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 54)",
+        "roleReason": "헤더를 찾지 못했다 — 단일 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 54), 수식 31%",
         "physicalRowCount": 147,
         "columnCount": 18,
         "headerRow": null,
@@ -1052,7 +1088,8 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 11
+        "mergeCount": 11,
+        "formulaRatio": 0.314
       },
       {
         "name": "A_상품별AI",
@@ -1082,13 +1119,14 @@
           "subtitle": 2,
           "total": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0.032
       },
       {
         "name": "AI매출업_월별비교",
         "index": 17,
         "role": "summary",
-        "roleReason": "시트명에 \"비교\" — 파생 시트로 본다 (헤더 확신 0.96, 직사각형도 1.00, 데이터 행 11)",
+        "roleReason": "시트명에 \"비교\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.96, 직사각형도 1.00, 데이터 행 11)",
         "physicalRowCount": 76,
         "columnCount": 13,
         "headerRow": 4,
@@ -1112,11 +1150,12 @@
           "trailing-blank": 1,
           "subtitle": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0
       }
     ],
-    "dataSheetCount": 6,
-    "elapsedMs": 236
+    "dataSheetCount": 8,
+    "elapsedMs": 245
   },
   {
     "id": 5,
@@ -1133,7 +1172,7 @@
         "name": "종합요약",
         "index": 0,
         "role": "summary",
-        "roleReason": "시트명에 \"요약\" — 파생 시트로 본다 (헤더 확신 0.58, 직사각형도 0.00, 데이터 행 16)",
+        "roleReason": "시트명에 \"요약\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.58, 직사각형도 0.00, 데이터 행 16)",
         "physicalRowCount": 85,
         "columnCount": 13,
         "headerRow": 6,
@@ -1159,13 +1198,14 @@
           "blank": 42,
           "total": 1
         },
-        "mergeCount": 26
+        "mergeCount": 26,
+        "formulaRatio": 0.583
       },
       {
         "name": "포커스클릭",
         "index": 1,
         "role": "summary",
-        "roleReason": "구조 점수 0.03 — 일정한 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 53)",
+        "roleReason": "헤더를 찾지 못했다 — 단일 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 53), 수식 33%",
         "physicalRowCount": 148,
         "columnCount": 16,
         "headerRow": null,
@@ -1175,7 +1215,8 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 11
+        "mergeCount": 11,
+        "formulaRatio": 0.33
       },
       {
         "name": "포커스클릭_상품별",
@@ -1205,7 +1246,8 @@
           "subtitle": 2,
           "total": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0.008
       },
       {
         "name": "포커스클릭_키워드",
@@ -1234,13 +1276,14 @@
           "subtitle": 2,
           "total": 2
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0
       },
       {
         "name": "브랜딩광고_상품별",
         "index": 4,
-        "role": "summary",
-        "roleReason": "데이터 행이 0개뿐 — 표로 보기 어렵다 (헤더 확신 0.93, 직사각형도 0.00, 데이터 행 0)",
+        "role": "data",
+        "roleReason": "구조는 표이나 이번 파일에 내용이 없다 (헤더 확신 0.93, 직사각형도 측정불가(표본부족), 데이터 행 0)",
         "physicalRowCount": 8,
         "columnCount": 12,
         "headerRow": 6,
@@ -1264,13 +1307,14 @@
           "trailing-blank": 1,
           "subtitle": 2
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0.455
       },
       {
         "name": "월별비교",
         "index": 5,
         "role": "summary",
-        "roleReason": "데이터 행이 0개뿐 — 표로 보기 어렵다 (헤더 확신 0.95, 직사각형도 0.00, 데이터 행 0)",
+        "roleReason": "시트명에 \"비교\" — 사람이 붙인 파생 선언으로 본다 (헤더 확신 0.95, 직사각형도 측정불가(표본부족), 데이터 행 0)",
         "physicalRowCount": 76,
         "columnCount": 11,
         "headerRow": 4,
@@ -1293,17 +1337,18 @@
           "trailing-blank": 1,
           "subtitle": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0
       }
     ],
-    "dataSheetCount": 2,
-    "elapsedMs": 316
+    "dataSheetCount": 3,
+    "elapsedMs": 355
   },
   {
     "id": 6,
     "file": "2026년 7월_11st 결제일 정산확정 건.xls",
     "expectedProfile": "biff",
-    "profileConfidence": 0.6,
+    "profileConfidence": 0.97,
     "encoding": null,
     "delimiter": null,
     "extensionMismatch": false,
@@ -1338,11 +1383,12 @@
           "trailing-blank": 1,
           "subtitle": 1
         },
-        "mergeCount": 1
+        "mergeCount": 1,
+        "formulaRatio": 0
       }
     ],
     "dataSheetCount": 1,
-    "elapsedMs": 29
+    "elapsedMs": 34
   },
   {
     "id": 7,
@@ -1380,7 +1426,8 @@
           "subtitle": 1,
           "total": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.96
       },
       {
         "name": "11번가",
@@ -1409,7 +1456,8 @@
           "subtitle": 1,
           "total": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.962
       },
       {
         "name": "매출정리 raw",
@@ -1436,7 +1484,8 @@
         ],
         "dataRowCount": 999,
         "excludedCounts": {},
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.136
       },
       {
         "name": "파워클릭 raw",
@@ -1462,7 +1511,8 @@
         ],
         "dataRowCount": 30,
         "excludedCounts": {},
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0
       },
       {
         "name": "Ai매출업 raw",
@@ -1489,7 +1539,8 @@
         ],
         "dataRowCount": 30,
         "excludedCounts": {},
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0
       },
       {
         "name": "11_매출정리",
@@ -1518,7 +1569,8 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0.073
       },
       {
         "name": "11_광고비정리",
@@ -1547,11 +1599,12 @@
         "excludedCounts": {
           "trailing-blank": 1
         },
-        "mergeCount": 49
+        "mergeCount": 49,
+        "formulaRatio": 0
       }
     ],
     "dataSheetCount": 7,
-    "elapsedMs": 84
+    "elapsedMs": 96
   },
   {
     "id": 8,
@@ -1562,7 +1615,7 @@
     "delimiter": null,
     "extensionMismatch": false,
     "identityNotes": [],
-    "parserWarnings": 9,
+    "parserWarnings": 0,
     "expectedSheets": [
       {
         "name": "Sheet 1",
@@ -1589,7 +1642,8 @@
         ],
         "dataRowCount": 160,
         "excludedCounts": {},
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0
       }
     ],
     "dataSheetCount": 1,
@@ -1631,11 +1685,12 @@
         ],
         "dataRowCount": 1197,
         "excludedCounts": {},
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0
       }
     ],
     "dataSheetCount": 1,
-    "elapsedMs": 184
+    "elapsedMs": 204
   },
   {
     "id": 10,
@@ -1673,11 +1728,12 @@
         ],
         "dataRowCount": 37,
         "excludedCounts": {},
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0
       }
     ],
     "dataSheetCount": 1,
-    "elapsedMs": 9
+    "elapsedMs": 11
   },
   {
     "id": 11,
@@ -1715,7 +1771,8 @@
         ],
         "dataRowCount": 31,
         "excludedCounts": {},
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0
       }
     ],
     "dataSheetCount": 1,
@@ -1762,11 +1819,12 @@
           "subtitle": 1,
           "total": 31
         },
-        "mergeCount": 36
+        "mergeCount": 36,
+        "formulaRatio": 0
       }
     ],
     "dataSheetCount": 1,
-    "elapsedMs": 18
+    "elapsedMs": 17
   },
   {
     "id": 13,
@@ -1804,11 +1862,12 @@
         ],
         "dataRowCount": 80137,
         "excludedCounts": {},
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": null
       }
     ],
     "dataSheetCount": 1,
-    "elapsedMs": 11131
+    "elapsedMs": 3300
   },
   {
     "id": 14,
@@ -1846,11 +1905,12 @@
         ],
         "dataRowCount": 141,
         "excludedCounts": {},
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0
       }
     ],
     "dataSheetCount": 1,
-    "elapsedMs": 13
+    "elapsedMs": 23
   },
   {
     "id": 15,
@@ -1890,10 +1950,11 @@
         "excludedCounts": {
           "total": 1
         },
-        "mergeCount": 0
+        "mergeCount": 0,
+        "formulaRatio": 0
       }
     ],
     "dataSheetCount": 1,
-    "elapsedMs": 6
+    "elapsedMs": 12
   }
 ]
