@@ -101,6 +101,14 @@ export interface RecognitionResult {
  */
 export type SheetRole = "data" | "summary" | "empty"
 
+/** 병합 셀 범위. 0-기준, 끝 포함. */
+export interface MergeRange {
+  readonly startRow: number
+  readonly endRow: number
+  readonly startCol: number
+  readonly endCol: number
+}
+
 export interface SheetInfo {
   readonly name: string
   readonly index: number
@@ -108,6 +116,15 @@ export interface SheetInfo {
   readonly reason: string
   /** 물리적 최대 행 — 서식만 있는 빈 행을 포함한다. 대조표의 행 수 정의와 같다. */
   readonly physicalRowCount: number
+  readonly columnCount: number
+  /**
+   * 병합 셀. 병합된 영역에서 값은 좌상단 한 칸에만 있고 나머지는 null이다.
+   *
+   * 파서는 **채우지 않는다** — 원본이 그렇게 생겼다는 사실을 그대로 전달한다.
+   * 채울지 말지는 Extraction의 판단이며(2행 헤더인지, 날짜 forward-fill인지),
+   * 그 판단에 필요한 근거가 이 목록이다. 픽스처 #12가 여기 해당한다.
+   */
+  readonly merges: readonly MergeRange[]
 }
 
 export interface HeaderDetection {
@@ -176,15 +193,52 @@ export interface RowChunk {
   readonly isLast: boolean
 }
 
-/** 파서가 지켜야 하는 모양. 4종 전부 이 인터페이스를 만족한다. */
+/** 시트 목록 단계에서 알 수 있는 것. 행 수는 아직 모른다 — 지어내지 않는다. */
+export interface SheetSummary {
+  readonly name: string
+  readonly index: number
+}
+
+/**
+ * 파서가 지켜야 하는 모양. 4종 전부 이 인터페이스를 만족한다.
+ *
+ * 세 진입점이 나뉜 이유는 헌장 B-9의 "미리보기(앞 N행)와 전체 파싱을 분리"다.
+ * 셋 다 같은 바이트를 받지만 읽는 양이 다르다 — 시트 목록은 워크북 인덱스만,
+ * 미리보기는 앞 N행만, `open`만이 전량을 읽는다.
+ */
 export interface Parser {
   readonly format: ContainerFormat
-  /** 시트 목록만. 전체를 읽지 않는다 — 위저드의 시트 선택 단계(C-5)가 쓴다. */
-  probe(bytes: Uint8Array, opts?: ParseOptions): Promise<readonly SheetInfo[]>
-  /** 앞 N행만. 미리보기는 전체 파싱과 분리한다 (헌장 B-9). */
+  /** 시트 목록만. 셀을 읽지 않는다 — 위저드의 시트 선택 단계(C-5)가 쓴다. */
+  listSheets(bytes: Uint8Array, opts?: ParseOptions): Promise<readonly SheetSummary[]>
+  /** 앞 N행만. 전체 파싱을 유발하지 않아야 한다. */
   preview(bytes: Uint8Array, rows: number, opts?: ParseOptions): Promise<readonly RawRow[]>
-  /** 전량. 청크로 흘린다. */
-  stream(bytes: Uint8Array, opts?: ParseOptions): AsyncIterable<RowChunk>
+  /** 전량 파싱. 반드시 `close()`로 해제한다. */
+  open(bytes: Uint8Array, opts?: ParseOptions): Promise<ParsedSource>
+}
+
+/**
+ * 열린 원본. **이건 라이브 핸들이라 직렬화 대상이 아니다** — 파서 단계 *안쪽*에
+ * 머문다. 밖으로 나가는 것은 `RowChunk`뿐이고 그건 직렬화 가능하다 (ADR-001 조건 1).
+ */
+export interface ParsedSource {
+  readonly sheets: readonly SheetInfo[]
+  /**
+   * 파싱 중 라이브러리가 낸 경고. **비어 있지 않다고 실패는 아니다** — 읽기는
+   * 성공했지만 파일이 정상 범주를 벗어났다는 신호다.
+   *
+   * 잡아서 올리는 이유: SheetJS는 이런 상황을 `console.error`로 흘리고 계속
+   * 진행한다. 그대로 두면 사용자도 우리도 모르는 채 숫자만 나오고, 그게
+   * 헌장 A-5가 금지하는 조용한 실패다. 픽스처 #8이 실제로 여기 걸린다
+   * (data descriptor zip — 크기 필드가 0이라 9건의 경고가 난다. 데이터는 온전).
+   */
+  readonly warnings: readonly string[]
+  /** 청크로 흘린다. 헌장 B-9 "청크→SQLite". */
+  stream(sheetIndex: number, opts?: ParseOptions): AsyncIterable<RowChunk>
+  /**
+   * 워크북 참조를 끊는다. ADR-001의 "워크북 조기 해제" 완화책 — 80,138행짜리
+   * 파일에서 이걸 빠뜨리면 피크 메모리 기준(256MB)을 지킬 수 없다.
+   */
+  close(): void
 }
 
 export interface ParseOptions {
