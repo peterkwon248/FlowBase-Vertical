@@ -13,6 +13,7 @@
 | [docs/인계-문서.md](docs/인계-문서.md) | 손익 3층·Canonical 흐름·Library 설계 |
 | [docs/지시서-v1.md](docs/지시서-v1.md) | 제품 정의·티어·신규 화면 4종 원본 지시 |
 | [docs/upstream-sync.md](docs/upstream-sync.md) | upstream `peterkwon248/FlowBase`와의 어휘 정렬 기록 |
+| [docs/ADR-001-파이프라인-스택.md](docs/ADR-001-파이프라인-스택.md) | 파이프라인 = 전부 TypeScript. 조건 4개 + SheetJS 버전 고정 |
 
 `mockup/`은 **동결본**이다. 읽기 전용 참조 — 편집하지 않는다.
 
@@ -38,6 +39,8 @@ Recognition → Extraction → Normalization → Mapping → Validation → Load
 Recognition은 **매직 바이트가 1순위**, 확장자는 힌트에 불과하다:
 `FF FE`→UTF-16 TSV · `<meta`/`<html`→HTML 표 · `PK`→xlsx · `D0 CF`→BIFF xls
 
+구현은 **전부 TypeScript** ([ADR-001](docs/ADR-001-파이프라인-스택.md)). 단계 간에는 직렬화 가능한 값만 넘긴다 — 병목 단계만 Rust로 교체할 수 있어야 한다. 파싱은 Worker에서, SheetJS는 CDN 타르볼 `0.20.3` 고정(npm `xlsx`는 0.18.5에서 멈춰 있고 CVE 2건이 살아 있다). SQLite 적재는 청크 단위 트랜잭션.
+
 ## 데이터 3종 분류
 
 | 종류 | 예 | 편집 |
@@ -62,6 +65,9 @@ Recognition은 **매직 바이트가 1순위**, 확장자는 힌트에 불과하
 ## 세션 계획
 
 - **세션 1** 파이프라인 (UI 없음) — 스니퍼 + 파서 4종 + Extraction + Normalization + 픽스처 하네스
+  - 합격: 픽스처 15개 전부 `expectedProfile`/`expectedSheets`/`expectedHeader`/`expectedRowCount` 통과
+  - 합격: 쿠팡 광고 픽스처(80,138행) 파싱+적재 **30초 이내** (진행 표시 포함)
+  - 선행: 픽스처 비식별화(구매자명·연락처·주소 치환). 원본 커밋 금지
 - **세션 2** 저장 골격 — Tauri + SQLite, 스키마 전부, append-only batch, 리포지토리 계층
 - **세션 3** 접합 — 목업 몸체 이식, 시드→리포지토리 교체, 실파일 통과, 손계산 정답지 대조
 
