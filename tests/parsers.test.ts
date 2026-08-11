@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { openXlsxFast } from "../src/core/import/parsers/xlsx-sax.js"
 import { openWorkbook, readWorkbook } from "../src/core/import/parsers/sheetjs-common.js"
 import type { ParsedSource, RawCell } from "../src/core/import/types.js"
@@ -9,6 +11,11 @@ import { charsetFromMeta } from "../src/core/import/parsers/html-table.js"
 import { parserFor } from "../src/core/import/parsers/index.js"
 import { sniff } from "../src/core/import/recognition/sniff.js"
 import { FIXTURES, readFixture, fixturesPresent, RAW_DIR } from "./fixtures.js"
+
+/** 개인정보 없는 합성 픽스처 — 커밋되며 CI에서 돈다. */
+const SYNTHETIC_DATADESC = fileURLToPath(
+  new URL("../fixtures/synthetic/datadesc.xlsx", import.meta.url),
+)
 
 describe("delimited — C-8이 지목한 멀티라인 quoted 셀 버그", () => {
   it("따옴표 안의 줄바꿈을 셀 내용으로 유지한다", () => {
@@ -157,8 +164,32 @@ describe.runIf(fixturesPresent())("파서 4종 — 픽스처 15개", () => {
     src.close()
   })
 
+  it("합성 픽스처 — 라이브러리 경고를 삼키지 않고 표면화한다", async () => {
+    // `fixtures/synthetic/datadesc.xlsx` — #8 원본과 같은 상태를 개인정보 없이
+    // 재현한 파일이다. 로컬 헤더의 크기가 0이고 data descriptor의 원본 크기도
+    // 0이라, SheetJS가 데이터는 읽어내면서 크기 검증에는 실패해 stderr로
+    // 불평만 하고 넘어간다. 그 경고를 잡아 올리는지 확인한다 (헌장 A-5).
+    //
+    // 원본 대신 합성본을 쓰는 이유: 비식별화 재압축으로 #8에서 이 성질이
+    // 사라졌고, 개발 기기에만 있는 파일에 테스트를 걸면 CI에서 영영 안 돈다.
+    // 안 도는 테스트는 없는 테스트다.
+    const bytes = new Uint8Array(readFileSync(SYNTHETIC_DATADESC))
+    const src = await parserFor("xlsx").open(bytes)
+
+    expect(src.warnings.length).toBeGreaterThan(0)
+    expect(src.warnings.some((w) => w.includes("Bad uncompressed size"))).toBe(true)
+
+    // 경고가 있어도 데이터는 온전하다.
+    const rows: (readonly unknown[])[] = []
+    for await (const chunk of src.stream(0)) rows.push(...chunk.rows)
+    expect(rows[0]).toEqual(["날짜", "채널", "수량", "금액"])
+    expect(rows[1]).toEqual(["2026-07-01", "채널A", 3, 30000])
+    expect(rows).toHaveLength(4)
+    src.close()
+  })
+
   it.runIf(fixturesPresent(RAW_DIR))(
-    "#8 원본 — 라이브러리 경고를 삼키지 않고 표면화한다",
+    "#8 원본 — 같은 경고가 실파일에서도 난다",
     async () => {
       // #8 **원본**의 zip은 data descriptor 방식이라 로컬 헤더의 크기 필드가 0이고,
       // SheetJS가 경고를 stderr로 흘리며 정상 복구한다. 그 경고를 잡는지 확인한다.

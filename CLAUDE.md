@@ -14,7 +14,8 @@
 | [docs/지시서-v1.md](docs/지시서-v1.md) | 제품 정의·티어·신규 화면 4종 원본 지시 |
 | [docs/upstream-sync.md](docs/upstream-sync.md) | upstream `peterkwon248/FlowBase`와의 어휘 정렬 기록 |
 | [docs/ADR-001-파이프라인-스택.md](docs/ADR-001-파이프라인-스택.md) | 파이프라인 = 전부 TypeScript. 조건 4개 + SheetJS 버전·무결성 고정 + 성능 판정 |
-| [docs/ADR-002-파싱-원칙.md](docs/ADR-002-파싱-원칙.md) | 날짜는 UTC 게터 · 타입 체계 유무로 추론 주체 결정 · 확장자 어긋남 3층 |
+| [docs/ADR-002-파싱-원칙.md](docs/ADR-002-파싱-원칙.md) | 날짜는 UTC 게터 · 타입 체계 유무로 추론 주체 결정 · 확장자 어긋남 3층 · **시트 판정 권한 순서** |
+| [docs/§18-개정사항.md](docs/§18-개정사항.md) | 파이프라인에서 나온 UI 요구 3건 (수식 경고·시트 선택 게이트·0행 표시). 구현은 세션 3 |
 | [docs/픽스처-대조표.md](docs/픽스처-대조표.md) | **독립 실측 대조표.** `expected*` 매니페스트의 채점 기준 — 우리 파서로 만들지 않았다 |
 
 `mockup/`은 **동결본**이다. 읽기 전용 참조 — 편집하지 않는다.
