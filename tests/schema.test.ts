@@ -1,5 +1,6 @@
 ﻿import { describe, it, expect } from "vitest"
-import { openDatabase, type SqliteDb } from "../src/core/store/sqlite.js"
+import { openNodeDriver } from "../src/core/store/driver-node.js"
+import type { Driver } from "../src/core/store/driver.js"
 import { migrate } from "../src/core/store/migrate.js"
 
 /** 헌장 B-1 — Fact 행 공통 컬럼 6종. 소급 추가 불가 항목이다. */
@@ -12,13 +13,13 @@ const REQUIRED_FACT_COLUMNS = [
   "mapping_version",
 ] as const
 
-function fresh(): SqliteDb {
-  const db = openDatabase()
+function fresh(): Driver {
+  const db = openNodeDriver()
   migrate(db)
   return db
 }
 
-function tableNames(db: SqliteDb, prefix: string): string[] {
+function tableNames(db: Driver, prefix: string): string[] {
   return (
     db
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name LIKE ?`)
@@ -26,7 +27,7 @@ function tableNames(db: SqliteDb, prefix: string): string[] {
   ).map((r) => String(r.name))
 }
 
-function columnsOf(db: SqliteDb, table: string): string[] {
+function columnsOf(db: Driver, table: string): string[] {
   return (
     db.prepare(`SELECT name FROM pragma_table_info(?)`).all(table) as { name: string }[]
   ).map((r) => String(r.name))
