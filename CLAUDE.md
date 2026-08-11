@@ -13,7 +13,8 @@
 | [docs/인계-문서.md](docs/인계-문서.md) | 손익 3층·Canonical 흐름·Library 설계 |
 | [docs/지시서-v1.md](docs/지시서-v1.md) | 제품 정의·티어·신규 화면 4종 원본 지시 |
 | [docs/upstream-sync.md](docs/upstream-sync.md) | upstream `peterkwon248/FlowBase`와의 어휘 정렬 기록 |
-| [docs/ADR-001-파이프라인-스택.md](docs/ADR-001-파이프라인-스택.md) | 파이프라인 = 전부 TypeScript. 조건 4개 + SheetJS 버전 고정 |
+| [docs/ADR-001-파이프라인-스택.md](docs/ADR-001-파이프라인-스택.md) | 파이프라인 = 전부 TypeScript. 조건 4개 + SheetJS 버전·무결성 고정 |
+| [docs/픽스처-대조표.md](docs/픽스처-대조표.md) | **독립 실측 대조표.** `expected*` 매니페스트의 채점 기준 — 우리 파서로 만들지 않았다 |
 
 `mockup/`은 **동결본**이다. 읽기 전용 참조 — 편집하지 않는다.
 
@@ -67,6 +68,8 @@ Recognition은 **매직 바이트가 1순위**, 확장자는 힌트에 불과하
 - **세션 1** 파이프라인 (UI 없음) — 스니퍼 + 파서 4종 + Extraction + Normalization + 픽스처 하네스
   - 합격: 픽스처 15개 전부 `expectedProfile`/`expectedSheets`/`expectedHeader`/`expectedRowCount` 통과
   - 합격: 쿠팡 광고 픽스처(80,138행) 파싱+적재 **30초 이내** (진행 표시 포함)
+  - 합격: 같은 픽스처 처리 중 **Worker 피크 RSS 256MB 이하**. 초과는 실패가 아니라 "SheetJS 전량 적재의 한계" 판정 — Extraction만 Rust 포팅하는 근거가 된다
+  - 검증: 뽑은 `expected*` 매니페스트를 [픽스처-대조표](docs/픽스처-대조표.md)와 교차 대조. 불일치 항목만 사람이 판정한다 (행 수 정의 차이 = 물리 행 vs 데이터 행은 불일치가 아니므로 먼저 구분)
   - 선행: 픽스처 비식별화(구매자명·연락처·주소 치환). 원본 커밋 금지
 - **세션 2** 저장 골격 — Tauri + SQLite, 스키마 전부, append-only batch, 리포지토리 계층
 - **세션 3** 접합 — 목업 몸체 이식, 시드→리포지토리 교체, 실파일 통과, 손계산 정답지 대조
