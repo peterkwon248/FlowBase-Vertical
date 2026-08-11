@@ -1,0 +1,1899 @@
+[
+  {
+    "id": 1,
+    "file": "11st_기간별보고서_daily_2026-07-01_2026-07-31.csv",
+    "expectedProfile": "delimited",
+    "profileConfidence": 1,
+    "encoding": "utf-16le",
+    "delimiter": "\t",
+    "extensionMismatch": false,
+    "identityNotes": [
+      "확장자는 .csv지만 구분자는 콤마가 아니라 TAB입니다.",
+      "인코딩이 UTF-16LE입니다 (UTF-8이 아닙니다)."
+    ],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "(텍스트)",
+        "index": 0,
+        "role": "data",
+        "roleReason": "헤더 확신 0.94, 직사각형도 1.00, 데이터 행 32",
+        "physicalRowCount": 33,
+        "columnCount": 27,
+        "headerRow": 1,
+        "headerConfidence": 0.944,
+        "headerColumns": [
+          "날짜",
+          "노출수",
+          "클릭수",
+          "클릭률",
+          "평균 노출순위",
+          "평균 클릭비용",
+          "총비용",
+          "총 전환수",
+          "총 전환당 비용",
+          "총 전환 금액",
+          "총 전환율",
+          "총 광고수익률"
+        ],
+        "dataRowCount": 31,
+        "excludedCounts": {
+          "total": 1
+        },
+        "mergeCount": 0
+      }
+    ],
+    "dataSheetCount": 1,
+    "elapsedMs": 5
+  },
+  {
+    "id": 2,
+    "file": "11st_기간별보고서_daily_2026-07-01_2026-07-31_포커스 광고.csv",
+    "expectedProfile": "delimited",
+    "profileConfidence": 1,
+    "encoding": "utf-16le",
+    "delimiter": "\t",
+    "extensionMismatch": false,
+    "identityNotes": [
+      "확장자는 .csv지만 구분자는 콤마가 아니라 TAB입니다.",
+      "인코딩이 UTF-16LE입니다 (UTF-8이 아닙니다)."
+    ],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "(텍스트)",
+        "index": 0,
+        "role": "data",
+        "roleReason": "헤더 확신 0.94, 직사각형도 1.00, 데이터 행 32",
+        "physicalRowCount": 33,
+        "columnCount": 27,
+        "headerRow": 1,
+        "headerConfidence": 0.944,
+        "headerColumns": [
+          "날짜",
+          "노출수",
+          "클릭수",
+          "클릭률",
+          "평균 노출순위",
+          "평균 클릭비용",
+          "총비용",
+          "총 전환수",
+          "총 전환당 비용",
+          "총 전환 금액",
+          "총 전환율",
+          "총 광고수익률"
+        ],
+        "dataRowCount": 31,
+        "excludedCounts": {
+          "total": 1
+        },
+        "mergeCount": 0
+      }
+    ],
+    "dataSheetCount": 1,
+    "elapsedMs": 2
+  },
+  {
+    "id": 3,
+    "file": "2026-01 통합 매출 대시보드.xlsx",
+    "expectedProfile": "xlsx",
+    "profileConfidence": 0.75,
+    "encoding": null,
+    "delimiter": null,
+    "extensionMismatch": false,
+    "identityNotes": [],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "메인 A",
+        "index": 0,
+        "role": "summary",
+        "roleReason": "시트명에 \"메인\" — 파생 시트로 본다 (헤더 확신 0.97, 직사각형도 1.00, 데이터 행 32)",
+        "physicalRowCount": 1000,
+        "columnCount": 9,
+        "headerRow": 2,
+        "headerConfidence": 0.972,
+        "headerColumns": [
+          "날짜",
+          "총광고비용\n(이베이+11st)",
+          "정산매출 합계\n(이베이+11st+B2B)",
+          "제조원가 합계\n(원가+배송비)",
+          "순이익 합계\n(정산매출-제조원가-총광고비용)",
+          "평균 순이익률\n(정산매출 대비 순이익률)",
+          "광고비 대비 순이익률",
+          "정산매출\nROAS\n(정산매출 / 총광고비용)",
+          "광고비 커버리지\n(정산매출에서 \n광고비가 차지하는 비율)"
+        ],
+        "dataRowCount": 32,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "메인 B",
+        "index": 1,
+        "role": "summary",
+        "roleReason": "시트명에 \"메인\" — 파생 시트로 본다 (헤더 확신 0.99, 직사각형도 1.00, 데이터 행 32)",
+        "physicalRowCount": 1000,
+        "columnCount": 19,
+        "headerRow": 2,
+        "headerConfidence": 0.987,
+        "headerColumns": [
+          "날짜",
+          "이베이\n광고비용",
+          "11st\n광고비용",
+          "이베이\n정산매출",
+          "11st\n정산매출",
+          "이베이\n순이익",
+          "11st\n순이익",
+          "이베이\n순이익률",
+          "11st\n순이익률",
+          "이베이\n광고비 대비 순이익률",
+          "11st\n광고비 대비 순이익률",
+          "총광고비용\n(이베이+11st)"
+        ],
+        "dataRowCount": 32,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "통합_상품분석",
+        "index": 2,
+        "role": "summary",
+        "roleReason": "시트명에 \"분석\" — 파생 시트로 본다 (헤더 확신 0.97, 직사각형도 1.00, 데이터 행 146)",
+        "physicalRowCount": 1000,
+        "columnCount": 16,
+        "headerRow": 2,
+        "headerConfidence": 0.969,
+        "headerColumns": [
+          "Model",
+          "카테고리",
+          "이베이 판매량",
+          "11번가 판매량",
+          "B2B 판매량",
+          "이베이 매출",
+          "11번가 매출",
+          "B2B 매출",
+          "이베이\n판관비 차감 전 이익",
+          "11번가\n판관비 차감 전 이익",
+          "B2B\n판관비 차감 전 이익",
+          "총 판매량"
+        ],
+        "dataRowCount": 136,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1,
+          "total": 10
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "이베이",
+        "index": 3,
+        "role": "data",
+        "roleReason": "헤더 확신 0.98, 직사각형도 1.00, 데이터 행 32",
+        "physicalRowCount": 1001,
+        "columnCount": 16,
+        "headerRow": 2,
+        "headerConfidence": 0.984,
+        "headerColumns": [
+          "날짜",
+          "총광고비용",
+          "전환수",
+          "광고센터\n전환매출",
+          "광고센터\nROAS",
+          "실매출\n판매금액",
+          "실매출\n취소금액",
+          "실매출\n합계",
+          "실매출\nROAS",
+          "정산매출",
+          "제조원가\n(원가+배송비)",
+          "순이익\n(정산매출-제조원가-총광고비용)"
+        ],
+        "dataRowCount": 31,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1,
+          "total": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "11번가",
+        "index": 4,
+        "role": "data",
+        "roleReason": "헤더 확신 0.99, 직사각형도 1.00, 데이터 행 32",
+        "physicalRowCount": 1001,
+        "columnCount": 18,
+        "headerRow": 2,
+        "headerConfidence": 0.986,
+        "headerColumns": [
+          "날짜",
+          "총광고비용",
+          "전환수",
+          "광고센터\n전환매출",
+          "광고센터\nROAS",
+          "장바구니\n전환매출",
+          "장바구니\nROAS",
+          "실매출\n판매금액",
+          "실매출\n취소금액",
+          "실매출\n합계",
+          "실매출\nROAS",
+          "정산매출"
+        ],
+        "dataRowCount": 31,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1,
+          "total": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "B2B",
+        "index": 5,
+        "role": "data",
+        "roleReason": "헤더 확신 0.98, 직사각형도 0.97, 데이터 행 32",
+        "physicalRowCount": 1511,
+        "columnCount": 11,
+        "headerRow": 2,
+        "headerConfidence": 0.977,
+        "headerColumns": [
+          "날짜",
+          "현금\n판매금액",
+          "현금\n취소금액",
+          "현금\n합계",
+          "PG\n판매금액",
+          "PG\n취소금액",
+          "PG\n합계",
+          "정산매출\n(현금합계+PG합계)",
+          "제조원가\n(원가+배송비)",
+          "순이익\n(정산매출-제조원가)",
+          "순이익률\n(정산매출 대비 순이익률)"
+        ],
+        "dataRowCount": 31,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1,
+          "total": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "매출정리 raw",
+        "index": 6,
+        "role": "data",
+        "roleReason": "헤더 확신 0.82, 직사각형도 0.93, 데이터 행 1999",
+        "physicalRowCount": 2621,
+        "columnCount": 19,
+        "headerRow": 1,
+        "headerConfidence": 0.816,
+        "headerColumns": [
+          "날짜",
+          "진행상태",
+          "판매아이디",
+          "구매자아이디",
+          "주문번호",
+          "상품번호",
+          "상품명",
+          "구매자명",
+          "수령인명",
+          "구매금액",
+          "수량",
+          "결제일"
+        ],
+        "dataRowCount": 1999,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "파워클릭 raw",
+        "index": 7,
+        "role": "data",
+        "roleReason": "헤더 확신 0.98, 직사각형도 1.00, 데이터 행 31",
+        "physicalRowCount": 1000,
+        "columnCount": 11,
+        "headerRow": 1,
+        "headerConfidence": 0.977,
+        "headerColumns": [
+          "날짜",
+          "노출수",
+          "클릭수",
+          "클릭률",
+          "평균노출순위",
+          "평균클릭비용",
+          "총비용",
+          "구매수",
+          "구매금액",
+          "전환율",
+          "광고수익률"
+        ],
+        "dataRowCount": 31,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "Ai매출업 raw",
+        "index": 8,
+        "role": "data",
+        "roleReason": "헤더 확신 0.98, 직사각형도 1.00, 데이터 행 30",
+        "physicalRowCount": 997,
+        "columnCount": 12,
+        "headerRow": 1,
+        "headerConfidence": 0.979,
+        "headerColumns": [
+          "날짜별",
+          "클릭수",
+          "평균클릭비용",
+          "총비용",
+          "광고상품기준-주문수",
+          "광고상품기준-구매수",
+          "광고상품기준-구매금액",
+          "판매자기준-주문수",
+          "판매자기준-구매수",
+          "판매자기준-구매금액",
+          "판매자기준-전환율",
+          "판매자기준-광고수익률"
+        ],
+        "dataRowCount": 30,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "상품별원가 raw",
+        "index": 9,
+        "role": "data",
+        "roleReason": "헤더 확신 0.86, 직사각형도 0.64, 데이터 행 253",
+        "physicalRowCount": 1001,
+        "columnCount": 7,
+        "headerRow": 1,
+        "headerConfidence": 0.857,
+        "headerColumns": [
+          "상품번호",
+          "상품명",
+          "모델명",
+          "원가",
+          "배송비",
+          "카테고리",
+          "Model"
+        ],
+        "dataRowCount": 253,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "이베이_상품분석",
+        "index": 10,
+        "role": "summary",
+        "roleReason": "시트명에 \"분석\" — 파생 시트로 본다 (헤더 확신 0.85, 직사각형도 0.97, 데이터 행 32)",
+        "physicalRowCount": 999,
+        "columnCount": 24,
+        "headerRow": 2,
+        "headerConfidence": 0.855,
+        "headerColumns": [
+          "Model",
+          "카테고리",
+          "판매수량",
+          "총 매출",
+          "정산 매출",
+          "총 제조원가",
+          "판관비 차감 전 이익",
+          "개당 판매가",
+          "개당 순이익",
+          "순이익률",
+          "<- 원본데이터",
+          "쿠폰 할인\n(빅스마일데이 등 이벤트 때)"
+        ],
+        "dataRowCount": 32,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "11_매출정리",
+        "index": 11,
+        "role": "data",
+        "roleReason": "헤더 확신 0.94, 직사각형도 1.00, 데이터 행 999",
+        "physicalRowCount": 1000,
+        "columnCount": 63,
+        "headerRow": 1,
+        "headerConfidence": 0.94,
+        "headerColumns": [
+          "날짜",
+          "NO",
+          "주문번호",
+          "주문순번",
+          "배송번호",
+          "주문상태",
+          "구매자명",
+          "구매자ID",
+          "결제완료일",
+          "발송처리일",
+          "배송완료일",
+          "수취확인일"
+        ],
+        "dataRowCount": 999,
+        "excludedCounts": {},
+        "mergeCount": 0
+      },
+      {
+        "name": "11_광고비정리",
+        "index": 12,
+        "role": "data",
+        "roleReason": "헤더 확신 0.94, 직사각형도 1.00, 데이터 행 62",
+        "physicalRowCount": 1000,
+        "columnCount": 27,
+        "headerRow": 1,
+        "headerConfidence": 0.944,
+        "headerColumns": [
+          "날짜",
+          "노출수",
+          "클릭수",
+          "클릭률",
+          "평균 노출순위",
+          "평균 클릭비용",
+          "총비용",
+          "총 전환수",
+          "총 전환당 비용",
+          "총 전환 금액",
+          "총 전환율",
+          "총 광고수익률"
+        ],
+        "dataRowCount": 62,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 35
+      },
+      {
+        "name": "11_상품별원가",
+        "index": 13,
+        "role": "data",
+        "roleReason": "헤더 확신 0.86, 직사각형도 1.00, 데이터 행 112",
+        "physicalRowCount": 1001,
+        "columnCount": 7,
+        "headerRow": 1,
+        "headerConfidence": 0.857,
+        "headerColumns": [
+          "상품번호",
+          "상품명",
+          "모델명",
+          "원가",
+          "배송비",
+          "카테고리",
+          "Model"
+        ],
+        "dataRowCount": 112,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "11_상품분석",
+        "index": 14,
+        "role": "summary",
+        "roleReason": "시트명에 \"분석\" — 파생 시트로 본다 (헤더 확신 0.85, 직사각형도 0.17, 데이터 행 44)",
+        "physicalRowCount": 1000,
+        "columnCount": 24,
+        "headerRow": 2,
+        "headerConfidence": 0.848,
+        "headerColumns": [
+          "Model",
+          "카테고리",
+          "판매수량",
+          "총 매출",
+          "정산매출",
+          "총 제조원가",
+          "판관비 차감 전 이익",
+          "개당 판매가",
+          "개당 순이익",
+          "순이익률",
+          "<- 원본데이터",
+          "쿠폰 할인\n(월간십일절 등 이벤트 때)"
+        ],
+        "dataRowCount": 44,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "B2B_매출정리",
+        "index": 15,
+        "role": "data",
+        "roleReason": "헤더 확신 0.86, 직사각형도 0.94, 데이터 행 3071",
+        "physicalRowCount": 3072,
+        "columnCount": 101,
+        "headerRow": 1,
+        "headerConfidence": 0.861,
+        "headerColumns": [
+          "날짜",
+          "고유금액",
+          "원가",
+          "제주/도서산간 구분",
+          "배송비",
+          "주문 번호",
+          "회원명",
+          "회원 아이디",
+          "주문 상품명",
+          "주문 품목 개수",
+          "주문 클래임 품목 개수",
+          "총 결제 금액"
+        ],
+        "dataRowCount": 3071,
+        "excludedCounts": {},
+        "mergeCount": 0
+      },
+      {
+        "name": "B2B_반품정리",
+        "index": 16,
+        "role": "data",
+        "roleReason": "헤더 확신 0.88, 직사각형도 0.00, 데이터 행 2999",
+        "physicalRowCount": 3000,
+        "columnCount": 105,
+        "headerRow": 1,
+        "headerConfidence": 0.883,
+        "headerColumns": [
+          "날짜",
+          "고유금액",
+          "원가",
+          "제주/도서산간 구분",
+          "배송비",
+          "주문 번호",
+          "회원명",
+          "회원 아이디",
+          "회원등급명",
+          "주문 상품명",
+          "주문 품목 개수",
+          "총 결제 금액"
+        ],
+        "dataRowCount": 2999,
+        "excludedCounts": {},
+        "mergeCount": 0
+      },
+      {
+        "name": "B2B_상품별원가",
+        "index": 17,
+        "role": "data",
+        "roleReason": "헤더 확신 0.79, 직사각형도 0.68, 데이터 행 689",
+        "physicalRowCount": 1997,
+        "columnCount": 7,
+        "headerRow": 1,
+        "headerConfidence": 0.786,
+        "headerColumns": [
+          "상품번호",
+          "상품명",
+          "모델명",
+          "원가",
+          "배송비",
+          "카테고리",
+          "Model"
+        ],
+        "dataRowCount": 689,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "B2B_상품분석",
+        "index": 18,
+        "role": "summary",
+        "roleReason": "시트명에 \"분석\" — 파생 시트로 본다 (헤더 확신 0.83, 직사각형도 0.97, 데이터 행 116)",
+        "physicalRowCount": 4000,
+        "columnCount": 22,
+        "headerRow": 2,
+        "headerConfidence": 0.835,
+        "headerColumns": [
+          "Model",
+          "카테고리",
+          "판매수량",
+          "총 매출",
+          "총 제조원가",
+          "판관비 차감 전 이익",
+          "개당 판매가",
+          "개당 순이익",
+          "순이익률",
+          "<- 원본데이터",
+          "(11열)",
+          "(12열)"
+        ],
+        "dataRowCount": 116,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1
+        },
+        "mergeCount": 0
+      }
+    ],
+    "dataSheetCount": 13,
+    "elapsedMs": 875
+  },
+  {
+    "id": 4,
+    "file": "2026.07월_파워클릭 보고서_murraymall.xlsx",
+    "expectedProfile": "xlsx",
+    "profileConfidence": 0.99,
+    "encoding": null,
+    "delimiter": null,
+    "extensionMismatch": false,
+    "identityNotes": [],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "파워클릭_종합요약",
+        "index": 0,
+        "role": "summary",
+        "roleReason": "시트명에 \"요약\" — 파생 시트로 본다 (헤더 확신 0.58, 직사각형도 0.00, 데이터 행 15)",
+        "physicalRowCount": 84,
+        "columnCount": 13,
+        "headerRow": 6,
+        "headerConfidence": 0.577,
+        "headerColumns": [
+          "(1열)",
+          "Client",
+          "(3열)",
+          "머레이코리아",
+          "(5열)",
+          "(6열)",
+          "(7열)",
+          "Running time",
+          "(9열)",
+          "기간 : 2026년 7월 1일 ~ 2026년 7월 31일",
+          "(11열)",
+          "(12열)"
+        ],
+        "dataRowCount": 14,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 2,
+          "blank": 42,
+          "total": 4
+        },
+        "mergeCount": 26
+      },
+      {
+        "name": "파워클릭_주간요약",
+        "index": 1,
+        "role": "summary",
+        "roleReason": "시트명에 \"요약\" — 파생 시트로 본다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 53)",
+        "physicalRowCount": 148,
+        "columnCount": 16,
+        "headerRow": null,
+        "headerConfidence": 0.05,
+        "headerColumns": [],
+        "dataRowCount": 0,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 11
+      },
+      {
+        "name": "G_주차별",
+        "index": 2,
+        "role": "summary",
+        "roleReason": "구조 점수 0.03 — 일정한 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 53)",
+        "physicalRowCount": 145,
+        "columnCount": 16,
+        "headerRow": null,
+        "headerConfidence": 0.05,
+        "headerColumns": [],
+        "dataRowCount": 0,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 11
+      },
+      {
+        "name": "G_상품별",
+        "index": 3,
+        "role": "data",
+        "roleReason": "헤더 확신 0.96, 직사각형도 0.94, 데이터 행 31",
+        "physicalRowCount": 38,
+        "columnCount": 12,
+        "headerRow": 5,
+        "headerConfidence": 0.956,
+        "headerColumns": [
+          "(1열)",
+          "사이트 코드",
+          "상품ID",
+          "노출",
+          "클릭",
+          "총비용",
+          "전환수",
+          "전환매출",
+          "클릭율",
+          "평균클릭단가",
+          "전환율",
+          "ROAS"
+        ],
+        "dataRowCount": 32,
+        "excludedCounts": {
+          "subtitle": 2,
+          "total": 1
+        },
+        "mergeCount": 1
+      },
+      {
+        "name": "G_키워드별",
+        "index": 4,
+        "role": "data",
+        "roleReason": "헤더 확신 0.95, 직사각형도 1.00, 데이터 행 1305",
+        "physicalRowCount": 1312,
+        "columnCount": 11,
+        "headerRow": 5,
+        "headerConfidence": 0.952,
+        "headerColumns": [
+          "(1열)",
+          "키워드",
+          "노출수",
+          "클릭수",
+          "총비용",
+          "전환수량",
+          "전환매출",
+          "클릭율",
+          "평균클릭단가",
+          "전환율",
+          "ROAS"
+        ],
+        "dataRowCount": 1306,
+        "excludedCounts": {
+          "subtitle": 2,
+          "total": 1
+        },
+        "mergeCount": 1
+      },
+      {
+        "name": "G_카테고리",
+        "index": 5,
+        "role": "summary",
+        "roleReason": "데이터 행이 0개뿐 — 표로 보기 어렵다 (헤더 확신 0.95, 직사각형도 0.00, 데이터 행 0)",
+        "physicalRowCount": 7,
+        "columnCount": 11,
+        "headerRow": 5,
+        "headerConfidence": 0.952,
+        "headerColumns": [
+          "(1열)",
+          "카테고리",
+          "노출수",
+          "클릭수",
+          "총비용",
+          "전환수량",
+          "전환매출",
+          "클릭율",
+          "평균클릭단가",
+          "전환율",
+          "ROAS"
+        ],
+        "dataRowCount": 0,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 2,
+          "total": 1
+        },
+        "mergeCount": 1
+      },
+      {
+        "name": "A_주차별",
+        "index": 6,
+        "role": "summary",
+        "roleReason": "구조 점수 0.03 — 일정한 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 53)",
+        "physicalRowCount": 147,
+        "columnCount": 16,
+        "headerRow": null,
+        "headerConfidence": 0.05,
+        "headerColumns": [],
+        "dataRowCount": 0,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 11
+      },
+      {
+        "name": "A_상품별",
+        "index": 7,
+        "role": "data",
+        "roleReason": "헤더 확신 0.93, 직사각형도 0.94, 데이터 행 35",
+        "physicalRowCount": 42,
+        "columnCount": 12,
+        "headerRow": 5,
+        "headerConfidence": 0.934,
+        "headerColumns": [
+          "(1열)",
+          "사이트 코드",
+          "상품ID",
+          "노출",
+          "클릭",
+          "총비용",
+          "전환수",
+          "전환매출",
+          "클릭율",
+          "평균클릭단가",
+          "전환율",
+          "ROAS"
+        ],
+        "dataRowCount": 36,
+        "excludedCounts": {
+          "subtitle": 2,
+          "total": 1
+        },
+        "mergeCount": 1
+      },
+      {
+        "name": "A_키워드별",
+        "index": 8,
+        "role": "data",
+        "roleReason": "헤더 확신 0.95, 직사각형도 1.00, 데이터 행 1129",
+        "physicalRowCount": 1136,
+        "columnCount": 11,
+        "headerRow": 5,
+        "headerConfidence": 0.952,
+        "headerColumns": [
+          "(1열)",
+          "키워드",
+          "노출수",
+          "클릭수",
+          "총비용",
+          "전환수량",
+          "전환매출",
+          "클릭율",
+          "평균클릭단가",
+          "전환율",
+          "ROAS"
+        ],
+        "dataRowCount": 1130,
+        "excludedCounts": {
+          "subtitle": 2,
+          "total": 1
+        },
+        "mergeCount": 1
+      },
+      {
+        "name": "Auction_카테고리",
+        "index": 9,
+        "role": "summary",
+        "roleReason": "데이터 행이 0개뿐 — 표로 보기 어렵다 (헤더 확신 0.95, 직사각형도 0.00, 데이터 행 0)",
+        "physicalRowCount": 7,
+        "columnCount": 11,
+        "headerRow": 5,
+        "headerConfidence": 0.952,
+        "headerColumns": [
+          "(1열)",
+          "카테고리",
+          "노출수",
+          "클릭수",
+          "총비용",
+          "전환수량",
+          "전환매출",
+          "클릭율",
+          "평균클릭단가",
+          "전환율",
+          "ROAS"
+        ],
+        "dataRowCount": 0,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 2,
+          "total": 1
+        },
+        "mergeCount": 1
+      },
+      {
+        "name": "파워클릭_월별비교",
+        "index": 10,
+        "role": "summary",
+        "roleReason": "시트명에 \"비교\" — 파생 시트로 본다 (헤더 확신 0.95, 직사각형도 1.00, 데이터 행 11)",
+        "physicalRowCount": 76,
+        "columnCount": 11,
+        "headerRow": 4,
+        "headerConfidence": 0.952,
+        "headerColumns": [
+          "(1열)",
+          "월",
+          "노출수",
+          "클릭수",
+          "총비용",
+          "전환수",
+          "전환매출",
+          "평균클릭비용",
+          "클릭율",
+          "전환율",
+          "ROAS"
+        ],
+        "dataRowCount": 13,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1
+        },
+        "mergeCount": 1
+      },
+      {
+        "name": "AI매출업_종합요약",
+        "index": 11,
+        "role": "summary",
+        "roleReason": "시트명에 \"요약\" — 파생 시트로 본다 (헤더 확신 0.57, 직사각형도 0.00, 데이터 행 15)",
+        "physicalRowCount": 84,
+        "columnCount": 15,
+        "headerRow": 6,
+        "headerConfidence": 0.567,
+        "headerColumns": [
+          "(1열)",
+          "Client",
+          "(3열)",
+          "머레이코리아",
+          "(5열)",
+          "(6열)",
+          "(7열)",
+          "Running time",
+          "(9열)",
+          "(10열)",
+          "(11열)",
+          "기간 : 2026년 7월 1일 ~ 2026년 7월 31일"
+        ],
+        "dataRowCount": 14,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 2,
+          "blank": 42,
+          "total": 4
+        },
+        "mergeCount": 25
+      },
+      {
+        "name": "AI매출업_주간요약",
+        "index": 12,
+        "role": "summary",
+        "roleReason": "시트명에 \"요약\" — 파생 시트로 본다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 54)",
+        "physicalRowCount": 148,
+        "columnCount": 18,
+        "headerRow": null,
+        "headerConfidence": 0.05,
+        "headerColumns": [],
+        "dataRowCount": 0,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 11
+      },
+      {
+        "name": "G_주차별AI",
+        "index": 13,
+        "role": "summary",
+        "roleReason": "구조 점수 0.03 — 일정한 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 54)",
+        "physicalRowCount": 145,
+        "columnCount": 18,
+        "headerRow": null,
+        "headerConfidence": 0.05,
+        "headerColumns": [],
+        "dataRowCount": 0,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 11
+      },
+      {
+        "name": "G_상품별AI",
+        "index": 14,
+        "role": "data",
+        "roleReason": "헤더 확신 0.96, 직사각형도 0.95, 데이터 행 43",
+        "physicalRowCount": 52,
+        "columnCount": 14,
+        "headerRow": 6,
+        "headerConfidence": 0.963,
+        "headerColumns": [
+          "(1열)",
+          "사이트 코드",
+          "상품ID",
+          "클릭",
+          "총비용",
+          "광고상품기준-주문수",
+          "광고상품기준-구매수",
+          "광고상품기준-구매금액",
+          "판매자기준-주문수",
+          "판매자기준-구매수",
+          "판매자기준-구매금액",
+          "전환율"
+        ],
+        "dataRowCount": 45,
+        "excludedCounts": {
+          "subtitle": 2,
+          "total": 1
+        },
+        "mergeCount": 1
+      },
+      {
+        "name": "A_주차별AI",
+        "index": 15,
+        "role": "summary",
+        "roleReason": "구조 점수 0.03 — 일정한 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 54)",
+        "physicalRowCount": 147,
+        "columnCount": 18,
+        "headerRow": null,
+        "headerConfidence": 0.05,
+        "headerColumns": [],
+        "dataRowCount": 0,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 11
+      },
+      {
+        "name": "A_상품별AI",
+        "index": 16,
+        "role": "data",
+        "roleReason": "헤더 확신 0.94, 직사각형도 0.94, 데이터 행 25",
+        "physicalRowCount": 34,
+        "columnCount": 14,
+        "headerRow": 6,
+        "headerConfidence": 0.944,
+        "headerColumns": [
+          "(1열)",
+          "사이트 코드",
+          "상품ID",
+          "클릭",
+          "총비용",
+          "광고상품기준-주문수",
+          "광고상품기준-구매수",
+          "광고상품기준-구매금액",
+          "판매자기준-주문수",
+          "판매자기준-구매수",
+          "판매자기준-구매금액",
+          "전환율"
+        ],
+        "dataRowCount": 27,
+        "excludedCounts": {
+          "subtitle": 2,
+          "total": 1
+        },
+        "mergeCount": 1
+      },
+      {
+        "name": "AI매출업_월별비교",
+        "index": 17,
+        "role": "summary",
+        "roleReason": "시트명에 \"비교\" — 파생 시트로 본다 (헤더 확신 0.96, 직사각형도 1.00, 데이터 행 11)",
+        "physicalRowCount": 76,
+        "columnCount": 13,
+        "headerRow": 4,
+        "headerConfidence": 0.96,
+        "headerColumns": [
+          "(1열)",
+          "월",
+          "클릭수",
+          "총비용",
+          "광고상품기준-주문수",
+          "광고상품기준-구매수",
+          "광고상품기준-구매금액",
+          "판매자기준-주문수",
+          "판매자기준-구매수",
+          "판매자기준-구매금액",
+          "전환율",
+          "평균클릭비용"
+        ],
+        "dataRowCount": 13,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1
+        },
+        "mergeCount": 1
+      }
+    ],
+    "dataSheetCount": 6,
+    "elapsedMs": 236
+  },
+  {
+    "id": 5,
+    "file": "2026.07월_포커스클릭 보고서_ADVER26053309.xlsx",
+    "expectedProfile": "xlsx",
+    "profileConfidence": 0.99,
+    "encoding": null,
+    "delimiter": null,
+    "extensionMismatch": false,
+    "identityNotes": [],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "종합요약",
+        "index": 0,
+        "role": "summary",
+        "roleReason": "시트명에 \"요약\" — 파생 시트로 본다 (헤더 확신 0.58, 직사각형도 0.00, 데이터 행 16)",
+        "physicalRowCount": 85,
+        "columnCount": 13,
+        "headerRow": 6,
+        "headerConfidence": 0.577,
+        "headerColumns": [
+          "(1열)",
+          "Client",
+          "(3열)",
+          "머레이코리아",
+          "(5열)",
+          "(6열)",
+          "(7열)",
+          "Running time",
+          "(9열)",
+          "기간 : 2026년 7월 1일 ~ 2026년 7월 31일",
+          "(11열)",
+          "(12열)"
+        ],
+        "dataRowCount": 18,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 2,
+          "blank": 42,
+          "total": 1
+        },
+        "mergeCount": 26
+      },
+      {
+        "name": "포커스클릭",
+        "index": 1,
+        "role": "summary",
+        "roleReason": "구조 점수 0.03 — 일정한 표가 아니다 (헤더 확신 0.05, 직사각형도 0.00, 데이터 행 53)",
+        "physicalRowCount": 148,
+        "columnCount": 16,
+        "headerRow": null,
+        "headerConfidence": 0.05,
+        "headerColumns": [],
+        "dataRowCount": 0,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 11
+      },
+      {
+        "name": "포커스클릭_상품별",
+        "index": 2,
+        "role": "data",
+        "roleReason": "헤더 확신 0.96, 직사각형도 0.95, 데이터 행 111",
+        "physicalRowCount": 120,
+        "columnCount": 12,
+        "headerRow": 6,
+        "headerConfidence": 0.956,
+        "headerColumns": [
+          "(1열)",
+          "사이트 코드",
+          "상품ID",
+          "노출",
+          "클릭",
+          "총비용",
+          "전환수",
+          "전환매출",
+          "클릭율",
+          "평균클릭단가",
+          "전환율",
+          "ROAS"
+        ],
+        "dataRowCount": 113,
+        "excludedCounts": {
+          "subtitle": 2,
+          "total": 1
+        },
+        "mergeCount": 1
+      },
+      {
+        "name": "포커스클릭_키워드",
+        "index": 3,
+        "role": "data",
+        "roleReason": "헤더 확신 0.95, 직사각형도 0.97, 데이터 행 11385",
+        "physicalRowCount": 11394,
+        "columnCount": 11,
+        "headerRow": 6,
+        "headerConfidence": 0.952,
+        "headerColumns": [
+          "(1열)",
+          "키워드",
+          "노출수",
+          "클릭수",
+          "총비용",
+          "전환수량",
+          "전환매출",
+          "클릭율",
+          "평균클릭단가",
+          "전환율",
+          "ROAS"
+        ],
+        "dataRowCount": 11386,
+        "excludedCounts": {
+          "subtitle": 2,
+          "total": 2
+        },
+        "mergeCount": 1
+      },
+      {
+        "name": "브랜딩광고_상품별",
+        "index": 4,
+        "role": "summary",
+        "roleReason": "데이터 행이 0개뿐 — 표로 보기 어렵다 (헤더 확신 0.93, 직사각형도 0.00, 데이터 행 0)",
+        "physicalRowCount": 8,
+        "columnCount": 12,
+        "headerRow": 6,
+        "headerConfidence": 0.934,
+        "headerColumns": [
+          "(1열)",
+          "사이트 코드",
+          "상품ID",
+          "노출",
+          "클릭",
+          "총비용",
+          "전환수",
+          "전환매출",
+          "클릭율",
+          "평균클릭단가",
+          "전환율",
+          "ROAS"
+        ],
+        "dataRowCount": 1,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 2
+        },
+        "mergeCount": 1
+      },
+      {
+        "name": "월별비교",
+        "index": 5,
+        "role": "summary",
+        "roleReason": "데이터 행이 0개뿐 — 표로 보기 어렵다 (헤더 확신 0.95, 직사각형도 0.00, 데이터 행 0)",
+        "physicalRowCount": 76,
+        "columnCount": 11,
+        "headerRow": 4,
+        "headerConfidence": 0.952,
+        "headerColumns": [
+          "(1열)",
+          "월",
+          "노출수",
+          "클릭수",
+          "총비용",
+          "전환수",
+          "전환매출",
+          "평균클릭비용",
+          "클릭율",
+          "전환율",
+          "ROAS"
+        ],
+        "dataRowCount": 2,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1
+        },
+        "mergeCount": 1
+      }
+    ],
+    "dataSheetCount": 2,
+    "elapsedMs": 316
+  },
+  {
+    "id": 6,
+    "file": "2026년 7월_11st 결제일 정산확정 건.xls",
+    "expectedProfile": "biff",
+    "profileConfidence": 0.6,
+    "encoding": null,
+    "delimiter": null,
+    "extensionMismatch": false,
+    "identityNotes": [],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "Sheet",
+        "index": 0,
+        "role": "data",
+        "roleReason": "헤더 확신 0.95, 직사각형도 1.00, 데이터 행 124",
+        "physicalRowCount": 136,
+        "columnCount": 59,
+        "headerRow": 6,
+        "headerConfidence": 0.949,
+        "headerColumns": [
+          "NO",
+          "주문번호",
+          "주문순번",
+          "배송번호",
+          "주문상태",
+          "구매자명",
+          "구매자ID",
+          "결제완료일",
+          "발송처리일",
+          "배송완료일",
+          "수취확인일",
+          "정산확정일"
+        ],
+        "dataRowCount": 128,
+        "excludedCounts": {
+          "trailing-blank": 1,
+          "subtitle": 1
+        },
+        "mergeCount": 1
+      }
+    ],
+    "dataSheetCount": 1,
+    "elapsedMs": 29
+  },
+  {
+    "id": 7,
+    "file": "25년 11월 원본 데이터(ESM+11st의 원본 데이터 1차 가공).xlsx",
+    "expectedProfile": "xlsx",
+    "profileConfidence": 0.75,
+    "encoding": null,
+    "delimiter": null,
+    "extensionMismatch": false,
+    "identityNotes": [],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "이베이",
+        "index": 0,
+        "role": "data",
+        "roleReason": "헤더 확신 0.97, 직사각형도 1.00, 데이터 행 32",
+        "physicalRowCount": 34,
+        "columnCount": 9,
+        "headerRow": 2,
+        "headerConfidence": 0.972,
+        "headerColumns": [
+          "날짜",
+          "총광고비용",
+          "전환수",
+          "광고센터\n전환매출",
+          "광고센터\nROAS",
+          "실매출\n판매금액",
+          "실매출\n취소금액",
+          "실매출\n합계",
+          "실매출\nROAS"
+        ],
+        "dataRowCount": 31,
+        "excludedCounts": {
+          "subtitle": 1,
+          "total": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "11번가",
+        "index": 1,
+        "role": "data",
+        "roleReason": "헤더 확신 0.98, 직사각형도 1.00, 데이터 행 32",
+        "physicalRowCount": 34,
+        "columnCount": 11,
+        "headerRow": 2,
+        "headerConfidence": 0.977,
+        "headerColumns": [
+          "날짜",
+          "총광고비용",
+          "전환수",
+          "광고센터\n전환매출",
+          "광고센터\nROAS",
+          "장바구니\n전환매출",
+          "장바구니\nROAS",
+          "실매출\n판매금액",
+          "실매출\n취소금액",
+          "실매출\n합계",
+          "실매출\nROAS"
+        ],
+        "dataRowCount": 31,
+        "excludedCounts": {
+          "subtitle": 1,
+          "total": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "매출정리 raw",
+        "index": 2,
+        "role": "data",
+        "roleReason": "헤더 확신 0.81, 직사각형도 0.91, 데이터 행 999",
+        "physicalRowCount": 1000,
+        "columnCount": 16,
+        "headerRow": 1,
+        "headerConfidence": 0.813,
+        "headerColumns": [
+          "날짜",
+          "진행상태",
+          "판매아이디",
+          "구매자아이디",
+          "주문번호",
+          "상품번호",
+          "상품명",
+          "구매자명",
+          "수령인명",
+          "구매금액",
+          "수량",
+          "결제일"
+        ],
+        "dataRowCount": 999,
+        "excludedCounts": {},
+        "mergeCount": 0
+      },
+      {
+        "name": "파워클릭 raw",
+        "index": 3,
+        "role": "data",
+        "roleReason": "헤더 확신 0.98, 직사각형도 1.00, 데이터 행 29",
+        "physicalRowCount": 32,
+        "columnCount": 11,
+        "headerRow": 2,
+        "headerConfidence": 0.977,
+        "headerColumns": [
+          "날짜",
+          "노출수",
+          "클릭수",
+          "클릭률",
+          "평균노출순위",
+          "평균클릭비용",
+          "총비용",
+          "구매수",
+          "구매금액",
+          "전환율",
+          "광고수익률"
+        ],
+        "dataRowCount": 30,
+        "excludedCounts": {},
+        "mergeCount": 0
+      },
+      {
+        "name": "Ai매출업 raw",
+        "index": 4,
+        "role": "data",
+        "roleReason": "헤더 확신 0.98, 직사각형도 1.00, 데이터 행 30",
+        "physicalRowCount": 31,
+        "columnCount": 12,
+        "headerRow": 1,
+        "headerConfidence": 0.979,
+        "headerColumns": [
+          "날짜별",
+          "클릭수",
+          "평균클릭비용",
+          "총비용",
+          "광고상품기준-주문수",
+          "광고상품기준-구매수",
+          "광고상품기준-구매금액",
+          "판매자기준-주문수",
+          "판매자기준-구매수",
+          "판매자기준-구매금액",
+          "판매자기준-전환율",
+          "판매자기준-광고수익률"
+        ],
+        "dataRowCount": 30,
+        "excludedCounts": {},
+        "mergeCount": 0
+      },
+      {
+        "name": "11_매출정리",
+        "index": 5,
+        "role": "data",
+        "roleReason": "헤더 확신 0.95, 직사각형도 1.00, 데이터 행 220",
+        "physicalRowCount": 1000,
+        "columnCount": 60,
+        "headerRow": 1,
+        "headerConfidence": 0.946,
+        "headerColumns": [
+          "날짜",
+          "NO",
+          "주문번호",
+          "주문순번",
+          "배송번호",
+          "주문상태",
+          "구매자명",
+          "구매자ID",
+          "결제완료일",
+          "발송처리일",
+          "배송완료일",
+          "수취확인일"
+        ],
+        "dataRowCount": 220,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 0
+      },
+      {
+        "name": "11_광고비정리",
+        "index": 6,
+        "role": "data",
+        "roleReason": "헤더 확신 0.94, 직사각형도 1.00, 데이터 행 60",
+        "physicalRowCount": 1000,
+        "columnCount": 27,
+        "headerRow": 1,
+        "headerConfidence": 0.944,
+        "headerColumns": [
+          "날짜",
+          "노출수",
+          "클릭수",
+          "클릭률",
+          "평균 노출순위",
+          "평균 클릭비용",
+          "총비용",
+          "총 전환수",
+          "총 전환당 비용",
+          "총 전환 금액",
+          "총 전환율",
+          "총 광고수익률"
+        ],
+        "dataRowCount": 60,
+        "excludedCounts": {
+          "trailing-blank": 1
+        },
+        "mergeCount": 49
+      }
+    ],
+    "dataSheetCount": 7,
+    "elapsedMs": 84
+  },
+  {
+    "id": 8,
+    "file": "26년 7월 ESM 주문통합검색.xlsx",
+    "expectedProfile": "xlsx",
+    "profileConfidence": 0.99,
+    "encoding": null,
+    "delimiter": null,
+    "extensionMismatch": false,
+    "identityNotes": [],
+    "parserWarnings": 9,
+    "expectedSheets": [
+      {
+        "name": "Sheet 1",
+        "index": 0,
+        "role": "data",
+        "roleReason": "헤더 확신 0.82, 직사각형도 0.90, 데이터 행 160",
+        "physicalRowCount": 161,
+        "columnCount": 15,
+        "headerRow": 1,
+        "headerConfidence": 0.817,
+        "headerColumns": [
+          "진행상태",
+          "판매아이디",
+          "구매자아이디",
+          "주문번호",
+          "상품번호",
+          "상품명",
+          "구매자명",
+          "수령인명",
+          "구매금액",
+          "수량",
+          "결제일",
+          "배송완료일자"
+        ],
+        "dataRowCount": 160,
+        "excludedCounts": {},
+        "mergeCount": 0
+      }
+    ],
+    "dataSheetCount": 1,
+    "elapsedMs": 11
+  },
+  {
+    "id": 9,
+    "file": "B2B_매출정리 예시 파일.xlsx",
+    "expectedProfile": "xlsx",
+    "profileConfidence": 0.99,
+    "encoding": null,
+    "delimiter": null,
+    "extensionMismatch": false,
+    "identityNotes": [],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "order_list_all1763693998.5244",
+        "index": 0,
+        "role": "data",
+        "roleReason": "헤더 확신 0.86, 직사각형도 0.89, 데이터 행 1197",
+        "physicalRowCount": 1198,
+        "columnCount": 93,
+        "headerRow": 1,
+        "headerConfidence": 0.858,
+        "headerColumns": [
+          "주문 번호",
+          "회원명",
+          "회원 아이디",
+          "주문 상품명",
+          "주문 품목 개수",
+          "주문 클래임 품목 개수",
+          "총 결제 금액",
+          "총 품목 금액",
+          "총 배송 금액",
+          "사용된 총 예치금",
+          "사용된 총 마일리지",
+          "총 회원 할인 금액"
+        ],
+        "dataRowCount": 1197,
+        "excludedCounts": {},
+        "mergeCount": 0
+      }
+    ],
+    "dataSheetCount": 1,
+    "elapsedMs": 184
+  },
+  {
+    "id": 10,
+    "file": "B2B_반품정리 예시 파일.xlsx",
+    "expectedProfile": "xlsx",
+    "profileConfidence": 0.99,
+    "encoding": null,
+    "delimiter": null,
+    "extensionMismatch": false,
+    "identityNotes": [],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "order_list_refund1763629991.421",
+        "index": 0,
+        "role": "data",
+        "roleReason": "헤더 확신 0.88, 직사각형도 0.95, 데이터 행 37",
+        "physicalRowCount": 38,
+        "columnCount": 100,
+        "headerRow": 1,
+        "headerConfidence": 0.88,
+        "headerColumns": [
+          "주문 번호",
+          "회원명",
+          "회원 아이디",
+          "회원등급명",
+          "주문 상품명",
+          "주문 품목 개수",
+          "총 결제 금액",
+          "총 품목 금액",
+          "총 배송 금액",
+          "총 사은품 정보",
+          "사용된 총 예치금",
+          "사용된 총 마일리지"
+        ],
+        "dataRowCount": 37,
+        "excludedCounts": {},
+        "mergeCount": 0
+      }
+    ],
+    "dataSheetCount": 1,
+    "elapsedMs": 9
+  },
+  {
+    "id": 11,
+    "file": "ESM_파워클릭_murraymall_report_daily_2026070120260731.xlsx",
+    "expectedProfile": "xlsx",
+    "profileConfidence": 0.99,
+    "encoding": null,
+    "delimiter": null,
+    "extensionMismatch": false,
+    "identityNotes": [],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "sheet1",
+        "index": 0,
+        "role": "data",
+        "roleReason": "헤더 확신 0.94, 직사각형도 1.00, 데이터 행 31",
+        "physicalRowCount": 32,
+        "columnCount": 12,
+        "headerRow": 1,
+        "headerConfidence": 0.938,
+        "headerColumns": [
+          "날짜",
+          "노출수",
+          "클릭수",
+          "클릭률",
+          "영역명",
+          "평균노출순위",
+          "평균클릭비용",
+          "총비용",
+          "구매수",
+          "구매금액",
+          "전환율",
+          "광고수익률"
+        ],
+        "dataRowCount": 31,
+        "excludedCounts": {},
+        "mergeCount": 0
+      }
+    ],
+    "dataSheetCount": 1,
+    "elapsedMs": 2
+  },
+  {
+    "id": 12,
+    "file": "일별 매출현황.xls",
+    "expectedProfile": "html-table",
+    "profileConfidence": 0.98,
+    "encoding": "utf-8",
+    "delimiter": null,
+    "extensionMismatch": true,
+    "identityNotes": [
+      "확장자는 .xls지만 실제 내용은 HTML 표입니다."
+    ],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "Sheet1",
+        "index": 0,
+        "role": "data",
+        "roleReason": "헤더 확신 0.96, 직사각형도 0.92, 데이터 행 124",
+        "physicalRowCount": 127,
+        "columnCount": 14,
+        "headerRow": 2,
+        "headerConfidence": 0.964,
+        "headerColumns": [
+          "날짜",
+          "구분",
+          "매출금액",
+          "판매금액 상품판매가",
+          "(-)상품할인",
+          "결제금액",
+          "배송비",
+          "(-)배송비할인",
+          "결제금액",
+          "판매총액",
+          "환불금액 (-)상품결제금액",
+          "(-)배송비결제금액"
+        ],
+        "dataRowCount": 93,
+        "excludedCounts": {
+          "subtitle": 1,
+          "total": 31
+        },
+        "mergeCount": 36
+      }
+    ],
+    "dataSheetCount": 1,
+    "elapsedMs": 18
+  },
+  {
+    "id": 13,
+    "file": "쿠팡 광고 보고서_20260701_20260731.xlsx",
+    "expectedProfile": "xlsx",
+    "profileConfidence": 0.99,
+    "encoding": null,
+    "delimiter": null,
+    "extensionMismatch": false,
+    "identityNotes": [],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "Sheet1",
+        "index": 0,
+        "role": "data",
+        "roleReason": "헤더 확신 0.93, 직사각형도 1.00, 데이터 행 80137",
+        "physicalRowCount": 80138,
+        "columnCount": 43,
+        "headerRow": 1,
+        "headerConfidence": 0.93,
+        "headerColumns": [
+          "과금 방식",
+          "판매방식",
+          "광고유형",
+          "캠페인 ID",
+          "캠페인명",
+          "광고그룹",
+          "광고집행 상품명",
+          "광고집행 옵션ID",
+          "광고전환매출발생 상품명",
+          "광고전환매출발생 옵션ID",
+          "광고 노출 지면",
+          "키워드"
+        ],
+        "dataRowCount": 80137,
+        "excludedCounts": {},
+        "mergeCount": 0
+      }
+    ],
+    "dataSheetCount": 1,
+    "elapsedMs": 11131
+  },
+  {
+    "id": 14,
+    "file": "쿠팡 일반 매출_2026-08-10.xlsx",
+    "expectedProfile": "xlsx",
+    "profileConfidence": 0.99,
+    "encoding": null,
+    "delimiter": null,
+    "extensionMismatch": false,
+    "identityNotes": [],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "Delivery",
+        "index": 0,
+        "role": "data",
+        "roleReason": "헤더 확신 0.83, 직사각형도 1.00, 데이터 행 141",
+        "physicalRowCount": 142,
+        "columnCount": 41,
+        "headerRow": 1,
+        "headerConfidence": 0.829,
+        "headerColumns": [
+          "번호",
+          "묶음배송번호",
+          "주문번호",
+          "택배사",
+          "운송장번호",
+          "분리배송 Y/N",
+          "분리배송 출고예정일",
+          "주문시 출고예정일",
+          "출고일(발송일)",
+          "주문일",
+          "등록상품명",
+          "등록옵션명"
+        ],
+        "dataRowCount": 141,
+        "excludedCounts": {},
+        "mergeCount": 0
+      }
+    ],
+    "dataSheetCount": 1,
+    "elapsedMs": 13
+  },
+  {
+    "id": 15,
+    "file": "쿠팡 제트 매출_20260701~20260731.xlsx",
+    "expectedProfile": "xlsx",
+    "profileConfidence": 0.99,
+    "encoding": null,
+    "delimiter": null,
+    "extensionMismatch": false,
+    "identityNotes": [],
+    "parserWarnings": 0,
+    "expectedSheets": [
+      {
+        "name": "판매통계",
+        "index": 0,
+        "role": "data",
+        "roleReason": "헤더 확신 0.94, 직사각형도 1.00, 데이터 행 148",
+        "physicalRowCount": 149,
+        "columnCount": 13,
+        "headerRow": 1,
+        "headerConfidence": 0.942,
+        "headerColumns": [
+          "노출상품ID",
+          "옵션ID",
+          "옵션명",
+          "상품타입",
+          "카테고리",
+          "아이템위너 비율(%)",
+          "순 판매 금액(전체 거래 금액 - 취소 금액)",
+          "순 판매 상품 수(전체 거래 상품 수 - 취소 상품 수)",
+          "전체 거래 금액",
+          "전체 거래 상품 수",
+          "총 취소 금액",
+          "총 취소 상품 수"
+        ],
+        "dataRowCount": 147,
+        "excludedCounts": {
+          "total": 1
+        },
+        "mergeCount": 0
+      }
+    ],
+    "dataSheetCount": 1,
+    "elapsedMs": 6
+  }
+]
