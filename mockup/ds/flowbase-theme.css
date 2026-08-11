@@ -1,0 +1,176 @@
+/* FlowBase — 라이트 테마 전용 의미색 오버라이드
+   Vector DS의 --label-* 는 다크 캔버스 기준 색이라 흰 배경에서 대비가 부족하다.
+   같은 색상(hue)을 유지하고 명도만 낮춰 WCAG 4.5:1 을 넘긴 텍스트 전용 값.
+   다크 모드에는 관여하지 않는다. */
+
+:root {
+  --pnl-pos:  var(--label-green);
+  --pnl-neg:  var(--label-red);
+  --pnl-warn: var(--label-yellow);
+  --pnl-attn: var(--label-orange);
+  --pos: var(--label-green);
+  --neg: var(--label-red);
+}
+
+/* 스크롤바 — DS는 .nav / .content 에만 정의한다.
+   표 가로 스크롤과 우측 상세 패널은 기본 스크롤바가 나오므로 같은 규칙을 넓힌다. */
+.db-wrap, .detail-side, .fb-scroll, .content, .nav {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.db-wrap::-webkit-scrollbar,
+.detail-side::-webkit-scrollbar,
+.fb-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.db-wrap::-webkit-scrollbar-track,
+.detail-side::-webkit-scrollbar-track,
+.fb-scroll::-webkit-scrollbar-track,
+.content::-webkit-scrollbar-track,
+.nav::-webkit-scrollbar-track { background: transparent; }
+.db-wrap::-webkit-scrollbar-thumb,
+.detail-side::-webkit-scrollbar-thumb,
+.fb-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong); border-radius: 5px;
+  border: 2px solid transparent; background-clip: padding-box;
+}
+.db-wrap::-webkit-scrollbar-thumb:hover,
+.detail-side::-webkit-scrollbar-thumb:hover,
+.fb-scroll::-webkit-scrollbar-thumb:hover,
+.content::-webkit-scrollbar-thumb:hover { background: var(--fg-4); }
+.db-wrap::-webkit-scrollbar-corner,
+.detail-side::-webkit-scrollbar-corner { background: transparent; }
+
+:root[data-theme="light"] {
+  --pnl-pos:  #14795A;
+  --pnl-neg:  #C0342F;
+  --pnl-warn: #8A6100;
+  --pnl-attn: #9A5312;
+  --pos: #14795A;
+  --neg: #C0342F;
+}
+
+
+/* ─────────── 반응형 4단 ───────────
+   원칙: 어떤 폭에서도 기능을 없애지 않는다. 숨기는 게 아니라 접는다.
+   인라인 스타일을 이기려면 !important 가 필요하다. */
+
+/* L — 노트북. 상세 패널이 내용을 밀지 않고 위에 뜬다. */
+@media (max-width: 1439px) {
+  .detail-side {
+    position: fixed !important; z-index: 200; top: 0; right: 0; bottom: 0;
+    width: 340px !important; background: var(--bg-elevated);
+    border-left: 1px solid var(--border-strong);
+    box-shadow: -12px 0 32px rgba(0,0,0,0.28);
+  }
+}
+
+/* M — 태블릿·좁은 창. 사이드바는 드로어, 그리드는 2열. */
+@media (max-width: 1023px) {
+  .sidebar {
+    position: fixed !important; z-index: 220; top: 0; left: 0; bottom: 0;
+    width: 232px !important; min-width: 232px !important; max-width: 232px !important;
+    transform: translateX(-100%); transition: transform .16s ease;
+    background: var(--bg-sidebar); border-right: 1px solid var(--border-strong);
+  }
+  .sidebar[data-open="1"] { transform: translateX(0); }
+  .nav-scrim {
+    position: fixed; inset: 0; z-index: 210; background: rgba(0,0,0,0.5);
+  }
+  /* 4열 이상 그리드는 2열로 접는다 */
+  [style*="repeat(4, minmax(0, 1fr))"],
+  [style*="repeat(5, minmax(0, 1fr))"],
+  [style*="repeat(auto-fit, minmax(620px"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  /* 본문 + 사이드 구성은 한 줄로 */
+  /* KPI 스트립 — auto-flow column 은 M에서 2열로 접는다.
+     스파크라인(grid-auto-columns: 1fr)은 제외한다. */
+  [style*="grid-auto-flow: column"]:not([style*="grid-auto-columns: 1fr"]) {
+    grid-auto-flow: row !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  [style*="minmax(0, 1fr) 320px"],
+  [style*="minmax(0, 1fr) 340px"],
+  [style*="grid-template-columns: 296px 1fr"],
+  [style*="grid-template-columns: 168px minmax(0, 1fr)"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  /* 터치 타깃 44px */
+  .nav-item { min-height: 40px; }
+  .v-btn, .tab, .seg { min-height: 32px; }
+  /* 표는 가로 스크롤 + 첫 열 고정 — 열을 지우지 않는다 */
+  .db-wrap, .db-table-wrap { overflow-x: auto; }
+  .db-table .db-td-title, .db-table thead th:first-child, .db-table tbody td:first-child {
+    position: sticky; left: 0; z-index: 2; background: var(--bg-app);
+  }
+  /* 모달은 하단 시트로 */
+  .fb-modal-scrim { align-items: flex-end !important; padding: 0 !important; }
+  .fb-modal-scrim > * {
+    width: 100% !important; max-width: 100% !important;
+    border-radius: var(--r-lg) var(--r-lg) 0 0 !important;
+  }
+}
+
+/* S — 모바일 비율. 단일 컬럼 + 하단 탭바. */
+@media (max-width: 767px) {
+  [style*="repeat(2, minmax(0, 1fr))"],
+  [style*="repeat(3, minmax(0, 1fr))"],
+  [style*="repeat(4, minmax(0, 1fr))"],
+  [style*="repeat(5, minmax(0, 1fr))"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  /* 스파크라인·미니 막대는 가로 배치를 유지한다 — 세로로 펴면 의미가 사라진다 */
+  [style*="grid-auto-flow: column"][style*="grid-auto-columns: 1fr"] {
+    grid-auto-flow: column !important;
+  }
+  .detail-side { width: 100% !important; }
+  /* 하단 탭바가 가리지 않도록 */
+  .fb-scroll { padding-bottom: 60px !important; }
+  .fb-tabbar { display: flex !important; }
+  /* hover 로만 보이던 것은 항상 보이게 */
+  .fb-row .iconbtn, .row-actions { opacity: 1 !important; }
+}
+
+/* 하단 탭바 — S 에서만 나타난다 */
+.fb-tabbar {
+  display: none; position: fixed; z-index: 150; left: 0; right: 0; bottom: 0;
+  height: 56px; background: var(--bg-sidebar);
+  border-top: 1px solid var(--border-strong);
+  align-items: stretch;
+}
+.fb-tabbar > span {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; cursor: pointer; color: var(--fg-4);
+  font: var(--fw-medium) 10px var(--font-sans);
+}
+.fb-tabbar > span.active { color: var(--accent); }
+
+
+/* 데이터 출처 라벨 — 긴 Canonical 필드명이 값과 겹치지 않게 */
+.pl-label {
+  width: auto !important; min-width: 72px; max-width: 132px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding-right: 10px; box-sizing: content-box;
+}
+
+
+/* §9 보강 — S에서 진단 산점도는 접고, 구역 요약 카드가 기본이다.
+   차트를 세로로 압축해 보여주지 않는다. */
+/* 기본값을 먼저 — 미디어쿼리는 특정도를 더하지 않으므로 순서가 곧 승패다 */
+.fb-quad-open { display: none; }
+.fb-head-more { display: none; }
+
+@media (max-width: 767px) {
+  .fb-quad-chart { display: none !important; }
+  .fb-quad-open { display: flex !important; }
+  /* 헤더 축약 — 뷰 부제는 숨기고 상태는 아이콘+숫자만 */
+  .fb-head-sub { display: none !important; }
+  .fb-head-state > span:not(:first-child) { display: none; }
+  .fb-head-actions > *:not(.fb-head-more) { display: none !important; }
+  .fb-head-more { display: inline-flex !important; }
+}
+
+/* 진단 산점도 풀스크린 — 가로로 눕혀서 본다 */
+.fb-quad-full {
+  position: fixed; inset: 0; z-index: 260; background: var(--bg-app);
+  display: grid; grid-template-rows: auto minmax(0, 1fr);
+}

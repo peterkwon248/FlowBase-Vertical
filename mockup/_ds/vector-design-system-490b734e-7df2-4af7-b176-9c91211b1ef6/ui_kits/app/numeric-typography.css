@@ -1,0 +1,44 @@
+/* numeric-typography.css — Vector DS contribution
+   Linear-style numerals: numbers are NOT monospace. They use the same sans
+   (Pretendard) as everything else, with TABULAR FIGURES so columns of digits
+   align without the "code editor" look of a true mono font.
+
+   Two pieces:
+   1. Token override — point --font-mono at the sans stack. Existing components
+      that say `font-family: var(--font-mono)` keep working but render Pretendard.
+   2. A catch-all tabular-nums rule. `font:` shorthand RESETS font-variant-numeric,
+      so this rule must be loaded AFTER all component CSS to win.
+
+   True monospace (code, diffs) should use a separate --font-code token. */
+
+/* ---- 1. numbers ride the sans stack ---- */
+:root {
+  /* numbers use the same Pretendard sans (Linear-style); tabular figures below */
+  --font-mono: "Pretendard Variable", Pretendard, "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* real monospace, reserved for code/diffs only */
+  --font-code: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* ---- 2. app-wide tabular (fixed-width) figures ----
+   Load this file LAST: `font:` shorthand resets font-variant-numeric, so source
+   order is what makes this stick. The selector list is a naming convention —
+   suffix numeric value classes with -val/-num/-ret/-amt/-pct and they opt in
+   automatically. */
+.mono, .v-mono,
+[class*="-val"], [class*="-num"], [class*="-ret"], [class*="-amt"], [class*="-pct"],
+[class*="metric"], [class*="count"],
+table.numeric td, table.numeric th,
+input[type="number"]
+{ font-variant-numeric: tabular-nums !important; }
+/* !important: Vector's component CSS sets `font:` shorthand via descendant
+   selectors (e.g. .group-header .gh-count) whose specificity beats this
+   catch-all — load order alone isn't enough here, unlike Keystone. */
+
+/* numeric emphasis: slight negative tracking keeps big figures tight, like headings */
+.mono, .v-mono, [class*="-val"] { letter-spacing: -0.01em; }
+
+/* ---- 3. semantic helper (optional) ----
+   For one-off numbers that don't fit the naming convention. */
+.v-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.v-num.pos { color: var(--pos, var(--status-review, #4CB782)); }
+.v-num.neg { color: var(--neg, #EB5757); }

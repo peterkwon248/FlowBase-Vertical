@@ -1,0 +1,9 @@
+/* styles.css — Vector Design System root stylesheet.
+   Link THIS file to get the whole system: tokens + app UI kit styles.
+   (Fonts: Pretendard Variable is @imported inside colors_and_type.css.) */
+@import url("colors_and_type.css");
+@import url("ui_kits/app/app.css");
+@import url("ui_kits/app/sidebar-hover-actions.css");
+/* numeric typography must load LAST — `font:` shorthand resets
+   font-variant-numeric, so source order makes the tabular-nums rule win */
+@import url("ui_kits/app/numeric-typography.css");

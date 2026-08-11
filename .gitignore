@@ -40,3 +40,11 @@ coverage/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 사용자 참고 자료 (스크린샷·대행사 리포트) — 앱 코드 아님, 용량 큼
+_ref/
+
+# 픽스처 원본 — 비식별화 전 커밋 금지 (헌장 E-10)
+fixtures/raw/
+*.원본.xlsx
+*.원본.csv
