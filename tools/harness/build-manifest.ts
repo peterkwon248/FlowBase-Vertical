@@ -41,6 +41,8 @@ export interface SheetManifest {
   readonly dataRowCount: number
   readonly excludedCounts: Record<string, number>
   readonly mergeCount: number
+  /** 값 있는 셀 중 수식 비율. 파생 여부의 파일 내적 증거 — 역할을 정하지는 않는다. */
+  readonly formulaRatio: number | null
 }
 
 export interface FixtureManifest {
@@ -96,6 +98,8 @@ export async function buildManifest(): Promise<FixtureManifest[]> {
         dataRowCount: ex.dataRowCount,
         excludedCounts: counts,
         mergeCount: sheet.merges.length,
+        formulaRatio:
+          sheet.formulaRatio === null ? null : Number(sheet.formulaRatio.toFixed(3)),
       })
     }
     src.close()

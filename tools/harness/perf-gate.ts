@@ -37,7 +37,7 @@ const worker = new Worker(fileURLToPath(workerUrl), {
   workerData: {
     path: fixturePath(target),
     fileName: target.file,
-    chunkSize: 5_000,
+    chunkSize: Number(process.argv[2] ?? 1_000),
   },
   // execArgv를 지정하지 않는다 — 워커는 부모의 `process.execArgv`를 물려받고,
   // 거기에 tsx가 등록한 로더가 이미 들어 있다. 직접 지정하면 그 로더를 덮어써

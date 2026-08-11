@@ -27,15 +27,20 @@ import { DEFAULT_CHUNK_SIZE } from "../types.js"
  *   dense        희소 객체 대신 밀집 배열 (80,138행에서 차이가 크다)
  *   cellStyles   서식 정보를 만들지 않는다 — 우리는 값만 쓴다
  *   cellHTML     HTML 렌더 문자열을 만들지 않는다
- *   cellFormula  수식 문자열을 보관하지 않는다 (값만 필요)
  *   cellText     포맷된 텍스트(`w`)를 만들지 않는다 — 원본 값을 쓴다
+ *
+ * `cellFormula`만 켜져 있다. 수식 자체를 쓰려는 게 아니라 **셀이 계산된
+ * 것인지 붙여넣어진 것인지**를 알기 위해서다 — 수식 비율은 그 시트가 파생인지
+ * 원본인지에 대한 유일한 파일 내적 증거다. 마켓 export는 수식이 없어
+ * (#13은 0개) 비용이 사실상 0이고, 수식이 많은 파일은 사람이 만든 작은
+ * 워크북이라 감당된다.
  */
 export const READ_OPTIONS = {
   type: "array",
   dense: true,
   cellStyles: false,
   cellHTML: false,
-  cellFormula: false,
+  cellFormula: true,
   cellText: false,
   cellDates: true,
   cellNF: false,
@@ -213,6 +218,22 @@ function mergesOf(ws: XLSX.WorkSheet): MergeRange[] {
   }))
 }
 
+/** 값이 있는 셀 중 수식으로 계산된 비율. 셀이 없으면 null. */
+function formulaRatioOf(ws: XLSX.WorkSheet): number | null {
+  const data = denseRows(ws)
+  let cells = 0
+  let formulas = 0
+  for (const row of data) {
+    if (!row) continue
+    for (const cell of row) {
+      if (!cell) continue
+      cells++
+      if ((cell as { f?: unknown }).f !== undefined) formulas++
+    }
+  }
+  return cells === 0 ? null : formulas / cells
+}
+
 function classify(ws: XLSX.WorkSheet | undefined, name: string, index: number): SheetInfo {
   if (!ws || !ws["!ref"]) {
     return {
@@ -222,6 +243,7 @@ function classify(ws: XLSX.WorkSheet | undefined, name: string, index: number): 
       reason: "셀 범위(!ref)가 없다",
       physicalRowCount: 0,
       columnCount: 0,
+      formulaRatio: null,
       merges: [],
     }
   }
@@ -235,6 +257,7 @@ function classify(ws: XLSX.WorkSheet | undefined, name: string, index: number): 
     reason: count === 0 ? "행이 없다" : `${count}행`,
     physicalRowCount: count,
     columnCount: columnCount(ws),
+    formulaRatio: formulaRatioOf(ws),
     merges: mergesOf(ws),
   }
 }

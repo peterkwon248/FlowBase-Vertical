@@ -1,4 +1,8 @@
 import { describe, it, expect } from "vitest"
+import { createHash } from "node:crypto"
+import { openXlsxFast } from "../src/core/import/parsers/xlsx-sax.js"
+import { openWorkbook, readWorkbook } from "../src/core/import/parsers/sheetjs-common.js"
+import type { ParsedSource, RawCell } from "../src/core/import/types.js"
 import { parseDelimited } from "../src/core/import/parsers/delimited.js"
 import { dateToRaw } from "../src/core/import/parsers/sheetjs-common.js"
 import { charsetFromMeta } from "../src/core/import/parsers/html-table.js"
@@ -172,6 +176,60 @@ describe.runIf(fixturesPresent())("파서 4종 — 픽스처 15개", () => {
     const src = await parserFor("xlsx").open(readFixture(f))
     expect(src.warnings).toEqual([])
     src.close()
+  })
+
+  it("fast path가 SheetJS와 셀 값·타입까지 같은 결과를 낸다", async () => {
+    // 빠른데 다른 답을 내면 최악이다. #13은 fast path 임계를 넘는 유일한 픽스처다.
+    const f = FIXTURES.find((x) => x.id === 13)!
+    const bytes = readFixture(f)
+
+    const fast = openXlsxFast(bytes)
+    expect(fast.ok, "fast path가 #13을 거절했다").toBe(true)
+    if (!fast.ok) return
+
+    const digest = async (src: ParsedSource) => {
+      const h = createHash("sha256")
+      let rows = 0
+      for await (const chunk of src.stream(0)) {
+        for (const row of chunk.rows) {
+          // 값뿐 아니라 타입도 해시에 넣는다 — 숫자 3과 문자열 "3"은 다르다.
+          h.update(
+            row
+              .map((c: RawCell) =>
+                c === null
+                  ? "~"
+                  : typeof c === "number"
+                    ? `n:${c}`
+                    : typeof c === "boolean"
+                      ? `b:${c}`
+                      : `s:${c}`,
+              )
+              .join(""),
+          )
+          rows++
+        }
+      }
+      return { rows, hash: h.digest("hex") }
+    }
+
+    const a = await digest(fast.source)
+    fast.source.close()
+
+    const slow = openWorkbook(readWorkbook(bytes))
+    const b = await digest(slow)
+    slow.close()
+
+    expect(a.rows).toBe(80_138)
+    expect(a.rows).toBe(b.rows)
+    expect(a.hash).toBe(b.hash)
+  })
+
+  it("작은 파일은 fast path를 타지 않는다", () => {
+    // 임계 미만에서는 SheetJS가 더 안전하다 — 멀티시트·병합·수식·날짜 서식.
+    const f = FIXTURES.find((x) => x.id === 11)!
+    const r = openXlsxFast(readFixture(f))
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toContain("임계 미만")
   })
 
   it("미리보기는 전체 파싱보다 적게 읽는다", async () => {

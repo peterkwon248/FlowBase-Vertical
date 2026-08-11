@@ -151,7 +151,8 @@ export const delimitedParser: Parser = {
       reason: "구분자 텍스트 — 시트가 하나뿐이다",
       physicalRowCount,
       columnCount,
-      // 구분자 텍스트에는 병합 개념이 없다.
+      // 구분자 텍스트에는 수식도 병합도 없다.
+      formulaRatio: null,
       merges: [],
     }
 

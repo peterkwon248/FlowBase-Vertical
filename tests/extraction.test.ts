@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { detectHeader, headerSpan } from "../src/core/import/extraction/header.js"
 import { isTotalRow, stripTotals } from "../src/core/import/extraction/totals.js"
-import { classifySheet } from "../src/core/import/extraction/sheets.js"
+import { classifySheet, looksMachineGenerated } from "../src/core/import/extraction/sheets.js"
 import { lastNonBlankRow } from "../src/core/import/extraction/rows.js"
 import type { RawRow } from "../src/core/import/types.js"
 
@@ -151,6 +151,36 @@ describe("시트 분류", () => {
 
   it("타임스탬프 시트명은 아무것도 가리키지 않는다 (대조표 함정 #1)", () => {
     expect(classifySheet("order_list_refund1763629991.421", table(20), 3).role).toBe("data")
+  })
+
+  it("기계가 붙인 이름을 가려낸다", () => {
+    for (const n of ["Sheet1", "sheet", "시트2", "Worksheet 3", "order_list_all1763693998.5244"]) {
+      expect(looksMachineGenerated(n), n).toBe(true)
+    }
+    for (const n of ["매출정리 raw", "통합_상품분석", "메인 A", "G_상품별", "판매통계"]) {
+      expect(looksMachineGenerated(n), n).toBe(false)
+    }
+  })
+
+  it("기계 이름 안의 요약 어휘는 읽지 않는다", () => {
+    // 만약 export 도구가 우연히 "summary20260801123456" 같은 이름을 찍어도
+    // 그건 사람의 선언이 아니다.
+    expect(classifySheet("summary20260801123456", table(20), 3).role).toBe("data")
+  })
+
+  it("구조는 표인데 내용이 비면 요약이 아니라 데이터 0행이다", () => {
+    // #4 카테고리 — 다음 달 파일엔 데이터가 있을 수 있다.
+    // 역할은 구조로, 행 수는 내용으로.
+    const empty: RawRow[] = [["카테고리", "노출수", "클릭수", "총비용", "전환수량"]]
+    const c = classifySheet("G_카테고리", empty, 5)
+    expect(c.role).toBe("data")
+    expect(c.reason).toContain("내용이 없다")
+  })
+
+  it("헤더가 없으면 단일 표가 아니다", () => {
+    // #4 주차별 — 작은 표를 세로로 쌓은 구조.
+    const stacked: RawRow[] = [[], ["Gmarket 파워클릭 주차별 리포트"], [], [], [], []]
+    expect(classifySheet("G_주차별", stacked, 16).role).toBe("summary")
   })
 
   it("빈 시트", () => {

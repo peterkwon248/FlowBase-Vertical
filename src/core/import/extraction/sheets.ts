@@ -40,8 +40,11 @@ const DEFAULT_SUMMARY_HINTS: readonly string[] = [
 
 export interface SheetClassifyOptions {
   readonly summaryHints?: readonly string[]
-  /** 데이터 시트로 인정할 최소 데이터 행 수. */
-  readonly minDataRows?: number
+  /**
+   * 이름 힌트를 끈다. 구조만으로 어떤 결론이 나오는지 확인할 때 쓴다 —
+   * 이름 판정이 구조 판정과 어긋나지 않는지 검증하는 용도다.
+   */
+  readonly ignoreNameHints?: boolean
 }
 
 export interface SheetClassification {
@@ -51,14 +54,37 @@ export interface SheetClassification {
 }
 
 /**
- * 표가 직사각형인 정도.
+ * 기계가 붙인 이름인가 — 그렇다면 이름에서 아무 뜻도 읽지 않는다.
+ *
+ * 대조표 함정 #1이 가리키는 것이 이것이다. `order_list_all1763693998.5244`나
+ * `Sheet1`은 사람이 고른 말이 아니라 export 도구가 찍은 문자열이라, 여기서
+ * 의미를 읽으면 파일마다 결론이 달라진다.
+ *
+ * 뒤집어 말하면 **사람이 붙인 이름은 뜻을 담는다.** `통합_상품분석`이라고
+ * 적은 사람은 그 시트가 파생물이라고 선언한 것이고, 그 선언은 우리가 셀에서
+ * 읽어낼 수 없는 정보다.
+ */
+export function looksMachineGenerated(name: string): boolean {
+  const n = name.trim()
+  // Sheet1 · sheet · 시트2 · Worksheet 3 — 도구의 기본 이름
+  if (/^(sheet|worksheet|시트|表|表\d*)\s*\d*$/i.test(n)) return true
+  // 8자리 이상 연속 숫자 — 타임스탬프·일련번호
+  if (/\d{8,}/.test(n)) return true
+  return false
+}
+
+/**
+ * 표가 직사각형인 정도. 표본이 모자라면 `null` — **0이 아니다.**
  *
  * 데이터 시트는 행마다 채워진 칸 수가 비슷하다. 요약 시트는 작은 표 여러 개를
  * 쌓아 만들어서 들쭉날쭉하다 — 시트명을 못 믿을 때 이게 주 신호가 된다.
+ *
+ * 표본 부족을 0으로 돌려주면 "내용이 적다"가 "구조가 나쁘다"로 둔갑한다.
+ * 판단할 근거가 없으면 없다고 해야 헤더 확신이 그 자리를 대신할 수 있다.
  */
-function rectangularity(rows: readonly RawRow[], sampleFrom: number): number {
+function rectangularity(rows: readonly RawRow[], sampleFrom: number): number | null {
   const sample = rows.slice(sampleFrom, sampleFrom + 50).filter((r) => !isBlankRow(r))
-  if (sample.length < 3) return 0
+  if (sample.length < 3) return null
   const counts = sample.map(filledCount)
   const mean = counts.reduce((a, b) => a + b, 0) / counts.length
   if (mean === 0) return 0
@@ -75,7 +101,6 @@ export function classifySheet(
   opts: SheetClassifyOptions = {},
 ): SheetClassification {
   const hints = opts.summaryHints ?? DEFAULT_SUMMARY_HINTS
-  const minRows = opts.minDataRows ?? 2
 
   const contentRows = rows.filter((r) => !isBlankRow(r))
   if (contentRows.length === 0) {
@@ -83,42 +108,59 @@ export function classifySheet(
   }
 
   const header = detectHeader(rows, width)
-  const nameHit = hints.find((h) => name.toLowerCase().includes(h.toLowerCase()))
+  // 기계가 붙인 이름에서는 뜻을 읽지 않는다 (대조표 함정 #1).
+  const nameIsMeaningful = !looksMachineGenerated(name)
+  const nameHit =
+    opts.ignoreNameHints || !nameIsMeaningful
+      ? undefined
+      : hints.find((h) => name.toLowerCase().includes(h.toLowerCase()))
   const dataStart = header.rowIndex === null ? 0 : header.rowIndex + 1
   const rect = rectangularity(rows, dataStart)
-  const dataRows = contentRows.length - (header.rowIndex === null ? 0 : header.rowIndex + 1)
+  const dataRows = contentRows.length - dataStart
 
-  // 구조 점수 — 높을수록 데이터답다.
-  const structural = header.confidence * 0.5 + rect * 0.5
+  // 구조 점수 — 높을수록 데이터답다. 직사각형도를 못 재면 헤더 확신만 본다.
+  const structural = rect === null ? header.confidence : header.confidence * 0.5 + rect * 0.5
 
   const parts: string[] = [
     `헤더 확신 ${header.confidence.toFixed(2)}`,
-    `직사각형도 ${rect.toFixed(2)}`,
+    `직사각형도 ${rect === null ? "측정불가(표본부족)" : rect.toFixed(2)}`,
     `데이터 행 ${Math.max(0, dataRows)}`,
   ]
 
-  if (dataRows < minRows) {
+  // ★ 행 수로 역할을 정하지 않는다 ★
+  //
+  // 구조가 표인데 이번 달 내용이 비었을 뿐인 시트가 있다 (#4의 카테고리 —
+  // 헤더 확신 0.95인데 데이터 0행). 이걸 "요약"으로 강등하면 다음 달 파일에
+  // 데이터가 들어와도 같은 시트가 제외된다.
+  //
+  // 원칙: **역할은 구조로, 행 수는 내용으로.** 데이터 후보이면서 0행일 수 있다.
+
+  if (nameHit) {
+    // 사람이 붙인 이름이 파생을 가리키면 요약이다. 구조로 뒤집지 않는다.
+    //
+    // 처음엔 "구조가 반듯하면 데이터로 본다"는 예외를 뒀는데, 잘 만든 분석
+    // 시트일수록 표가 반듯해서 예외가 거의 항상 발동했다.
+    //
+    // 구조는 "표인가"를 말할 뿐 "원본인가"를 말하지 못한다 — 실측으로 확인했다.
+    // 픽스처 #3에서 이름 힌트를 끄면 19시트가 전부 `data`로 나오고, 수식 비율도
+    // 파생/원본을 가르지 못한다(원본으로 분류한 `이베이`가 96% 수식이다).
+    // 근거는 `docs/세션1-교차대조.md` M-6에 있다.
+    //
+    // 따라서 이 판정은 **사람이 시트에 적어 넣은 선언**에 기댄다. 셀에서 읽어낼
+    // 수 없는 정보이고, 틀렸을 때의 교정 지점은 가져오기 위저드의 시트 선택
+    // 단계다(헌장 C-5) — 조용히 넘어가지 않는다.
     return {
       role: "summary",
-      reason: `데이터 행이 ${Math.max(0, dataRows)}개뿐 — 표로 보기 어렵다 (${parts.join(", ")})`,
-      confidence: 0.7,
+      reason: `시트명에 "${nameHit}" — 사람이 붙인 파생 선언으로 본다 (${parts.join(", ")})`,
+      confidence: 0.85,
     }
   }
 
-  if (nameHit) {
-    // 이름이 요약을 가리키면 요약이다. 구조로 뒤집지 않는다.
-    //
-    // 처음엔 "구조가 반듯하면 데이터로 본다"는 예외를 뒀는데, 잘 만든 분석
-    // 시트일수록 표가 반듯해서 예외가 거의 항상 발동했다. 픽스처 #3의
-    // `통합_상품분석`(헤더 확신 0.97)이 그렇게 데이터로 분류됐다.
-    //
-    // 구조는 "표인가"를 말할 뿐 "원본인가"를 말하지 못한다. 사용자가 시트에
-    // "분석"·"요약"이라고 적었다면 그건 파생물이라는 본인의 선언이고, 그 판단이
-    // 우리 휴리스틱보다 정확하다. 파생물을 사실로 적재하면 숫자가 두 번 더해진다.
+  if (header.rowIndex === null) {
     return {
       role: "summary",
-      reason: `시트명에 "${nameHit}" — 파생 시트로 본다 (${parts.join(", ")})`,
-      confidence: 0.85,
+      reason: `헤더를 찾지 못했다 — 단일 표가 아니다 (${parts.join(", ")})`,
+      confidence: 0.75,
     }
   }
 
@@ -130,7 +172,11 @@ export function classifySheet(
     }
   }
 
-  return { role: "data", reason: parts.join(", "), confidence: structural }
+  return {
+    role: "data",
+    reason: dataRows <= 0 ? `구조는 표이나 이번 파일에 내용이 없다 (${parts.join(", ")})` : parts.join(", "),
+    confidence: structural,
+  }
 }
 
 export { DEFAULT_SUMMARY_HINTS }

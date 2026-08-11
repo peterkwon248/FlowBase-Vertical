@@ -118,6 +118,16 @@ export interface SheetInfo {
   readonly physicalRowCount: number
   readonly columnCount: number
   /**
+   * 값이 있는 셀 중 수식으로 계산된 것의 비율 (0..1). 알 수 없으면 null.
+   *
+   * **파생 여부에 대한 유일한 파일 내적 증거다.** 96%가 수식인 시트는 이름이
+   * 무엇이든 다른 시트에서 계산된 결과이며, 사실로 적재하면 숫자가 두 번
+   * 더해진다. 다만 이 값이 역할을 결정하지는 않는다 — 실측 결과 사람이 만든
+   * 워크북에서는 원본 시트도 수식 비율이 높게 나오는 경우가 있다
+   * (`docs/세션1-교차대조.md` M-6 참조). 판단 재료로 남기고 사람에게 보인다.
+   */
+  readonly formulaRatio: number | null
+  /**
    * 병합 셀. 병합된 영역에서 값은 좌상단 한 칸에만 있고 나머지는 null이다.
    *
    * 파서는 **채우지 않는다** — 원본이 그렇게 생겼다는 사실을 그대로 전달한다.
@@ -249,4 +259,15 @@ export interface ParseOptions {
   readonly onProgress?: (p: Progress) => void
 }
 
-export const DEFAULT_CHUNK_SIZE = 5_000
+/**
+ * 청크 하나의 행 수. 메모리 실측으로 정한 값이다 (픽스처 #13, 256MB 기준):
+ *
+ *   5,000 → +283MB  초과
+ *   2,000 → +257MB  초과 (1MB 차이로)
+ *   1,000 → +231MB  통과
+ *     500 → +222MB  통과
+ *
+ * 속도는 셋 다 2.8~2.9초로 같다 — 청크를 키워서 얻는 게 없다. 1,000은 SQLite
+ * 트랜잭션 배치로도 적당한 크기다 (ADR-001 조건 3).
+ */
+export const DEFAULT_CHUNK_SIZE = 1_000

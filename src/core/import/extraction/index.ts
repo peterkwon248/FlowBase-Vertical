@@ -58,13 +58,18 @@ export function extractSheet(
 
   // 2) 시트 성격을 먼저 본다 — 요약 시트에 헤더 판정을 강요하지 않는다.
   const cls = classifySheet(sheet.name, live, width, opts)
+  // 수식 비율은 역할을 정하지 않지만 사람이 판단할 때 필요한 재료라 함께 남긴다.
+  const reason =
+    sheet.formulaRatio === null
+      ? cls.reason
+      : `${cls.reason}, 수식 ${(sheet.formulaRatio * 100).toFixed(0)}%`
 
   // 3) 헤더 탐지.
   const header = detectHeader(live, width, opts)
 
   if (header.rowIndex === null) {
     return {
-      sheet: { ...sheet, role: cls.role, reason: cls.reason },
+      sheet: { ...sheet, role: cls.role, reason },
       header,
       rows: [],
       excluded,
