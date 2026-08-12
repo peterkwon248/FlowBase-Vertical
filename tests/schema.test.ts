@@ -1,7 +1,7 @@
 ﻿import { describe, it, expect } from "vitest"
 import { openNodeDriver } from "../src/core/store/driver-node.js"
 import type { Driver } from "../src/core/store/driver.js"
-import { migrate } from "../src/core/store/migrate.js"
+import { migrate, loadMigrations } from "../src/core/store/migrate.js"
 
 /** 헌장 B-1 — Fact 행 공통 컬럼 6종. 소급 추가 불가 항목이다. */
 const REQUIRED_FACT_COLUMNS = [
@@ -34,10 +34,11 @@ function columnsOf(db: Driver, table: string): string[] {
 }
 
 describe("스키마 — 헌장 B부 대조", () => {
-  it("마이그레이션이 적용된다", () => {
+  it("마이그레이션이 파일 수만큼 적용된다", () => {
     const db = fresh()
-    const v = db.prepare("SELECT MAX(version) AS v FROM schema_migration").get() as { v: number }
-    expect(v.v).toBe(1)
+    const applied = db.prepare("SELECT COUNT(*) AS n FROM schema_migration").get() as { n: number }
+    // 파일을 추가하고 적용을 잊으면 여기서 어긋난다.
+    expect(Number(applied.n)).toBe(loadMigrations().length)
     db.close()
   })
 

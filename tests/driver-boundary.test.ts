@@ -40,7 +40,9 @@ class FakeDriver implements Driver {
       },
       get(...p: readonly SqlValue[]) {
         self.params.push([...p])
-        return self.canned
+        // 집계 조회에만 준비된 답을 준다. 존재 확인 조회(되돌리기 가능 여부 등)에
+        // 값을 돌려주면 "행이 있다"는 뜻이 되어 엉뚱한 분기를 탄다.
+        return sql.includes("COUNT(*)") ? self.canned : undefined
       },
       all(...p: readonly SqlValue[]) {
         self.params.push([...p])

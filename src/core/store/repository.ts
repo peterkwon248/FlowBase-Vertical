@@ -61,6 +61,7 @@ export interface LoadStats {
 
 export class Repository {
   private readonly insertCache = new Map<string, Statement>()
+  private readonly columnCache = new Map<string, string[]>()
 
   constructor(private readonly db: Driver) {}
 
@@ -163,18 +164,43 @@ export class Repository {
   }
 
   /**
-   * 되돌리기 = **해당 batch 행 제거** (헌장 B-2).
+   * 되돌리기 (헌장 B-2 · ADR-004).
+   *
+   * "해당 batch 행 제거"는 한 행이 한 배치에만 속할 때만 맞다. UPSERT가 있으면
+   * 한 행이 여러 배치를 거치므로 두 갈래로 나뉜다:
+   *
+   *   이 배치가 **갱신한** 행     → `row_shadow`의 이전 판으로 복원
+   *   이 배치가 **신규 삽입한** 행 → 삭제
+   *
+   * 복원을 먼저 한다. 복원되면 `batch_id`가 이전 배치로 돌아가므로, 뒤이은
+   * 삭제(`WHERE batch_id = ?`)가 그 행을 건드리지 않는다.
    *
    * 조정(`adjustment`)과 대사 확인(`recon_ack`)은 건드리지 않는다 — batch가
-   * 아니라 `source_key`에 묶여 있기 때문이다. 같은 파일을 다시 가져오면
-   * 조정이 그대로 되살아난다 (B-3).
+   * 아니라 `source_key`에 묶여 있기 때문이다 (B-3).
+   *
+   * @returns 삭제된 행 수 (복원된 행은 제외)
    */
   undoBatch(batchId: string, at: string): number {
     return this.db.transaction(() => {
+      this.assertUndoable(batchId)
+
       let removed = 0
       for (const table of FACT_TABLES) {
+        this.restoreShadowed(table, batchId)
         removed += this.db.prepare(`DELETE FROM ${table} WHERE batch_id = ?`).run(batchId).changes
       }
+
+      // 되돌린 뒤에는 어떤 그림자도 이 배치를 가리키지 않아야 한다 — 덮어쓴
+      // 쪽으로도, 덮인 쪽으로도.
+      //
+      // `prev_batch_id` 조건이 필요한 이유: 복원 UPDATE가 `batch_id`를 B에서 A로
+      // 되돌리는데, 그 UPDATE 자체가 그림자 트리거를 다시 발화시켜
+      // (batch_id=A, prev_batch_id=B)인 거울상 항목을 만든다. 되돌리기 직전에
+      // `assertUndoable`이 `prev_batch_id = B`가 없음을 확인했으므로, 지금
+      // 남아 있는 그것은 전부 복원이 만든 것이다.
+      this.db
+        .prepare(`DELETE FROM row_shadow WHERE batch_id = ? OR prev_batch_id = ?`)
+        .run(batchId, batchId)
       this.db.prepare(`DELETE FROM batch_exclusion WHERE batch_id = ?`).run(batchId)
       const r = this.db
         .prepare(`UPDATE batch SET status = 'undone', undone_at = ?, row_count = 0 WHERE id = ?`)
@@ -182,6 +208,52 @@ export class Repository {
       if (r.changes === 0) throw new Error(`되돌릴 수 없는 배치: ${batchId}`)
       return removed
     })
+  }
+
+  /**
+   * 되돌리기는 행 단위로 LIFO다.
+   *
+   * 이 배치가 남긴 판 위에 다른 배치가 또 얹혀 있으면 되돌릴 수 없다 — 복원하면
+   * 나중 배치의 데이터를 덮어쓰게 된다. 조용히 덮는 대신 거부한다 (헌장 A-5).
+   */
+  private assertUndoable(batchId: string): void {
+    const r = this.db
+      .prepare(
+        `SELECT batch_id AS blocker FROM row_shadow WHERE prev_batch_id = ? LIMIT 1`,
+      )
+      .get(batchId)
+    if (r) {
+      throw new Error(
+        `되돌릴 수 없다: 배치 ${String(r.blocker)}가 이 배치의 행을 덮어썼다. ` +
+          `그쪽을 먼저 되돌려야 한다`,
+      )
+    }
+  }
+
+  /** 이 배치가 덮어쓴 행들을 이전 판으로 되돌린다. */
+  private restoreShadowed(table: FactTable, batchId: string): void {
+    const cols = this.columnsOf(table)
+    const assignments = cols
+      .map((c) => `${c} = json_extract(s.prev_row_json, '$.${c}')`)
+      .join(", ")
+    this.db
+      .prepare(
+        `UPDATE ${table} SET ${assignments}
+           FROM (SELECT * FROM row_shadow WHERE batch_id = ? AND target_table = ?) AS s
+          WHERE ${table}.connection_id = s.connection_id AND ${table}.source_key = s.source_key`,
+      )
+      .run(batchId, table)
+  }
+
+  private columnsOf(table: FactTable): string[] {
+    const cached = this.columnCache.get(table)
+    if (cached) return cached
+    const cols = this.db
+      .prepare(`SELECT name FROM pragma_table_info(?)`)
+      .all(table)
+      .map((r) => String(r.name))
+    this.columnCache.set(table, cols)
+    return cols
   }
 
   // ─────────────────────────────────────────────────────────
