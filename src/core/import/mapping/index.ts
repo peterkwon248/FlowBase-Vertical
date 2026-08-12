@@ -11,8 +11,9 @@
  */
 
 import { createHash } from "node:crypto"
-import type { NormalizedValue, RawCell } from "../types.js"
+import type { NormalizedChunk, RawCell } from "../types.js"
 import { normalizeValue } from "../normalization/value.js"
+import { rowValuesInto } from "../normalization/chunk.js"
 
 export type SourceKeyStrategy = "natural" | "content"
 
@@ -212,7 +213,7 @@ function looseDate(s: string): string | null {
 export function mapRows(
   profile: MappingProfile,
   headers: readonly string[],
-  rows: readonly (readonly NormalizedValue[])[],
+  chunk: NormalizedChunk,
   ctx: MapContext,
   startRowIndex = 0,
 ): MappingResult {
@@ -229,8 +230,14 @@ export function mapRows(
   const errors: MappingError[] = []
   const seen = (ctx.keyState ?? newKeyState()).seen
 
-  for (const [i, row] of rows.entries()) {
+  // `content` 전략이 쓰는 행 값 버퍼. **청크당 하나**를 돌려 쓴다 — 행마다 뜨면
+  // 평탄화로 없앤 할당이 그대로 되살아난다.
+  const scratch: (string | number | null)[] =
+    profile.sourceKey.strategy === "natural" ? [] : new Array(chunk.width).fill(null)
+
+  for (let i = 0; i < chunk.rowCount; i++) {
     const rowIndex = startRowIndex + i
+    const base = i * chunk.width
     const fields: Record<string, RawCell> = {}
     let fatal = false
 
@@ -251,9 +258,8 @@ export function mapRows(
           if (i === 0) {
             errors.push({ rowIndex, field: m.target, reason: `컬럼 "${m.source}"가 없다` })
           }
-        } else {
-          const cell = row[col]
-          value = cell === undefined ? null : coerce(cell, m.kind)
+        } else if (col < chunk.width) {
+          value = coerce(chunk.values[base + col] ?? null, chunk.raws[base + col] ?? null, m.kind)
         }
       }
 
@@ -273,13 +279,12 @@ export function mapRows(
         ? (profile.sourceKey.columns ?? [])
             .map((c) => {
               const col = index.get(c)
-              return col === undefined ? "" : String(row[col]?.value ?? "")
+              return col === undefined || col >= chunk.width
+                ? ""
+                : String(chunk.values[base + col] ?? "")
             })
             .join("")
-        : contentKey(
-            row.map((v) => v.value),
-            seen,
-          )
+        : (rowValuesInto(chunk, i, scratch), contentKey(scratch, seen))
 
     out.push({ sourceKey, fields })
   }
@@ -287,18 +292,28 @@ export function mapRows(
   return { rows: out, errors, unmappedColumnCount }
 }
 
-/** 정규화된 값을 매핑이 요구하는 종류로 맞춘다. */
-function coerce(v: NormalizedValue, kind: FieldMapping["kind"]): RawCell {
-  if (v.value === null) return null
+/**
+ * 정규화된 값을 매핑이 요구하는 종류로 맞춘다.
+ *
+ * `raw`를 따로 받는 이유: 컬럼 추론이 `text`로 봤는데 프로파일이 `number`를
+ * 요구하는 경우, 정규화된 값이 아니라 **원본**을 다시 읽어야 한다. 평탄화
+ * 이후에도 원본에 닿는 경로가 남아 있어야 하는 것이 이 함수 때문이다.
+ */
+function coerce(
+  value: string | number | null,
+  raw: RawCell,
+  kind: FieldMapping["kind"],
+): RawCell {
+  if (value === null) return null
   switch (kind) {
     case "identifier":
-      return String(v.value)
+      return String(value)
     case "number":
     case "percent":
-      return typeof v.value === "number" ? v.value : (normalizeValue(v.raw).value as RawCell)
+      return typeof value === "number" ? value : (normalizeValue(raw).value as RawCell)
     case "date":
-      return typeof v.value === "string" ? v.value : String(v.value)
+      return typeof value === "string" ? value : String(value)
     default:
-      return typeof v.value === "number" ? String(v.value) : v.value
+      return typeof value === "number" ? String(value) : value
   }
 }

@@ -96,11 +96,11 @@ for await (const chunk of chunks) {
   const mapped = mapRows(
     profile,
     headers,
-    chunk.rows,
+    chunk,
     { fileName, fileNameCaptures: captures, keyState },
     rowOffset,
   )
-  rowOffset += chunk.rows.length
+  rowOffset += chunk.rowCount
   mappingErrors += mapped.errors.length
   unmapped = mapped.unmappedColumnCount
 
@@ -110,7 +110,7 @@ for await (const chunk of chunks) {
       profile.targetTable as FactTable,
       batch,
       mapped.rows.map((r, i) => ({
-        id: `${batch.id}-${rowOffset - chunk.rows.length + i}`,
+        id: `${batch.id}-${rowOffset - chunk.rowCount + i}`,
         source_key: r.sourceKey,
         ...r.fields,
       })),

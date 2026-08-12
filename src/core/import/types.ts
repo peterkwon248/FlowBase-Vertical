@@ -187,6 +187,29 @@ export interface NormalizedValue {
   readonly raw: RawCell
 }
 
+/**
+ * `NormalizedKind`의 정수 코드. columnar 청크가 `Uint8Array`에 담는 값이다.
+ *
+ * 순서를 바꾸면 저장된 것과 어긋난다 — 지금은 청크가 메모리에만 있으므로
+ * 안전하지만, IPC나 디스크로 나가는 순간 이 표가 계약이 된다. 끝에만 추가한다.
+ */
+export const KIND_NULL = 0
+export const KIND_NUMBER = 1
+export const KIND_PERCENT = 2
+export const KIND_DATE = 3
+export const KIND_TEXT = 4
+export const KIND_IDENTIFIER = 5
+
+/** 코드 → 이름. 인덱스가 곧 코드다. */
+export const KIND_NAMES: readonly NormalizedKind[] = [
+  "null",
+  "number",
+  "percent",
+  "date",
+  "text",
+  "identifier",
+]
+
 // ─────────────────────────────────────────────────────────────
 // 스트리밍
 // ─────────────────────────────────────────────────────────────
@@ -201,6 +224,38 @@ export interface RowChunk {
   readonly startRow: number
   readonly rows: readonly RawRow[]
   readonly isLast: boolean
+}
+
+/**
+ * 정규화된 청크 — **columnar**. 셀 하나가 객체 하나였던 것을 평평한 배열로 바꾼 것이다.
+ *
+ * ★ 왜 행 배열이 아닌가 ★
+ * 행마다 배열, 셀마다 `{kind, value, raw}` 객체를 만들면 #13(80,137행 × 43열)에서
+ * 객체 344만 개가 생긴다. 동시에 살아 있는 건 청크 하나뿐이지만 RSS는 할당
+ * **총량**을 따라가므로 기준 2(256MB)를 넘겼다. 평평한 배열이면 청크당 할당이
+ * 셀 수와 무관하게 **3개**다.
+ *
+ * ★ 왜 여전히 평범한 데이터인가 ★
+ * `RowChunk`와 같은 직렬화 경계다 (ADR-001: 단계 간에는 직렬화 가능한 값만).
+ * 메서드를 달면 구조화 복제가 깨져 Rust 포팅 시 IPC를 못 탄다. 그래서 접근은
+ * `normalization/chunk.ts`의 자유 함수로 한다. `Uint8Array`는 전송 가능(transferable)
+ * 이기까지 해서 오히려 그 경계에 더 맞는다.
+ *
+ * 인덱스는 `r * width + c`. 세 배열의 길이는 모두 `rowCount * width`다.
+ */
+export interface NormalizedChunk {
+  readonly sheetIndex: number
+  /** 시트 안에서 이 청크 첫 행의 0-기준 인덱스. */
+  readonly startRow: number
+  readonly isLast: boolean
+  /** 이 청크의 컬럼 수. 시트 전체가 아니라 **청크**의 폭이다. */
+  readonly width: number
+  readonly rowCount: number
+  /** `KIND_*` 코드. */
+  readonly kinds: Uint8Array
+  readonly values: readonly (string | number | null)[]
+  /** 원본 셀. 파서가 만든 값을 그대로 참조한다 — 여기서 새로 만들지 않는다. */
+  readonly raws: readonly RawCell[]
 }
 
 /** 시트 목록 단계에서 알 수 있는 것. 행 수는 아직 모른다 — 지어내지 않는다. */

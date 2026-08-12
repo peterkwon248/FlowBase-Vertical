@@ -9,6 +9,15 @@
  */
 
 import type { NormalizedKind, NormalizedValue, RawCell } from "../types.js"
+import {
+  KIND_DATE,
+  KIND_IDENTIFIER,
+  KIND_NAMES,
+  KIND_NULL,
+  KIND_NUMBER,
+  KIND_PERCENT,
+  KIND_TEXT,
+} from "../types.js"
 
 /** null로 볼 표기. 마켓 파일이 "값 없음"을 적는 방식들이다. */
 const NULL_TOKENS: ReadonlySet<string> = new Set(["", "-", "--", "―", "–", "n/a", "na", "null", "없음"])
@@ -88,50 +97,120 @@ export interface NormalizeOptions {
   readonly kind?: NormalizedKind
 }
 
-const NULL_VALUE = (raw: RawCell): NormalizedValue => ({ kind: "null", value: null, raw })
+/** `NULL_TOKENS` 중 가장 긴 것의 길이. 이보다 길면 대조할 필요가 없다. */
+const MAX_NULL_TOKEN = 4
 
-export function normalizeValue(raw: RawCell, opts: NormalizeOptions = {}): NormalizedValue {
-  if (raw === null || raw === undefined) return NULL_VALUE(raw)
+/**
+ * 정규화의 본체 — **셀 하나를 읽어 배열 두 칸에 쓴다.**
+ *
+ * ★ 왜 값을 반환하지 않는가 ★
+ * 반환하려면 `{kind, value}` 객체를 만들어야 하고, 그게 정확히 없애려는 비용이다.
+ * 80,137행 × 43컬럼 = 344만 셀에서 셀당 객체 하나는 100MB대의 할당 총량이 되고
+ * RSS는 동시 생존이 아니라 할당 총량을 따라간다 (기준 2 미통과의 원인).
+ *
+ * 그래서 호출자가 준 columnar 버퍼에 직접 쓴다. 이 함수는 **아무것도 할당하지
+ * 않는다** — 문자열 변환이 필요한 경로(`String(raw)`·`trim()`)만 예외다.
+ */
+export function normalizeInto(
+  raw: RawCell,
+  hint: NormalizedKind | undefined,
+  kinds: Uint8Array,
+  values: (string | number | null)[],
+  i: number,
+): void {
+  if (raw === null || raw === undefined) {
+    kinds[i] = KIND_NULL
+    values[i] = null
+    return
+  }
 
   if (typeof raw === "boolean") {
-    return { kind: "text", value: raw ? "true" : "false", raw }
+    kinds[i] = KIND_TEXT
+    values[i] = raw ? "true" : "false"
+    return
   }
 
   if (typeof raw === "number") {
     // 파일이 숫자로 갖고 있던 값이다. 식별자 컬럼이면 문자열로 되돌린다 —
     // 엑셀이 주문번호를 숫자로 만들어버린 경우가 여기 걸린다.
-    if (opts.kind === "identifier") {
-      return { kind: "identifier", value: String(raw), raw }
+    if (hint === "identifier") {
+      kinds[i] = KIND_IDENTIFIER
+      values[i] = String(raw)
+      return
     }
-    return { kind: "number", value: raw, raw }
+    kinds[i] = KIND_NUMBER
+    values[i] = raw
+    return
   }
 
   const s = raw.trim()
-  if (NULL_TOKENS.has(s.toLowerCase())) return NULL_VALUE(raw)
+  // `toLowerCase()`는 셀마다 문자열을 하나 만든다. 토큰이 전부 4자 이하이므로
+  // 긴 문자열은 대조 자체를 건너뛴다 — 판정은 그대로고 할당만 사라진다.
+  if (s.length <= MAX_NULL_TOKEN && NULL_TOKENS.has(s.toLowerCase())) {
+    kinds[i] = KIND_NULL
+    values[i] = null
+    return
+  }
 
   // 강제 지정이 있으면 그것을 따른다. 다만 null 표기는 위에서 이미 걸렀다.
-  if (opts.kind === "identifier") return { kind: "identifier", value: s, raw }
-  if (opts.kind === "text") return { kind: "text", value: s, raw }
+  if (hint === "identifier") {
+    kinds[i] = KIND_IDENTIFIER
+    values[i] = s
+    return
+  }
+  if (hint === "text") {
+    kinds[i] = KIND_TEXT
+    values[i] = s
+    return
+  }
 
   const pct = parsePercentLike(s)
-  if (pct !== null) return { kind: "percent", value: pct, raw }
+  if (pct !== null) {
+    kinds[i] = KIND_PERCENT
+    values[i] = pct
+    return
+  }
 
   const date = parseDateLike(s)
-  if (date !== null) return { kind: "date", value: date, raw }
+  if (date !== null) {
+    kinds[i] = KIND_DATE
+    values[i] = date
+    return
+  }
 
-  if (opts.kind === "number") {
+  if (hint === "number") {
     const n = parseNumberLike(s)
-    return n === null ? { kind: "text", value: s, raw } : { kind: "number", value: n, raw }
+    kinds[i] = n === null ? KIND_TEXT : KIND_NUMBER
+    values[i] = n === null ? s : n
+    return
   }
 
   // 지정이 없을 때: 숫자로 읽되, 정보를 잃는 숫자 문자열은 식별자로 남긴다.
   const n = parseNumberLike(s)
   if (n !== null) {
     if (/^-?\d+$/.test(s) && !isLosslessNumber(s)) {
-      return { kind: "identifier", value: s, raw }
+      kinds[i] = KIND_IDENTIFIER
+      values[i] = s
+      return
     }
-    return { kind: "number", value: n, raw }
+    kinds[i] = KIND_NUMBER
+    values[i] = n
+    return
   }
 
-  return { kind: "text", value: s, raw }
+  kinds[i] = KIND_TEXT
+  values[i] = s
+}
+
+/**
+ * 셀 하나를 객체로. **한 셀씩 쓰는 곳만 이걸 쓴다** — 컬럼 종류 추론, 테스트,
+ * 매핑의 재해석 경로처럼 호출 수가 행 수에 비례하지 않는 자리다.
+ * 표를 통째로 도는 경로는 `normalizeInto`를 쓴다.
+ */
+const scratchKinds = new Uint8Array(1)
+const scratchValues: (string | number | null)[] = [null]
+
+export function normalizeValue(raw: RawCell, opts: NormalizeOptions = {}): NormalizedValue {
+  normalizeInto(raw, opts.kind, scratchKinds, scratchValues, 0)
+  return { kind: KIND_NAMES[scratchKinds[0]!]!, value: scratchValues[0] ?? null, raw }
 }

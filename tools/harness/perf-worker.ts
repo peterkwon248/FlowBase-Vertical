@@ -45,7 +45,7 @@ let rows = 0
 let chunkCount = 0
 // 실제 적재를 흉내 낸다 — 청크를 받아 세고 즉시 버린다. SQLite는 세션 2다.
 for await (const chunk of chunks) {
-  rows += chunk.rows.length
+  rows += chunk.rowCount
   chunkCount++
   post({ type: "progress", rows })
 }

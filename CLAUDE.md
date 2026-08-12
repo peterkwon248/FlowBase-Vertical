@@ -20,6 +20,7 @@
 | [docs/ADR-003-sqlite-바인딩.md](docs/ADR-003-sqlite-바인딩.md) | rusqlite를 Tauri 커맨드 뒤에. 커맨드 표면이 결정 근거 |
 | [docs/ADR-004-되돌리기-의미론.md](docs/ADR-004-되돌리기-의미론.md) | UPSERT × 되돌리기. `row_shadow` + 복원, 순서 꼬이면 거부 |
 | [docs/ADR-005-기준데이터-이력-범위.md](docs/ADR-005-기준데이터-이력-범위.md) | v1 이력 = 원가만. 명시적 축소 결정 |
+| [docs/ADR-007-정규화-표현.md](docs/ADR-007-정규화-표현.md) | 정규화 청크는 columnar. 셀당 객체 344만 개를 없앴다 — 기준 2가 여기서 통과했고, 벽은 파서로 옮겨갔다 |
 | [docs/다음-마이그레이션-대기목록.md](docs/다음-마이그레이션-대기목록.md) | 목업이 요구하는 미구현 저장 6종 |
 | [docs/픽스처-대조표.md](docs/픽스처-대조표.md) | **독립 실측 대조표.** `expected*` 매니페스트의 채점 기준 — 우리 파서로 만들지 않았다 |
 
@@ -95,7 +96,12 @@ Recognition은 **매직 바이트가 1순위**, 확장자는 힌트에 불과하
 ```bash
 npm run harness   # expected 매니페스트 생성 (fixtures/manifest/manifest.json)
 npm run perf      # 성능 게이트 — 30초 / 256MB
+npm run e2e       # 종단 게이트 — 적재까지. 한 회차로 판정하지 않는다
 ```
 
 `tools/deident/` — `scan` (PII 탐지) · `apply` (raw→clean 치환) · `verify` (잔존·구조 검증).
-`tools/harness/` — `dump-sheet` · `check-excluded` · `classify-check` · `verify-fast-path`.
+`tools/harness/` — `dump-sheet` · `check-excluded` · `classify-check` · `verify-fast-path` · `equivalence`.
+
+**표현을 바꾸는 리팩터링은 `equivalence`부터.** 고치기 전에 `--save`로 기준선을 뜨고
+고친 뒤 `--check`로 대조한다 — 452만 셀의 `(kind, value, raw)`와 실제 적재되는 매핑 행을
+해시한다. "빨라졌다"보다 **"같은 답이 나온다"**가 먼저다 (ADR-007).

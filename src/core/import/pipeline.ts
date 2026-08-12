@@ -20,17 +20,19 @@
 import type {
   ExcludedRow,
   HeaderDetection,
-  NormalizedValue,
+  NormalizedChunk,
   ParseOptions,
   ParsedSource,
+  RawCell,
   RawRow,
   SheetInfo,
 } from "./types.js"
+import { KIND_NULL, KIND_TEXT } from "./types.js"
 import { detectHeader, headerSpan, type HeaderOptions } from "./extraction/header.js"
 import { isTotalRow, DEFAULT_TOTAL_LABELS } from "./extraction/totals.js"
 import { isBlankRow } from "./extraction/rows.js"
 import { inferColumnKind, type ColumnInference } from "./normalization/column.js"
-import { normalizeValue } from "./normalization/value.js"
+import { normalizeInto } from "./normalization/value.js"
 
 export interface StreamPipelineOptions extends ParseOptions, HeaderOptions {
   /** 헤더·컬럼 종류를 정하기 위해 앞에서 버퍼링할 행 수. */
@@ -40,12 +42,7 @@ export interface StreamPipelineOptions extends ParseOptions, HeaderOptions {
   readonly skipNormalization?: boolean
 }
 
-export interface NormalizedChunk {
-  readonly sheetIndex: number
-  readonly startRow: number
-  readonly rows: readonly (readonly NormalizedValue[])[]
-  readonly isLast: boolean
-}
+export type { NormalizedChunk } from "./types.js"
 
 export interface PipelineSummary {
   readonly sheet: SheetInfo
@@ -89,8 +86,56 @@ export function streamSheet(
     // 꼬리 빈 행 보류함. 실데이터가 다시 오면 함께 흘려보내고,
     // 끝까지 안 오면 그게 곧 꼬리다.
     let pendingBlanks: { row: RawRow; index: number }[] = []
-    let out: (readonly NormalizedValue[])[] = []
+
+    // ── columnar 버퍼 ──────────────────────────────────────────
+    // 청크 하나당 배열 3개. 셀 수와 무관하게 3개다.
+    const cap = opts.chunkSize ?? 5_000
+    let kindCodes: Uint8Array | null = null
+    let values: (string | number | null)[] = []
+    let raws: RawCell[] = []
+    let rowsInChunk = 0
+    let bufWidth = 0
     let outStart = 0
+
+    const alloc = (w: number): void => {
+      bufWidth = w
+      kindCodes = new Uint8Array(cap * w)
+      // `fill`은 배열을 PACKED로 만든다. 구멍 난 배열은 V8이 느린 경로로 다룬다.
+      values = new Array<string | number | null>(cap * w).fill(null)
+      raws = new Array<RawCell>(cap * w).fill(null)
+      rowsInChunk = 0
+    }
+
+    /** 지금까지 채운 만큼을 청크로 떼어낸다. 버퍼는 재사용하지 않는다 — 내보낸 것을 덮게 된다. */
+    const flush = (isLast: boolean): NormalizedChunk => {
+      if (kindCodes === null) {
+        return {
+          sheetIndex,
+          startRow: outStart,
+          isLast,
+          width: bufWidth,
+          rowCount: 0,
+          kinds: new Uint8Array(0),
+          values: [],
+          raws: [],
+        }
+      }
+      const n = rowsInChunk * bufWidth
+      // 남는 칸이 붙어 나가면 소비자가 셀 수를 오해한다. 정확히 채운 만큼만.
+      const chunk: NormalizedChunk = {
+        sheetIndex,
+        startRow: outStart,
+        isLast,
+        width: bufWidth,
+        rowCount: rowsInChunk,
+        kinds: n === kindCodes.length ? kindCodes : kindCodes.slice(0, n),
+        values: n === values.length ? values : values.slice(0, n),
+        raws: n === raws.length ? raws : raws.slice(0, n),
+      }
+      kindCodes = null
+      rowsInChunk = 0
+      return chunk
+    }
 
     const decide = (): void => {
       width = Math.max(sheet!.columnCount, ...prologue.map((r) => r.length), 0)
@@ -126,22 +171,47 @@ export function streamSheet(
       }
     }
 
-    const emit = (row: RawRow, index: number): void => {
+    /**
+     * 행 하나를 버퍼에 쓴다. 청크가 차면 그 자리에서 내보내므로 제너레이터다.
+     *
+     * ragged row 패딩은 배열을 새로 만들지 않는다 — 모자란 칸은 그냥 `null`을 쓴다.
+     */
+    function* emit(row: RawRow, index: number): Generator<NormalizedChunk> {
       if (isTotalRow(row, totalLabels)) {
         excluded.push({ rowIndex: index, reason: "total", detail: "합계 행" })
         return
       }
-      const padded =
-        row.length >= width ? row : [...row, ...new Array<null>(width - row.length).fill(null)]
-      const normalized = opts.skipNormalization
-        ? (padded as unknown as readonly NormalizedValue[])
-        : padded.map((cell, c) => {
-            const k = kinds[c]?.kind
-            return normalizeValue(cell, k && k !== "null" ? { kind: k } : {})
-          })
-      if (out.length === 0) outStart = index
-      out.push(normalized)
+
+      // 선언된 폭보다 긴 행. 15개 픽스처에는 없지만(실측), 생기면 자르지 않고
+      // 폭을 넓힌다 — 조용히 버리는 것은 헌장 규칙 6 위반이다.
+      if (row.length > width) {
+        if (rowsInChunk > 0) yield flush(false)
+        width = row.length
+        kindCodes = null
+      }
+
+      if (kindCodes === null) alloc(width)
+      if (rowsInChunk === 0) outStart = index
+
+      const base = rowsInChunk * bufWidth
+      for (let c = 0; c < bufWidth; c++) {
+        const cell = c < row.length ? (row[c] ?? null) : null
+        const i = base + c
+        raws[i] = cell
+        if (opts.skipNormalization) {
+          // 측정 전용 경로 — 해석하지 않고 원본을 그대로 흘린다.
+          kindCodes![i] = cell === null ? KIND_NULL : KIND_TEXT
+          values[i] = typeof cell === "boolean" ? String(cell) : cell
+        } else {
+          const k = kinds[c]?.kind
+          // `null` 추론은 "표본이 없다"는 뜻이라 강제하지 않는다.
+          normalizeInto(cell, k && k !== "null" ? k : undefined, kindCodes!, values, i)
+        }
+      }
+
+      rowsInChunk++
       dataRowCount++
+      if (rowsInChunk >= cap) yield flush(false)
     }
 
     for await (const chunk of source.stream(sheetIndex, opts)) {
@@ -159,7 +229,7 @@ export function streamSheet(
               if (isBlankRow(p)) pendingBlanks.push({ row: p, index: r })
               else {
                 pendingBlanks = []
-                emit(p, r)
+                yield* emit(p, r)
               }
             }
             // prologue는 여기서 역할이 끝난다 — 참조를 끊어 GC가 가져가게 한다.
@@ -177,12 +247,7 @@ export function streamSheet(
           excluded.push({ rowIndex: b.index, reason: "blank", detail: "빈 행" })
         }
         pendingBlanks = []
-        emit(row, index)
-
-        if (out.length >= (opts.chunkSize ?? 5_000)) {
-          yield { sheetIndex, startRow: outStart, rows: out, isLast: false }
-          out = []
-        }
+        yield* emit(row, index)
       }
     }
 
@@ -194,7 +259,7 @@ export function streamSheet(
         if (isBlankRow(p)) pendingBlanks.push({ row: p, index: r })
         else {
           pendingBlanks = []
-          emit(p, r)
+          yield* emit(p, r)
         }
       }
       prologue.length = 0
@@ -208,7 +273,7 @@ export function streamSheet(
       })
     }
 
-    yield { sheetIndex, startRow: outStart, rows: out, isLast: true }
+    yield flush(true)
   }
 
   return {
