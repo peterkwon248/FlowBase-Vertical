@@ -9,6 +9,11 @@
  *   npx tsx tools/harness/pnl.ts 2026-07-01 2026-07-31
  *   npx tsx tools/harness/pnl.ts --clean         # 비식별화본으로 (기본은 원본)
  *
+ * ★ 날짜 범위에 BETWEEN을 쓰지 않는다 ★
+ * `ordered_at`이 `2026-07-31T16:41:20`처럼 시각을 가지면 `BETWEEN ? AND '2026-07-31'`은
+ * 문자열 비교라 그 행을 범위 밖으로 판정한다 — 기간의 마지막 날이 통째로 사라진다.
+ * 실측으로 97,600원이 그렇게 빠졌다 (tests/range-boundary.test.ts).
+ *
  * 출력의 5줄은 **정답지 템플릿과 같은 형식**이다 — 대조가 즉시 되도록.
  */
 
@@ -195,7 +200,7 @@ const feeJoined = await db
             COALESCE(SUM(s.shipping_amount),0) AS ship, COUNT(*) AS n
        FROM active_settlement s
        JOIN active_order o ON o.source_key = s.order_source_key
-                          AND o.ordered_at BETWEEN ? AND ?
+                          AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')
       WHERE s.library_id = ?`,
   )
   .get(period.from, period.to, LIB)
@@ -205,7 +210,8 @@ const feeAll = await db
     `SELECT COALESCE(SUM(fee_amount),0) AS fee, COALESCE(SUM(vat_amount),0) AS vat,
             COALESCE(SUM(shipping_amount),0) AS ship, COALESCE(SUM(gross_amount),0) AS gross,
             COALESCE(SUM(net_amount),0) AS net, COUNT(*) AS n
-       FROM active_settlement WHERE library_id = ? AND settled_on BETWEEN ? AND ?`,
+       FROM active_settlement
+        WHERE library_id = ? AND settled_on >= ? AND settled_on < date(?, '+1 day')`,
   )
   .get(LIB, period.from, period.to)
 

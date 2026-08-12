@@ -325,6 +325,29 @@ export class Repository {
   // ─────────────────────────────────────────────────────────
 
   /**
+   * ★ `BETWEEN`을 쓰지 않는다 ★
+   *
+   * 날짜 컬럼은 `YYYY-MM-DD`일 수도 `YYYY-MM-DDTHH:MM:SS`일 수도 있다 —
+   * 마켓 양식이 정한다. ESM 주문 파일이 실제로 시각을 담아 온다.
+   *
+   * 그런데 SQLite의 비교는 **문자열 비교**라 `BETWEEN ? AND '2026-07-31'`은
+   * `'2026-07-31T16:41:20'`을 **범위 밖으로 판정한다.** 접두가 같고 뒤가 더
+   * 길면 사전순으로 뒤에 오기 때문이다.
+   *
+   * 그 결과는 **기간의 마지막 날이 통째로 사라지는 것**이다. 실측(2026-08-12):
+   * ESM 7월 주문 155건 중 7월 31일 3건(97,600원)이 조용히 빠져 총매출이
+   * 8,285,200 → 8,187,600으로 나왔다. 헌장 A-5가 "최악"이라 부른 종류다.
+   *
+   * 그래서 **끝을 다음 날 0시 미만**으로 잡는다. 바닥값(`2026-07-31`)과
+   * 시각값(`2026-07-31T16:41:20`) 둘 다 올바르게 포함되고, 인덱스도 탄다
+   * (`substr()`로 자르면 인덱스를 못 쓴다). 경계 의미는 ADR-009 ④와 같다 —
+   * 양끝 포함, KST 자정.
+   */
+  private rangeClause(dateColumn: string): string {
+    return `${dateColumn} >= ? AND ${dateColumn} < date(?, '+1 day')`
+  }
+
+  /**
    * 기간 범위로만 조회한다. **범위 없는 전체 조회는 제공하지 않는다** —
    * 그런 함수가 없다는 사실이 합격 기준 4의 증명이다.
    */
@@ -338,9 +361,7 @@ export class Repository {
     this.assertActiveView(view)
     this.assertIdentifier(dateColumn)
     const r = await this.db
-      .prepare(
-        `SELECT COUNT(*) AS n FROM ${view} WHERE library_id = ? AND ${dateColumn} BETWEEN ? AND ?`,
-      )
+      .prepare(`SELECT COUNT(*) AS n FROM ${view} WHERE library_id = ? AND ${this.rangeClause(dateColumn)}`)
       .get(libraryId, from, to)
     return Number(r?.n ?? 0)
   }
@@ -360,7 +381,7 @@ export class Repository {
     const r = await this.db
       .prepare(
         `SELECT COALESCE(SUM(${column}), 0) AS s FROM ${view}
-          WHERE library_id = ? AND ${dateColumn} BETWEEN ? AND ?`,
+          WHERE library_id = ? AND ${this.rangeClause(dateColumn)}`,
       )
       .get(libraryId, from, to)
     return Number(r?.s ?? 0)
