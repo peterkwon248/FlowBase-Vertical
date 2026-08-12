@@ -1,0 +1,90 @@
+{
+  "$schema": "flowbase/mapping-profile@1",
+  "id": "11st/settlement/order-line",
+  "version": "1",
+  "packId": "kr-marketplace",
+  "marketplaceKey": "11st",
+  "docType": "settlement",
+  "grain": "order-line",
+  "targetTable": "fact_settlement",
+  "label": "11번가 결제일 정산확정",
+
+  "recognitionRules": {
+    "containerFormats": ["biff", "xlsx"],
+    "requiredHeaders": ["주문번호", "주문순번", "정산금액", "판매금액합계", "공제금액합계", "정산확정일"],
+    "headerMatch": "all",
+    "fileNamePattern": "(?<year>\\d{4})년\\s*(?<month>\\d{1,2})월_11st",
+    "minConfidence": 0.8
+  },
+
+  "extractionRules": {
+    "sheetSelector": { "kind": "firstData" },
+    "headerRowHint": 6,
+    "detectUnlabeledAggregates": true
+  },
+
+  "sourceKey": {
+    "strategy": "natural",
+    "columns": ["주문번호", "주문순번"],
+    "note": "실측(2026-07 파일 128행): 주문번호 단독은 113/128로 유일하지 않다 — 한 주문에 여러 품목이 있으면 주문번호가 반복된다. 주문번호+주문순번은 128/128 유일하고 빈값이 없다. 'NO' 컬럼도 유일하지만 행 일련번호(positional)라 쓰지 않는다 — 마켓이 정렬을 바꿔 내보내면 같은 행이 다른 키를 갖는다 (ADR-006). 배송번호를 더해도 유일성이 나아지지 않으므로 최소 키로 둔다."
+  },
+
+  "fieldMappings": [
+    {
+      "target": "order_source_key",
+      "source": "주문번호",
+      "kind": "identifier",
+      "note": "손익은 이 키로 주문에 귀속된다 — 정산일이 아니라 그 주문의 ordered_at 달에 잡힌다 (ADR-009 ①)."
+    },
+    { "target": "settled_on", "source": "정산확정일", "kind": "date", "required": true },
+    { "target": "pay_out_on", "source": "송금완료일", "kind": "date" },
+    {
+      "target": "gross_amount",
+      "source": "판매금액합계",
+      "kind": "number",
+      "default": 0,
+      "signPolicy": "magnitude"
+    },
+    {
+      "target": "fee_amount",
+      "source": "공제금액합계",
+      "kind": "number",
+      "default": 0,
+      "signPolicy": "magnitude",
+      "note": "공제 총액이다. 서비스이용료(상품)·제휴마케팅대행·할인쿠폰이용료 등 40여 개 세부 컬럼의 합이며, 실측에서 서비스이용료(상품) 410,428은 공제금액합계 1,130,702의 부분집합이다. 세부 항목은 세션 3 이후 '내 필드'로 승격 대상."
+    },
+    {
+      "target": "vat_amount",
+      "kind": "number",
+      "derive": { "from": "constant", "value": 0 },
+      "note": "★ 이 양식에는 VAT 컬럼이 없다 ★ 없는 컬럼을 source로 걸면 매핑 오류가 매 파일마다 1건씩 나는데, 그건 데이터 문제가 아니라 프로파일이 선언한 사실이다 — 상시 오탐은 사람이 오류 목록을 안 보게 만든다. 그래서 상수 0으로 선언하고 사실은 이 note가 진다. 공제금액합계에 VAT가 포함돼 있는지는 11번가 문서로 확인이 필요하며, 그때까지 0을 '없음'이 아니라 '분리되지 않음'으로 읽어야 한다. 추정치를 지어내지 않는다 (헌장 A-5)."
+    },
+    {
+      "target": "shipping_amount",
+      "source": "선결제배송비",
+      "kind": "number",
+      "default": 0,
+      "signPolicy": "magnitude",
+      "note": "2026-07 파일에서는 합계 0이다. 도서산간배송비·반품배송비는 별도 컬럼이며 아직 매핑하지 않았다."
+    },
+    {
+      "target": "net_amount",
+      "source": "정산금액",
+      "kind": "number",
+      "default": 0,
+      "signPolicy": "magnitude",
+      "note": "실측 항등식(128/128행 일치): 정산금액 = 판매금액합계 + 추가정산금액합계 − 공제금액합계. 2026-07 합계 3,838,398 = 4,969,100 + 0 − 1,130,702."
+    }
+  ],
+
+  "validationRules": [
+    { "kind": "required", "fields": ["order_source_key", "settled_on"] },
+    { "kind": "nonNegative", "fields": ["gross_amount", "fee_amount", "net_amount"] },
+    { "kind": "parseRate", "min": 0.99 }
+  ],
+
+  "unmappedColumns": {
+    "policy": "keep-count",
+    "note": "59컬럼 중 8개만 매핑했다. 나머지 51개는 공제 세부 항목(서비스이용료 계열·할인 계열·이용료 계열)과 구매자 정보다. 구매자명·구매자ID는 PII라 의도적으로 매핑하지 않는다. 버린 수를 세어 표시한다 (헌장 A-5)."
+  }
+}
