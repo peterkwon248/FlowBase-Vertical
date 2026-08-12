@@ -9,7 +9,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "harness": "tsx tools/harness/build-manifest.ts",
-    "perf": "tsx tools/harness/perf-gate.ts"
+    "perf": "tsx tools/harness/perf-gate.ts",
+    "e2e": "tsx tools/harness/e2e-gate.ts"
   },
   "dependencies": {
     "fflate": "^0.8.3",

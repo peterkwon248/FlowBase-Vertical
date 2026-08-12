@@ -48,3 +48,6 @@ _ref/
 fixtures/raw/
 *.원본.xlsx
 *.원본.csv
+
+# 종단 게이트가 만드는 임시 DB
+.tmp/

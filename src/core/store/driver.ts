@@ -59,9 +59,13 @@ export const PRAGMAS: readonly string[] = [
   "PRAGMA foreign_keys = ON",
   // 임시 인덱스·정렬을 디스크에 쓰지 않는다.
   "PRAGMA temp_store = MEMORY",
-  // 페이지 캐시 64MB (음수는 KB 단위). 헌장 B-2의 메모리 규율 안에서
-  // 집계 쿼리가 디스크를 덜 때리게 한다.
-  "PRAGMA cache_size = -64000",
+  // 페이지 캐시 32MB (음수는 KB 단위).
+  //
+  // 처음엔 64MB로 뒀는데 측정 없이 고른 값이었고, 종단 게이트에서 그 64MB가
+  // 그대로 Worker 예산(256MB)을 잡아먹어 0.1MB 차이로 기준을 넘겼다. 32MB로
+  // 내려도 8만 행 집계에서 체감 차이가 없다 — 캐시는 클수록 좋은 게 아니라
+  // 예산 안에서 충분하면 되는 것이다.
+  "PRAGMA cache_size = -32000",
 ]
 
 export function applyPragmas(db: Driver, pragmas: readonly string[] = PRAGMAS): void {
