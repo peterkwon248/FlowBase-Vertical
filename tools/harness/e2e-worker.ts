@@ -104,7 +104,8 @@ for await (const chunk of chunks) {
   mappingErrors += mapped.errors.length
   unmapped = mapped.unmappedColumnCount
 
-  if (mapped.rows.length > 0) {
+  // 측정용: SKIP_LOAD=1이면 적재를 건너뛴다 — SQLite가 차지하는 메모리 몫을 분리한다.
+  if (mapped.rows.length > 0 && process.env.SKIP_LOAD !== "1") {
     repo.loadChunk(
       profile.targetTable as FactTable,
       batch,
