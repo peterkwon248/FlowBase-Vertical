@@ -122,6 +122,7 @@ for (const t of TARGETS) {
   let errors = 0
   let unmapped = 0
   let offset = 0
+  const perTable = new Map<string, number>()
 
   for await (const chunk of chunks) {
     if (!matched) {
@@ -141,17 +142,21 @@ for (const t of TARGETS) {
     errors += mapped.errors.length
     unmapped = mapped.unmappedColumnCount
 
-    if (mapped.rows.length > 0) {
+    // ★ byTable로 읽는다 ★ `rows`만 보면 라우팅으로 다른 테이블에 간 행을
+    // 통째로 놓친다 (ESM은 클레임이 fact_claim으로 갈라진다).
+    for (const [table, rows] of mapped.byTable) {
+      if (rows.length === 0) continue
       await repo.loadChunk(
-        profile.targetTable as FactTable,
+        table as FactTable,
         batch,
-        mapped.rows.map((r, i) => ({
-          id: `${batch.id}-${offset - chunk.rowCount + i}`,
+        rows.map((r, i) => ({
+          id: `${batch.id}-${table}-${offset - chunk.rowCount + i}`,
           source_key: r.sourceKey,
           ...r.fields,
         })),
       )
-      n += mapped.rows.length
+      perTable.set(table, (perTable.get(table) ?? 0) + rows.length)
+      n += rows.length
     }
   }
 
@@ -166,7 +171,7 @@ for (const t of TARGETS) {
   loaded.push({
     market: t.market,
     file: f.file,
-    table: profile.targetTable,
+    table: [...perTable].map(([t, c]) => `${t}:${c}`).join(" + ") || profile.targetTable,
     rows: n,
     excluded: sum.excluded.length,
     errors,
@@ -177,7 +182,7 @@ for (const t of TARGETS) {
 console.log("적재")
 for (const l of loaded) {
   console.log(
-    `  ${l.market.padEnd(8)} ${l.table.padEnd(16)} ${l.rows.toLocaleString().padStart(7)}행` +
+    `  ${l.market.padEnd(8)} ${l.table.padEnd(34)} ${l.rows.toLocaleString().padStart(7)}행` +
       ` · 제외 ${l.excluded} · 매핑오류 ${l.errors} · 미매핑컬럼 ${l.unmapped}`,
   )
 }
@@ -215,6 +220,19 @@ const feeAll = await db
   )
   .get(LIB, period.from, period.to)
 
+/**
+ * 클레임 — **발생일 기준**이다 (ADR-009 ①). 원거래 월로 소급하지 않는다.
+ * 부호는 저장값이 아니라 `claim_type`이 정하므로 유형과 금액을 그대로 넘긴다.
+ */
+const claimRows = await db
+  .prepare(
+    `SELECT claim_type, amount, date_precision FROM active_claim
+      WHERE library_id = ? AND claimed_at >= ? AND claimed_at < date(?, '+1 day')`,
+  )
+  .all(LIB, period.from, period.to)
+const claims = claimRows.map((r) => ({ type: String(r.claim_type), amount: Number(r.amount) }))
+const proxyDated = claimRows.filter((r) => r.date_precision === "proxy").length
+
 // 기준 데이터가 아직 없다 — 원가·운영비·고정비는 사람이 넣는 값이다.
 const cogs = 0
 const ops = 0
@@ -227,7 +245,7 @@ const pnl = computePnl({
   fee: Number(feeJoined?.fee ?? 0),
   vat: Number(feeJoined?.vat ?? 0),
   shipping: Number(feeJoined?.ship ?? 0),
-  claims: [],
+  claims,
   cogs,
   adDirect: 0,
   adUnallocated: adSpend,
@@ -260,6 +278,15 @@ if (Number(feeJoined?.n ?? 0) === 0 && Number(feeAll?.n ?? 0) > 0) {
     `수수료 ${won(Number(feeAll?.fee ?? 0))}가 손익에서 빠졌다 — 정산 ${Number(feeAll?.n)}건이 주문에 이어지지 않는다.\n` +
       `    11번가 정산 파일은 있는데 11번가 **주문** 파일이 없어 order_source_key 조인이 비어 있다.\n` +
       `    (정산 자체 합계: 판매 ${won(Number(feeAll?.gross ?? 0))} · 공제 ${won(Number(feeAll?.fee ?? 0))} · 정산 ${won(Number(feeAll?.net ?? 0))})`,
+  )
+}
+if (proxyDated > 0) {
+  gaps.push(
+    `클레임 ${proxyDated}건의 발생일이 **추정**이다 — ESM 양식에 클레임 일자 컬럼이 없어
+` +
+      `    결제일을 프록시로 썼다(date_precision='proxy'). 실제 반품일이 다음 달이면
+` +
+      `    그 달에 잡혀야 하지만 파일이 말해주지 않는다 (ADR-009 ①-보완)`,
   )
 }
 if (cogs === 0) gaps.push("원가 0 — cost_history가 비어 있다. 기준 데이터라 파일이 아니라 사람이 넣는다")

@@ -26,6 +26,15 @@ export interface FieldMapping {
   readonly derive?:
     | { readonly from: "fileName"; readonly capture: string }
     | { readonly from: "constant"; readonly value: RawCell }
+  /**
+   * 원본 값 → Canonical 값 사전. 스키마가 `CHECK`로 값을 제한하는 컬럼이
+   * 있어서 필요하다 — 예: `claim_type IN ('CANCEL','RETURN','EXCHANGE','REFUND')`인데
+   * 파일은 "취소완료"라고 적는다.
+   *
+   * 사전에 없는 값은 **조용히 통과시키지 않는다** — 매핑 오류로 보고한다.
+   * 모르는 상태가 새로 생겼다는 뜻이고, 그건 사람이 봐야 한다 (헌장 A-5).
+   */
+  readonly valueMap?: Readonly<Record<string, RawCell>>
 }
 
 export interface MappingProfile {
@@ -54,6 +63,38 @@ export interface MappingProfile {
     readonly columns?: readonly string[]
   }
   readonly fieldMappings: readonly FieldMapping[]
+  /**
+   * 한 파일 안에서 행을 **여러 테이블로 나눠 보낸다.**
+   *
+   * ★ 왜 프로파일을 둘로 쪼개지 않는가 ★
+   * ESM 주문통합검색은 주문과 클레임이 `진행상태` 한 컬럼으로 섞여 있다.
+   * 같은 파일에 프로파일 둘이 매칭되면 **Recognition이 모호해진다** — 어느
+   * 것을 고를지 파일만 보고는 알 수 없다. 그래서 프로파일은 하나로 두고
+   * 그 안에서 행을 가른다. **batch도 하나**다.
+   */
+  readonly rowRouting?: {
+    /** 판정에 쓸 컬럼. */
+    readonly column: string
+    /**
+     * 이 컬럼에서 **나올 수 있다고 알려진 값 전부.**
+     *
+     * ★ 없으면 조용히 샌다 ★
+     * `routes[].match`는 클레임 상태만 열거한다. 마켓이 "부분취소완료" 같은 새
+     * 상태를 만들면 어느 route에도 안 걸려 **기본 경로(매출)로 조용히 들어간다** —
+     * 클레임이 매출로 잡히는 바로 그 사고다 (헌장 A-5).
+     *
+     * 그래서 아는 값을 전부 적어두고, 벗어나면 오류로 보고한다. 행은 기본
+     * 경로로 보내되(데이터를 버리지 않는다) **모르는 상태가 왔다는 사실을 남긴다.**
+     */
+    readonly knownValues?: readonly string[]
+    readonly routes: readonly {
+      /** 이 값들 중 하나면 이 경로로 간다. */
+      readonly match: readonly string[]
+      readonly targetTable: string
+      readonly fieldMappings: readonly FieldMapping[]
+      readonly note?: string
+    }[]
+  }
   readonly validationRules: readonly Record<string, unknown>[]
   readonly unmappedColumns?: { readonly policy: string }
 }
@@ -130,7 +171,13 @@ export interface MappingError {
 }
 
 export interface MappingResult {
+  /** 기본 경로(`profile.targetTable`)의 행. 라우팅이 없으면 전부 여기 있다. */
   readonly rows: readonly MappedRow[]
+  /**
+   * 테이블별 행. `rowRouting`이 있으면 여기로 읽는다 — `rows`만 보면
+   * 다른 경로로 간 행을 통째로 놓친다.
+   */
+  readonly byTable: ReadonlyMap<string, readonly MappedRow[]>
   readonly errors: readonly MappingError[]
   /** 매핑하지 않고 버린 컬럼 수. 조용히 빠뜨리지 않기 위해 센다 (헌장 A-5). */
   readonly unmappedColumnCount: number
@@ -220,13 +267,31 @@ export function mapRows(
   const index = new Map<string, number>()
   headers.forEach((h, i) => index.set(h.trim(), i))
 
-  const mapped = profile.fieldMappings
-  const usedColumns = new Set(
-    mapped.map((m) => m.source).filter((s): s is string => s !== undefined),
-  )
+  const routing = profile.rowRouting
+  const routeCol = routing ? index.get(routing.column.trim()) : undefined
+
+  // 미매핑 컬럼은 **모든 경로가 쓰는 컬럼의 합집합**으로 센다 — 클레임 경로에서만
+  // 쓰는 컬럼을 "버렸다"고 세면 숫자가 거짓말을 한다.
+  const usedColumns = new Set<string>()
+  for (const m of profile.fieldMappings) if (m.source) usedColumns.add(m.source)
+  for (const r of routing?.routes ?? []) {
+    for (const m of r.fieldMappings) if (m.source) usedColumns.add(m.source)
+  }
+  if (routing) usedColumns.add(routing.column)
   const unmappedColumnCount = headers.filter((h) => !usedColumns.has(h.trim())).length
 
-  const out: MappedRow[] = []
+  /** 테이블별 버킷. 기본 경로는 `profile.targetTable`이다. */
+  const byTable = new Map<string, MappedRow[]>()
+  const bucket = (t: string): MappedRow[] => {
+    let b = byTable.get(t)
+    if (!b) {
+      b = []
+      byTable.set(t, b)
+    }
+    return b
+  }
+
+  const out: MappedRow[] = bucket(profile.targetTable)
   const errors: MappingError[] = []
   const seen = (ctx.keyState ?? newKeyState()).seen
 
@@ -240,6 +305,25 @@ export function mapRows(
     const base = i * chunk.width
     const fields: Record<string, RawCell> = {}
     let fatal = false
+
+    // 이 행이 어느 경로로 가는가. 일치하는 route가 없으면 기본 경로다.
+    let targetTable = profile.targetTable
+    let mapped = profile.fieldMappings
+    if (routing && routeCol !== undefined && routeCol < chunk.width) {
+      const routeValue = String(chunk.values[base + routeCol] ?? "")
+      const hit = routing.routes.find((r) => r.match.includes(routeValue))
+      if (hit) {
+        targetTable = hit.targetTable
+        mapped = hit.fieldMappings
+      } else if (routing.knownValues && !routing.knownValues.includes(routeValue)) {
+        // 모르는 값이다. 기본 경로로 보내되 조용히 넘기지 않는다.
+        errors.push({
+          rowIndex,
+          field: routing.column,
+          reason: `알 수 없는 ${routing.column}: "${routeValue}" — 새 상태가 생겼는지 확인해야 한다`,
+        })
+      }
+    }
 
     for (const m of mapped) {
       let value: RawCell = null
@@ -260,6 +344,20 @@ export function mapRows(
           }
         } else if (col < chunk.width) {
           value = coerce(chunk.values[base + col] ?? null, chunk.raws[base + col] ?? null, m.kind)
+          if (m.valueMap && value !== null) {
+            const mappedValue = m.valueMap[String(value)]
+            if (mappedValue === undefined) {
+              // 모르는 값을 통과시키면 스키마의 CHECK가 적재 시점에 터지거나,
+              // 더 나쁘게는 엉뚱한 분류로 집계된다. 여기서 잡는다.
+              errors.push({
+                rowIndex,
+                field: m.target,
+                reason: `사전에 없는 값: "${String(value)}"`,
+              })
+              fatal = true
+            }
+            value = mappedValue ?? null
+          }
         }
       }
 
@@ -286,10 +384,10 @@ export function mapRows(
             .join("")
         : (rowValuesInto(chunk, i, scratch), contentKey(scratch, seen))
 
-    out.push({ sourceKey, fields })
+    bucket(targetTable).push({ sourceKey, fields })
   }
 
-  return { rows: out, errors, unmappedColumnCount }
+  return { rows: out, errors, unmappedColumnCount, byTable }
 }
 
 /**
