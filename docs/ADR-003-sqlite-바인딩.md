@@ -51,7 +51,7 @@ await db.execute("SELECT * FROM fact_order")   // 막을 방법이 없다
 | `node:sqlite` | **1,700~1,950ms** | 종단 게이트에서 (매핑+적재) − (매핑만)로 분리 |
 | `rusqlite` (bundled 3.46.0) | **545~692ms** | 동일 스키마·청크·PRAGMA로 재현 |
 
-약 **3배**. 벤치 코드는 `dev/sqlite-bench`에 있고 세션 2의 스키마·PRAGMA·청크 크기를
+약 **3배**. 벤치 코드는 `bench/sqlite`에 있고 세션 2의 스키마·PRAGMA·청크 크기를
 그대로 쓴다.
 
 ### 메모리 — 직접 비교가 안 된다는 점을 밝혀둔다
