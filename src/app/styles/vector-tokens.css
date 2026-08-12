@@ -1,0 +1,394 @@
+/* =============================================================
+   VECTOR — Design System Foundations
+   colors_and_type.css
+
+   A dark-first issue/project tracker design system.
+   Adopts the structural conventions of modern issue trackers
+   (status-grouped lists, board views, filter menus) with an
+   original azure brand identity.
+
+   FONT: Pretendard (primary — covers Latin + 한글 in one family) with
+   Inter as a Latin fallback. Pretendard is pulled in via @import below,
+   so just linking THIS file gives you the brand font everywhere.
+   (You may still link Inter from Google Fonts as an extra fallback.)
+   ============================================================= */
+
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css");
+
+:root {
+  /* ---------------------------------------------------------
+     BRAND
+     --------------------------------------------------------- */
+  --accent:            #4C8DFF;   /* azure — primary actions, links, active */
+  --accent-hover:      #6AA0FF;
+  --accent-press:      #3D7BE6;
+  --accent-soft:       rgba(76, 141, 255, 0.16);  /* tinted bg behind accent text */
+  --accent-contrast:   #0A0A0B;   /* text/icon on top of --accent */
+
+  /* ---------------------------------------------------------
+     SURFACES  (dark theme — the default)
+     Near-black app canvas, marginally raised panels & menus.
+     --------------------------------------------------------- */
+  --bg-app:            #08090A;   /* main content canvas */
+  --bg-sidebar:        #0B0C0D;   /* left navigation rail */
+  --bg-subtle:         #0F1011;   /* faint zebra / section header strip */
+  --bg-elevated:       #18191B;   /* popovers, menus, modals */
+  --bg-elevated-2:     #202123;   /* nested menus / inputs inside menus */
+  --bg-hover:          rgba(255, 255, 255, 0.045);  /* row / item hover */
+  --bg-active:         rgba(255, 255, 255, 0.075);  /* selected nav item pill */
+  --bg-input:          #111213;   /* text fields */
+  --scrim:             rgba(0, 0, 0, 0.55);          /* modal backdrop */
+
+  /* ---------------------------------------------------------
+     BORDERS  (hairlines — mostly translucent white)
+     --------------------------------------------------------- */
+  --border:            rgba(255, 255, 255, 0.07);   /* default hairline */
+  --border-strong:     rgba(255, 255, 255, 0.11);   /* menu / modal edges */
+  --border-focus:      var(--accent);
+
+  /* ---------------------------------------------------------
+     TEXT
+     --------------------------------------------------------- */
+  --fg:                #F7F8F8;   /* primary text */
+  --fg-2:              #C9CCD1;   /* slightly muted (titles in lists) */
+  --fg-3:              #8A8F98;   /* secondary / labels / meta */
+  --fg-4:              #62666D;   /* tertiary / placeholders / disabled */
+  --fg-on-accent:      #0A0A0B;
+
+  /* ---------------------------------------------------------
+     STATUS  (issue workflow states — functional conventions)
+     --------------------------------------------------------- */
+  --status-backlog:    #8A8F98;   /* dashed circle */
+  --status-todo:       #9CA0A8;   /* hollow circle */
+  --status-progress:   #F2C94C;   /* amber, half-filled */
+  --status-review:     #4CB782;   /* green */
+  --status-done:       #4C8DFF;   /* accent-tinted, filled check */
+  --status-canceled:   #62666D;   /* gray x */
+  --status-duplicate:  #62666D;
+
+  /* ---------------------------------------------------------
+     PRIORITY
+     --------------------------------------------------------- */
+  --priority-urgent-bg: #F2994A;  /* orange filled square w/ ! */
+  --priority-bar-on:    #C9CCD1;  /* active signal bar */
+  --priority-bar-off:   #3A3D42;  /* inactive signal bar */
+  --priority-bars:      #C9CCD1;
+  --priority-none:      #62666D;
+
+  /* ---------------------------------------------------------
+     LABELS / ACCENTS  (categorical dots & chips)
+     --------------------------------------------------------- */
+  --label-red:         #EB5757;
+  --label-orange:      #F2994A;
+  --label-yellow:      #F2C94C;
+  --label-green:       #4CB782;
+  --label-blue:        #2D9CDB;
+  --label-purple:      #BB6BD9;
+  --label-pink:        #E879B9;
+  --label-gray:        #8A8F98;
+
+  /* ---------------------------------------------------------
+     RADII
+     --------------------------------------------------------- */
+  --r-xs:  4px;    /* chips, small toggles */
+  --r-sm:  6px;    /* buttons, inputs, rows */
+  --r-md:  8px;    /* cards, menus */
+  --r-lg:  12px;   /* modals, large panels */
+  --r-pill: 999px;
+
+  /* ---------------------------------------------------------
+     SHADOWS / ELEVATION
+     Subtle in dark UI — popovers rely on a soft drop + border.
+     --------------------------------------------------------- */
+  --shadow-popover: 0 6px 24px -6px rgba(0,0,0,0.6), 0 0 0 0.5px rgba(255,255,255,0.04);
+  --shadow-modal:   0 24px 60px -12px rgba(0,0,0,0.72), 0 0 0 0.5px rgba(255,255,255,0.05);
+  --shadow-card:    0 1px 2px rgba(0,0,0,0.35);
+
+  /* ---------------------------------------------------------
+     MOTION  (Linear/Things-style — fast, barely-visible)
+     --------------------------------------------------------- */
+  --ease:        cubic-bezier(0.32, 0.72, 0, 1);   /* @kind other */ /* signature ease-out */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* @kind other */ /* gentle overshoot */
+  --dur-1: 110ms;   /* @kind other */ /* hover / press */
+  --dur-2: 180ms;   /* @kind other */ /* panels, popovers */
+  --dur-3: 260ms;   /* @kind other */ /* modals, view changes */
+
+  /* ---------------------------------------------------------
+     SPACING  (4px base grid)
+     --------------------------------------------------------- */
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 6px;
+  --sp-4: 8px;
+  --sp-5: 12px;
+  --sp-6: 16px;
+  --sp-7: 20px;
+  --sp-8: 24px;
+  --sp-9: 32px;
+
+  /* ---------------------------------------------------------
+     LAYOUT METRICS
+     --------------------------------------------------------- */
+  --sidebar-w:    232px;
+  --topbar-h:     44px;
+  --tabbar-h:     36px;
+  --row-h:        40px;    /* issue list row */
+  --control-h:    28px;    /* small buttons / chips */
+  --control-h-lg: 32px;    /* default buttons */
+  --detail-w:     300px;   /* right detail panel */
+  --tap-min:      32px;    /* min hit target (desktop) */
+
+  /* ---------------------------------------------------------
+     BREAKPOINTS  (reference values — use the @custom-media
+     names below, or the raw px in @media queries)
+       mobile   < 640          single column, sheet nav, bottom bar
+       tablet   640 – 1023     collapsible sidebar, no detail panel
+       desktop  >= 1024        full 3-pane shell
+     --------------------------------------------------------- */
+  --bp-sm: 640px;
+  --bp-md: 1024px;
+  --bp-lg: 1440px;
+
+  /* ---------------------------------------------------------
+     TYPE
+     --------------------------------------------------------- */
+  --font-sans: "Pretendard Variable", Pretendard, "Inter", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
+  /* Linear-style numerals: numbers ride the SAME sans with tabular figures
+     (see ui_kits/app/numeric-typography.css) — --font-mono is kept as an alias
+     so existing var(--font-mono) call sites render Pretendard unchanged. */
+  --font-mono: "Pretendard Variable", Pretendard, "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* real monospace, reserved for code/diffs only */
+  --font-code: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* fluid-but-fixed UI sizes (this product is information-dense) */
+  --fs-micro:  11px;   /* timestamps, counts */
+  --fs-meta:   12px;   /* secondary meta, menu shortcuts */
+  --fs-body:   13px;   /* DEFAULT — nav, rows, menus, most UI */
+  --fs-base:   14px;   /* issue titles, emphasized body */
+  --fs-h3:     15px;   /* page sub-headers */
+  --fs-h2:     18px;   /* view title ("Issues") */
+  --fs-h1:     22px;   /* settings page titles */
+
+  --lh-tight:  1.25; /* @kind font */
+  --lh-normal: 1.45; /* @kind font */
+
+  --fw-regular: 400; /* @kind font */
+  --fw-medium:  500; /* @kind font */ /* the workhorse weight for UI text */
+  --fw-semi:    600; /* @kind font */ /* titles, active items, buttons */
+  --fw-bold:    700; /* @kind font */
+}
+
+/* =============================================================
+   LIGHT THEME  — set data-theme="light" on <html> to enable.
+   Overrides only the surface/text/border tokens; brand accent,
+   status, priority, and label hues stay constant across themes.
+   ============================================================= */
+:root[data-theme="light"] {
+  --bg-app:        #FFFFFF;
+  --bg-sidebar:    #F6F7F8;
+  --bg-subtle:     #F0F1F3;
+  --bg-elevated:   #FFFFFF;
+  --bg-elevated-2: #F3F4F6;
+  --bg-hover:      rgba(0, 0, 0, 0.045);
+  --bg-active:     rgba(0, 0, 0, 0.07);
+  --bg-input:      #FFFFFF;
+  --scrim:         rgba(20, 22, 26, 0.28);
+
+  --border:        rgba(0, 0, 0, 0.09);
+  --border-strong: rgba(0, 0, 0, 0.14);
+
+  --fg:            #16171A;
+  --fg-2:          #3C3F44;
+  --fg-3:          #6B7079;
+  --fg-4:          #9A9FA7;
+  --fg-on-accent:  #FFFFFF;
+
+  --accent-contrast: #FFFFFF;
+  --accent-soft:     rgba(76, 141, 255, 0.14);
+
+  --status-todo:   #8A8F98;
+
+  --priority-bar-on:  #3C3F44;
+  --priority-bar-off: #D3D6DC;
+  --priority-bars:    #3C3F44;
+  --priority-none:    #9A9FA7;
+
+  --shadow-popover: 0 6px 20px -6px rgba(20,22,26,0.18), 0 0 0 0.5px rgba(0,0,0,0.06);
+  --shadow-modal:   0 24px 56px -12px rgba(20,22,26,0.28), 0 0 0 0.5px rgba(0,0,0,0.07);
+  --shadow-card:    0 1px 2px rgba(20,22,26,0.08);
+}
+
+/* =============================================================
+   RESPONSIVE FOUNDATIONS
+   Tokens re-scale per device so every kit built on them adapts
+   without per-component media queries.
+
+   Shell contract (see .v-shell helpers below):
+     desktop >=1024  sidebar + main + detail   (3 pane)
+     tablet   640+   sidebar overlays, no detail pane
+     mobile   <640   single column, sidebar = full sheet, bottom nav
+   ============================================================= */
+
+/* ---- tablet ---- */
+@media (max-width: 1023px) {
+  :root {
+    --sidebar-w:    260px;   /* wider: it overlays instead of insetting */
+    --detail-w:     0px;     /* detail pane collapses into a sheet */
+    --row-h:        44px;    /* touch */
+    --control-h:    32px;
+    --control-h-lg: 36px;
+    --tap-min:      44px;
+    --topbar-h:     48px;
+  }
+}
+
+/* ---- mobile ---- */
+@media (max-width: 639px) {
+  :root {
+    --sidebar-w:    100vw;
+    --row-h:        52px;
+    --control-h:    36px;
+    --control-h-lg: 40px;
+    --tap-min:      44px;    /* WCAG / iOS minimum */
+    --topbar-h:     52px;
+    --tabbar-h:     44px;
+    /* type steps up one notch — 13px is too small held at arm's length */
+    --fs-body:   14px;
+    --fs-base:   15px;
+    --fs-meta:   13px;
+    --fs-micro:  12px;
+    --fs-h2:     20px;
+    --fs-h1:     24px;
+    /* denser gutters, roomier rows */
+    --sp-6: 14px;
+    --sp-7: 18px;
+  }
+}
+
+/* =============================================================
+   RESPONSIVE SHELL PRIMITIVES
+   Build any Vector app on these three classes and it is
+   responsive by default.
+   ============================================================= */
+.v-shell { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
+.v-shell-nav { width: var(--sidebar-w); flex: none; border-right: 1px solid var(--border); background: var(--bg-sidebar); display: flex; flex-direction: column; }
+.v-shell-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.v-shell-detail { width: var(--detail-w); flex: none; border-left: 1px solid var(--border); overflow-y: auto; }
+
+/* tablet: nav overlays, detail becomes a right sheet */
+@media (max-width: 1023px) {
+  .v-shell-nav { position: fixed; inset: 0 auto 0 0; z-index: 60; transform: translateX(-100%); transition: transform var(--dur-2, .18s) var(--ease, ease); box-shadow: var(--shadow-modal); }
+  .v-shell-nav[data-open="true"] { transform: none; }
+  .v-shell-detail { position: fixed; inset: 0 0 0 auto; width: min(380px, 88vw); z-index: 60; background: var(--bg-app); transform: translateX(100%); transition: transform var(--dur-2, .18s) var(--ease, ease); box-shadow: var(--shadow-modal); }
+  .v-shell-detail[data-open="true"] { transform: none; }
+  .v-shell-scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 55; }
+}
+
+/* mobile: nav is a full sheet; reserve space for a bottom bar */
+@media (max-width: 639px) {
+  .v-shell-main { padding-bottom: env(safe-area-inset-bottom); }
+  .v-bottom-nav { display: flex; }
+}
+
+/* bottom tab bar — mobile only */
+.v-bottom-nav { display: none; height: 56px; flex: none; border-top: 1px solid var(--border); background: var(--bg-sidebar); align-items: stretch; padding-bottom: env(safe-area-inset-bottom); }
+.v-bottom-nav > * { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--fg-3); font: var(--fw-medium) 10px var(--font-sans); cursor: pointer; min-height: var(--tap-min); }
+.v-bottom-nav > *[aria-current="page"] { color: var(--accent); }
+
+/* utility: hide/show by device */
+.v-desktop-only { display: initial; }
+.v-mobile-only  { display: none; }
+@media (max-width: 639px) {
+  .v-desktop-only { display: none !important; }
+  .v-mobile-only  { display: initial; }
+}
+/* tables → stacked cards on mobile */
+@media (max-width: 639px) {
+  .v-table-responsive thead { display: none; }
+  .v-table-responsive tr { display: block; border: 1px solid var(--border); border-radius: var(--r-md); margin-bottom: var(--sp-4); padding: var(--sp-4); }
+  .v-table-responsive td { display: flex; justify-content: space-between; gap: var(--sp-5); border: 0; height: auto; padding: var(--sp-2) 0; }
+  .v-table-responsive td::before { content: attr(data-label); color: var(--fg-3); font: var(--fw-medium) var(--fs-meta) var(--font-sans); }
+}
+
+/* =============================================================
+   SEMANTIC TYPE CLASSES
+   ============================================================= */
+
+.v-h1 { font: var(--fw-semi) var(--fs-h1)/var(--lh-tight) var(--font-sans); color: var(--fg); letter-spacing: -0.01em; }
+.v-h2 { font: var(--fw-semi) var(--fs-h2)/var(--lh-tight) var(--font-sans); color: var(--fg); letter-spacing: -0.005em; }
+.v-h3 { font: var(--fw-semi) var(--fs-h3)/var(--lh-tight) var(--font-sans); color: var(--fg); }
+.v-title { font: var(--fw-medium) var(--fs-base)/var(--lh-normal) var(--font-sans); color: var(--fg); }       /* issue titles */
+.v-body  { font: var(--fw-regular) var(--fs-body)/var(--lh-normal) var(--font-sans); color: var(--fg-2); }
+.v-ui    { font: var(--fw-medium) var(--fs-body)/var(--lh-tight) var(--font-sans); color: var(--fg-2); }      /* nav, menu items */
+.v-meta  { font: var(--fw-medium) var(--fs-meta)/var(--lh-tight) var(--font-sans); color: var(--fg-3); }
+.v-micro { font: var(--fw-medium) var(--fs-micro)/var(--lh-tight) var(--font-sans); color: var(--fg-4); }
+.v-mono  { font: var(--fw-medium) var(--fs-meta)/var(--lh-tight) var(--font-mono); color: var(--fg-3); letter-spacing: -0.01em; }  /* issue IDs e.g. VEC-12 */
+
+/* section caption in sidebar / panels (e.g. "Workspace", "Your teams") */
+.v-caption {
+  font: var(--fw-semi) var(--fs-meta)/1 var(--font-sans);
+  color: var(--fg-3);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* =============================================================
+   PRIMITIVE HELPERS (optional, used by UI kit & cards)
+   ============================================================= */
+.v-btn {
+  display: inline-flex; align-items: center; gap: var(--sp-3);
+  height: var(--control-h-lg); padding: 0 12px;
+  border-radius: var(--r-sm); border: 1px solid var(--border-strong);
+  background: transparent; color: var(--fg-2);
+  font: var(--fw-medium) var(--fs-body) var(--font-sans);
+  cursor: pointer; user-select: none; white-space: nowrap;
+  transition: background .12s ease, border-color .12s ease, opacity .12s ease;
+}
+.v-btn:hover { background: var(--bg-hover); color: var(--fg); }
+.v-btn:active { transform: translateY(0.5px); }
+
+.v-btn--primary {
+  background: var(--accent); border-color: transparent; color: var(--fg-on-accent);
+  font-weight: var(--fw-semi);
+}
+.v-btn--primary:hover { background: var(--accent-hover); color: var(--fg-on-accent); }
+.v-btn--primary:active { background: var(--accent-press); }
+
+.v-btn--ghost { border-color: transparent; background: transparent; }
+.v-btn--ghost:hover { background: var(--bg-hover); }
+
+.v-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: var(--control-h); padding: 0 10px;
+  border-radius: var(--r-pill); border: 1px solid var(--border-strong);
+  background: transparent; color: var(--fg-3);
+  font: var(--fw-medium) var(--fs-body) var(--font-sans);
+  cursor: pointer; white-space: nowrap;
+  transition: background .12s ease, color .12s ease;
+}
+.v-chip:hover { background: var(--bg-hover); color: var(--fg-2); }
+
+.v-input {
+  height: var(--control-h-lg); width: 100%;
+  background: var(--bg-input); border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm); padding: 0 10px;
+  color: var(--fg); font: var(--fw-regular) var(--fs-body) var(--font-sans);
+  outline: none; transition: border-color .12s ease, box-shadow .12s ease;
+}
+.v-input::placeholder { color: var(--fg-4); }
+.v-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.v-menu {
+  background: var(--bg-elevated); border: 1px solid var(--border-strong);
+  border-radius: var(--r-md); box-shadow: var(--shadow-popover);
+  padding: var(--sp-2); min-width: 180px;
+}
+.v-menu-item {
+  display: flex; align-items: center; gap: var(--sp-4);
+  height: 30px; padding: 0 8px; border-radius: var(--r-xs);
+  font: var(--fw-medium) var(--fs-body) var(--font-sans); color: var(--fg-2);
+  cursor: pointer;
+}
+.v-menu-item:hover { background: var(--bg-hover); color: var(--fg); }
+.v-menu-item { white-space: nowrap; }
+.v-menu-item .shortcut { margin-left: auto; color: var(--fg-4); font-size: var(--fs-meta); }

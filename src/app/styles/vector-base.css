@@ -1,0 +1,9 @@
+/* Vector DS 루트 — 이 파일 하나만 불러도 전체가 로드된다.
+   ★ 순서가 규칙이다 ★ numeric-typography가 **마지막**이어야 한다 —
+   `font:` 단축 속성이 font-variant-numeric을 초기화하므로, 소스 순서로
+   tabular-nums 규칙이 이겨야 §21-4의 숫자 타이포 규칙이 성립한다.
+   (원본 mockup/_ds/.../styles.css의 경로를 사본 구조에 맞춰 고쳤다.) */
+@import url("./vector-tokens.css");
+@import url("./vector-app.css");
+@import url("./vector-sidebar.css");
+@import url("./vector-numeric.css");
