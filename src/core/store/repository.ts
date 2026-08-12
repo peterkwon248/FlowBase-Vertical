@@ -9,7 +9,7 @@
  * 교체가 파일 하나로 끝나지 않는다.
  */
 
-import type { Driver, Row, SqlValue, Statement } from "./driver.js"
+import type { Driver, Row, SqlValue } from "./driver.js"
 
 /** 적재 가능한 Fact 테이블. 여기 없는 이름은 적재할 수 없다. */
 export const FACT_TABLES = [
@@ -60,7 +60,7 @@ export interface LoadStats {
 }
 
 export class Repository {
-  private readonly insertCache = new Map<string, Statement>()
+  private readonly insertCache = new Map<string, string>()
   private readonly columnCache = new Map<string, string[]>()
 
   constructor(private readonly db: Driver) {}
@@ -69,8 +69,8 @@ export class Repository {
   // 배치 수명주기 (헌장 B-2)
   // ─────────────────────────────────────────────────────────
 
-  openBatch(b: BatchOpen): void {
-    this.db
+  async openBatch(b: BatchOpen): Promise<void> {
+    await this.db
       .prepare(
         `INSERT INTO batch (id, library_id, connection_id, source_name, source_bytes,
            source_sha256, container_format, sheet_name, mapping_version, status,
@@ -98,7 +98,11 @@ export class Repository {
    * `version`을 올리고 `batch_id`를 새 배치로 옮긴다. 조정은 행이 아니라
    * `(테이블, source_key, connection)`에 붙어 있으므로 영향받지 않는다 (B-3).
    */
-  loadChunk(table: FactTable, batch: BatchOpen, rows: readonly FactRow[]): LoadStats {
+  async loadChunk(
+    table: FactTable,
+    batch: BatchOpen,
+    rows: readonly FactRow[],
+  ): Promise<LoadStats> {
     if (!FACT_TABLES.includes(table)) throw new Error(`적재할 수 없는 테이블: ${table}`)
     if (rows.length === 0) return { inserted: 0, updated: 0 }
 
@@ -114,50 +118,63 @@ export class Repository {
       }
     }
 
-    const stmt = this.insertStatement(table, bodyColumns)
+    const sql = this.insertSql(table, bodyColumns)
 
-    return this.db.transaction(() => {
+    // 청크를 **한 번에** 넘긴다 — 행마다 `run()`을 부르면 원격 드라이버에서
+    // #13 기준 80,137번의 왕복이 된다 (ADR-008). 청크당 1회로 떨어진다.
+    //
+    // 다만 행마다 배열 하나를 **그때그때 만들어 넘긴다.** 청크 전체를 배열로 모으면
+    // 1,000행치가 동시에 살아 있게 되고, 그건 평탄화(ADR-007)로 없앤 종류의
+    // 할당이 적재 쪽에서 되살아나는 것이다. 로컬 드라이버는 한 행씩 소비한다.
+    const width = bodyColumns.length + COMMON_COLUMNS.length
+    function* paramRows(): Generator<SqlValue[]> {
+      for (const row of rows) {
+        const p: SqlValue[] = new Array(width)
+        for (let c = 0; c < bodyColumns.length; c++) p[c] = row[bodyColumns[c]!] ?? null
+        // 공통 6컬럼 — 순서가 `COMMON_COLUMNS`와 정확히 같아야 한다.
+        let k = bodyColumns.length
+        p[k++] = batch.connectionId
+        p[k++] = batch.id
+        p[k++] = batch.libraryId
+        p[k++] = 1 // version: 신규는 1, UPSERT 경로에서 기존값 + 1로 덮인다
+        p[k++] = batch.startedAt // updated_at
+        p[k] = batch.mappingVersion
+        yield p
+      }
+    }
+
+    return this.db.transaction(async () => {
       // 삽입/갱신 구분은 **청크 앞뒤의 행 수 차이**로 낸다.
       // 행마다 SELECT를 돌면 80,138행에서 그 자체가 병목이 된다.
-      const before = this.countRows(table, batch.connectionId)
+      const before = await this.countRows(table, batch.connectionId)
 
-      for (const row of rows) {
-        stmt.run(
-          ...bodyColumns.map((c) => row[c] ?? null),
-          // 공통 6컬럼 — 순서가 `COMMON_COLUMNS`와 정확히 같아야 한다.
-          batch.connectionId,
-          batch.id,
-          batch.libraryId,
-          1, // version: 신규는 1, UPSERT 경로에서 기존값 + 1로 덮인다
-          batch.startedAt, // updated_at
-          batch.mappingVersion,
-        )
-      }
+      await this.db.runMany(sql, paramRows())
 
-      this.db
+      await this.db
         .prepare(`UPDATE batch SET row_count = row_count + ? WHERE id = ?`)
         .run(rows.length, batch.id)
 
-      const inserted = this.countRows(table, batch.connectionId) - before
+      const inserted = (await this.countRows(table, batch.connectionId)) - before
       return { inserted, updated: rows.length - inserted }
     })
   }
 
-  recordExclusions(batchId: string, exclusions: readonly ExclusionRecord[]): void {
+  async recordExclusions(batchId: string, exclusions: readonly ExclusionRecord[]): Promise<void> {
     if (exclusions.length === 0) return
-    const stmt = this.db.prepare(
-      `INSERT INTO batch_exclusion (batch_id, row_index, reason, detail) VALUES (?,?,?,?)`,
-    )
-    this.db.transaction(() => {
-      for (const e of exclusions) stmt.run(batchId, e.rowIndex, e.reason, e.detail)
-      this.db
+    await this.db.transaction(async () => {
+      // 제외 행도 벌크로. 행마다 왕복하면 원격 드라이버에서 그대로 비용이 된다.
+      await this.db.runMany(
+        `INSERT INTO batch_exclusion (batch_id, row_index, reason, detail) VALUES (?,?,?,?)`,
+        exclusions.map((e) => [batchId, e.rowIndex, e.reason, e.detail]),
+      )
+      await this.db
         .prepare(`UPDATE batch SET excluded_count = excluded_count + ? WHERE id = ?`)
         .run(exclusions.length, batchId)
     })
   }
 
-  commitBatch(batchId: string, at: string): void {
-    const r = this.db
+  async commitBatch(batchId: string, at: string): Promise<void> {
+    const r = await this.db
       .prepare(`UPDATE batch SET status = 'committed', committed_at = ? WHERE id = ? AND status = 'open'`)
       .run(at, batchId)
     if (r.changes === 0) throw new Error(`커밋할 수 없는 배치: ${batchId}`)
@@ -180,14 +197,15 @@ export class Repository {
    *
    * @returns 삭제된 행 수 (복원된 행은 제외)
    */
-  undoBatch(batchId: string, at: string): number {
-    return this.db.transaction(() => {
-      this.assertUndoable(batchId)
+  async undoBatch(batchId: string, at: string): Promise<number> {
+    return this.db.transaction(async () => {
+      await this.assertUndoable(batchId)
 
       let removed = 0
       for (const table of FACT_TABLES) {
-        this.restoreShadowed(table, batchId)
-        removed += this.db.prepare(`DELETE FROM ${table} WHERE batch_id = ?`).run(batchId).changes
+        await this.restoreShadowed(table, batchId)
+        removed += (await this.db.prepare(`DELETE FROM ${table} WHERE batch_id = ?`).run(batchId))
+          .changes
       }
 
       // 되돌린 뒤에는 어떤 그림자도 이 배치를 가리키지 않아야 한다 — 덮어쓴
@@ -198,11 +216,11 @@ export class Repository {
       // (batch_id=A, prev_batch_id=B)인 거울상 항목을 만든다. 되돌리기 직전에
       // `assertUndoable`이 `prev_batch_id = B`가 없음을 확인했으므로, 지금
       // 남아 있는 그것은 전부 복원이 만든 것이다.
-      this.db
+      await this.db
         .prepare(`DELETE FROM row_shadow WHERE batch_id = ? OR prev_batch_id = ?`)
         .run(batchId, batchId)
-      this.db.prepare(`DELETE FROM batch_exclusion WHERE batch_id = ?`).run(batchId)
-      const r = this.db
+      await this.db.prepare(`DELETE FROM batch_exclusion WHERE batch_id = ?`).run(batchId)
+      const r = await this.db
         .prepare(`UPDATE batch SET status = 'undone', undone_at = ?, row_count = 0 WHERE id = ?`)
         .run(at, batchId)
       if (r.changes === 0) throw new Error(`되돌릴 수 없는 배치: ${batchId}`)
@@ -216,8 +234,8 @@ export class Repository {
    * 이 배치가 남긴 판 위에 다른 배치가 또 얹혀 있으면 되돌릴 수 없다 — 복원하면
    * 나중 배치의 데이터를 덮어쓰게 된다. 조용히 덮는 대신 거부한다 (헌장 A-5).
    */
-  private assertUndoable(batchId: string): void {
-    const r = this.db
+  private async assertUndoable(batchId: string): Promise<void> {
+    const r = await this.db
       .prepare(
         `SELECT batch_id AS blocker FROM row_shadow WHERE prev_batch_id = ? LIMIT 1`,
       )
@@ -231,12 +249,12 @@ export class Repository {
   }
 
   /** 이 배치가 덮어쓴 행들을 이전 판으로 되돌린다. */
-  private restoreShadowed(table: FactTable, batchId: string): void {
-    const cols = this.columnsOf(table)
+  private async restoreShadowed(table: FactTable, batchId: string): Promise<void> {
+    const cols = await this.columnsOf(table)
     const assignments = cols
       .map((c) => `${c} = json_extract(s.prev_row_json, '$.${c}')`)
       .join(", ")
-    this.db
+    await this.db
       .prepare(
         `UPDATE ${table} SET ${assignments}
            FROM (SELECT * FROM row_shadow WHERE batch_id = ? AND target_table = ?) AS s
@@ -245,13 +263,12 @@ export class Repository {
       .run(batchId, table)
   }
 
-  private columnsOf(table: FactTable): string[] {
+  private async columnsOf(table: FactTable): Promise<string[]> {
     const cached = this.columnCache.get(table)
     if (cached) return cached
-    const cols = this.db
-      .prepare(`SELECT name FROM pragma_table_info(?)`)
-      .all(table)
-      .map((r) => String(r.name))
+    const cols = (await this.db.prepare(`SELECT name FROM pragma_table_info(?)`).all(table)).map(
+      (r) => String(r.name),
+    )
     this.columnCache.set(table, cols)
     return cols
   }
@@ -260,7 +277,7 @@ export class Repository {
   // 조정 레이어 (헌장 B-3)
   // ─────────────────────────────────────────────────────────
 
-  addAdjustment(a: {
+  async addAdjustment(a: {
     libraryId: string
     connectionId: string
     table: FactTable
@@ -270,8 +287,8 @@ export class Repository {
     newValue: SqlValue
     reason: string
     createdAt: string
-  }): void {
-    this.db
+  }): Promise<void> {
+    await this.db
       .prepare(
         `INSERT INTO adjustment (library_id, target_table, target_source_key,
            target_connection_id, field, previous_value, new_value, reason, created_at)
@@ -291,7 +308,7 @@ export class Repository {
   }
 
   /** 한 행에 쌓인 조정 스택. 시간순이며 무효화된 것은 뺀다. */
-  adjustmentsFor(connectionId: string, table: FactTable, sourceKey: string): Row[] {
+  async adjustmentsFor(connectionId: string, table: FactTable, sourceKey: string): Promise<Row[]> {
     return this.db
       .prepare(
         `SELECT field, previous_value, new_value, reason, created_at
@@ -311,10 +328,16 @@ export class Repository {
    * 기간 범위로만 조회한다. **범위 없는 전체 조회는 제공하지 않는다** —
    * 그런 함수가 없다는 사실이 합격 기준 4의 증명이다.
    */
-  countInRange(view: string, libraryId: string, dateColumn: string, from: string, to: string): number {
+  async countInRange(
+    view: string,
+    libraryId: string,
+    dateColumn: string,
+    from: string,
+    to: string,
+  ): Promise<number> {
     this.assertActiveView(view)
     this.assertIdentifier(dateColumn)
-    const r = this.db
+    const r = await this.db
       .prepare(
         `SELECT COUNT(*) AS n FROM ${view} WHERE library_id = ? AND ${dateColumn} BETWEEN ? AND ?`,
       )
@@ -323,18 +346,18 @@ export class Repository {
   }
 
   /** 집계는 SQL에 위임한다 (헌장 B-2) — 행을 올려 자바스크립트에서 더하지 않는다. */
-  sumInRange(
+  async sumInRange(
     view: string,
     column: string,
     libraryId: string,
     dateColumn: string,
     from: string,
     to: string,
-  ): number {
+  ): Promise<number> {
     this.assertActiveView(view)
     this.assertIdentifier(column)
     this.assertIdentifier(dateColumn)
-    const r = this.db
+    const r = await this.db
       .prepare(
         `SELECT COALESCE(SUM(${column}), 0) AS s FROM ${view}
           WHERE library_id = ? AND ${dateColumn} BETWEEN ? AND ?`,
@@ -343,13 +366,17 @@ export class Repository {
     return Number(r?.s ?? 0)
   }
 
-  batchStatus(batchId: string): Row | undefined {
+  async batchStatus(batchId: string): Promise<Row | undefined> {
     return this.db.prepare(`SELECT * FROM batch WHERE id = ?`).get(batchId)
   }
 
   // ─────────────────────────────────────────────────────────
 
-  private insertStatement(table: FactTable, bodyColumns: readonly string[]): Statement {
+  /**
+   * UPSERT SQL. **문장 핸들이 아니라 문자열을 캐시한다** — 벌크 적재는
+   * `runMany(sql, rows)`로 내려가므로 준비는 드라이버 쪽 몫이다 (ADR-008).
+   */
+  private insertSql(table: FactTable, bodyColumns: readonly string[]): string {
     const key = `${table}:${bodyColumns.join(",")}`
     const cached = this.insertCache.get(key)
     if (cached) return cached
@@ -367,16 +394,14 @@ export class Repository {
       `version = ${table}.version + 1`,
     ].join(", ")
 
-    const stmt = this.db.prepare(
-      `INSERT INTO ${table} (${all.join(",")}) VALUES (${placeholders})
-       ON CONFLICT (connection_id, source_key) DO UPDATE SET ${updates}`,
-    )
+    const stmt = `INSERT INTO ${table} (${all.join(",")}) VALUES (${placeholders})
+       ON CONFLICT (connection_id, source_key) DO UPDATE SET ${updates}`
     this.insertCache.set(key, stmt)
     return stmt
   }
 
-  private countRows(table: FactTable, connectionId: string): number {
-    const r = this.db
+  private async countRows(table: FactTable, connectionId: string): Promise<number> {
+    const r = await this.db
       .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE connection_id = ?`)
       .get(connectionId)
     return Number(r?.n ?? 0)

@@ -8,10 +8,10 @@ import {
 } from "../src/core/store/effective-value.js"
 
 describe("유효값 = 원본 + 조정 스택 (헌장 B-3)", () => {
-  it("금액 조정이 숫자로 돌아온다 — 문자열로 새지 않는다", () => {
+  it("금액 조정이 숫자로 돌아온다 — 문자열로 새지 않는다", async () => {
     const db = openNodeDriver()
-    migrate(db)
-    const types = columnTypesOf(db, "fact_order")
+    await migrate(db)
+    const types = await columnTypesOf(db, "fact_order")
     expect(types.total_amount).toBe("INTEGER")
 
     const { value, adjustedFields } = applyAdjustments(
@@ -23,10 +23,10 @@ describe("유효값 = 원본 + 조정 스택 (헌장 B-3)", () => {
     expect(value.total_amount).toBe(1200)
     expect(typeof value.total_amount).toBe("number")
     expect(adjustedFields).toEqual(["total_amount"])
-    db.close()
+    await db.close()
   })
 
-  it("스택이 시간순으로 얹혀 마지막이 이긴다", () => {
+  it("스택이 시간순으로 얹혀 마지막이 이긴다", async () => {
     const types = { total_amount: "INTEGER" }
     const { value } = applyAdjustments({ total_amount: 1000 }, [
       { field: "total_amount", new_value: "1200" },
@@ -36,7 +36,7 @@ describe("유효값 = 원본 + 조정 스택 (헌장 B-3)", () => {
     expect(value.total_amount).toBe(1250)
   })
 
-  it("원본을 변형하지 않는다", () => {
+  it("원본을 변형하지 않는다", async () => {
     const original = { total_amount: 1000 }
     applyAdjustments(original, [{ field: "total_amount", new_value: "9999" }], {
       total_amount: "INTEGER",
@@ -44,19 +44,19 @@ describe("유효값 = 원본 + 조정 스택 (헌장 B-3)", () => {
     expect(original.total_amount).toBe(1000)
   })
 
-  it("숫자로 못 읽는 값은 원문을 남긴다 — 0으로 만들지 않는다", () => {
+  it("숫자로 못 읽는 값은 원문을 남긴다 — 0으로 만들지 않는다", async () => {
     expect(castToColumn("측정불가", "INTEGER")).toBe("측정불가")
     expect(castToColumn(null, "INTEGER")).toBeNull()
   })
 
-  it("TEXT 컬럼은 문자열로 유지된다", () => {
+  it("TEXT 컬럼은 문자열로 유지된다", async () => {
     const { value } = applyAdjustments({ status: "PAID" }, [
       { field: "status", new_value: "SHIPPED" },
     ], { status: "TEXT" })
     expect(value.status).toBe("SHIPPED")
   })
 
-  it("스키마에 없는 필드는 유효값에 얹지 않는다", () => {
+  it("스키마에 없는 필드는 유효값에 얹지 않는다", async () => {
     const { value, adjustedFields } = applyAdjustments({ total_amount: 1000 }, [
       { field: "없어진컬럼", new_value: "x" },
     ], { total_amount: "INTEGER" })
@@ -64,7 +64,7 @@ describe("유효값 = 원본 + 조정 스택 (헌장 B-3)", () => {
     expect(adjustedFields).toEqual([])
   })
 
-  it("조정이 없으면 원본을 그대로 돌려준다", () => {
+  it("조정이 없으면 원본을 그대로 돌려준다", async () => {
     const original = { total_amount: 1000 }
     const { value, adjustedFields } = applyAdjustments(original, [], { total_amount: "INTEGER" })
     expect(value).toBe(original)

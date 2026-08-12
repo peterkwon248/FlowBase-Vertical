@@ -20,24 +20,22 @@ import { FACT_TABLES } from "../src/core/store/repository.js"
  * CI가 깨진다.
  */
 
-function fresh(): Driver {
+async function fresh(): Promise<Driver> {
   const db = openNodeDriver()
-  migrate(db)
+  await migrate(db)
   return db
 }
 
-function columnsOf(db: Driver, table: string): string[] {
-  return db
-    .prepare(`SELECT name FROM pragma_table_info(?)`)
-    .all(table)
-    .map((r) => String(r.name))
+async function columnsOf(db: Driver, table: string): Promise<string[]> {
+  const rows = await db.prepare(`SELECT name FROM pragma_table_info(?)`).all(table)
+  return rows.map((r) => String(r.name))
 }
 
-function triggerSqlFor(db: Driver, table: string): string | undefined {
-  const r = db
+async function triggerSqlFor(db: Driver, table: string): Promise<string | undefined> {
+  const r = await db
     .prepare(`SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name = ?`)
     .get(table)
-    return r?.sql === undefined || r.sql === null ? undefined : String(r.sql)
+  return r?.sql === undefined || r.sql === null ? undefined : String(r.sql)
 }
 
 /** `json_object('a', OLD.a, 'b', OLD.b, …)`에서 키 이름만 뽑는다. */
@@ -50,25 +48,28 @@ function jsonObjectKeys(triggerSql: string): string[] {
 }
 
 describe("G-1 — 그림자 트리거 컬럼 커버리지", () => {
-  it("모든 Fact 테이블에 그림자 트리거가 있다", () => {
-    const db = fresh()
-    const missing = FACT_TABLES.filter((t) => triggerSqlFor(db, t) === undefined)
+  it("모든 Fact 테이블에 그림자 트리거가 있다", async () => {
+    const db = await fresh()
+    const missing: string[] = []
+    for (const t of FACT_TABLES) {
+      if ((await triggerSqlFor(db, t)) === undefined) missing.push(t)
+    }
     expect(
       missing.join(", "),
       "Fact 테이블을 추가하고 그림자 트리거를 빠뜨렸다 (ADR-004 재검토 트리거 3)",
     ).toBe("")
-    db.close()
+    await db.close()
   })
 
-  it("트리거의 json_object가 테이블 컬럼 전부를 담는다", () => {
-    const db = fresh()
+  it("트리거의 json_object가 테이블 컬럼 전부를 담는다", async () => {
+    const db = await fresh()
     const problems: string[] = []
 
     for (const table of FACT_TABLES) {
-      const sql = triggerSqlFor(db, table)
+      const sql = await triggerSqlFor(db, table)
       if (sql === undefined) continue // 위 테스트가 따로 잡는다
 
-      const columns = columnsOf(db, table)
+      const columns = await columnsOf(db, table)
       const captured = jsonObjectKeys(sql)
 
       const notCaptured = columns.filter((c) => !captured.includes(c))
@@ -88,17 +89,17 @@ describe("G-1 — 그림자 트리거 컬럼 커버리지", () => {
     }
 
     expect(problems.join("\n")).toBe("")
-    db.close()
+    await db.close()
   })
 
-  it("스냅샷 키와 OLD 참조가 같은 컬럼을 가리킨다", () => {
+  it("스냅샷 키와 OLD 참조가 같은 컬럼을 가리킨다", async () => {
     // `'total_amount', OLD.status`처럼 키와 값이 어긋나면 복원이 값을 뒤바꾼다.
     // 위 테스트는 키 이름만 보므로 이 짝이 맞는지는 여기서 확인한다.
-    const db = fresh()
+    const db = await fresh()
     const problems: string[] = []
 
     for (const table of FACT_TABLES) {
-      const sql = triggerSqlFor(db, table)
+      const sql = await triggerSqlFor(db, table)
       if (sql === undefined) continue
       const start = sql.indexOf("json_object(")
       const pairs = [
@@ -110,14 +111,14 @@ describe("G-1 — 그림자 트리거 컬럼 커버리지", () => {
     }
 
     expect(problems.join("\n")).toBe("")
-    db.close()
+    await db.close()
   })
 
-  it("실제로 전 컬럼이 복원된다 — 값 하나하나 대조", () => {
+  it("실제로 전 컬럼이 복원된다 — 값 하나하나 대조", async () => {
     // 정적 검사만으로는 부족하다. 실제로 넣고 덮고 되돌려서 전 컬럼을 비교한다.
-    const db = fresh()
-    db.prepare(`INSERT INTO library (id, name, created_at) VALUES (?,?,?)`).run("L", "기본", "t0")
-    db.prepare(
+    const db = await fresh()
+    await db.prepare(`INSERT INTO library (id, name, created_at) VALUES (?,?,?)`).run("L", "기본", "t0")
+    await db.prepare(
       `INSERT INTO connection (id, library_id, pack_id, marketplace_key, display_name, state, created_at, updated_at)
        VALUES (?,?,?,?,?,?,?,?)`,
     ).run("C", "L", "pack", "mk", "연결", "CONNECTED", "t0", "t0")
@@ -135,17 +136,17 @@ describe("G-1 — 그림자 트리거 컬럼 커버리지", () => {
     openBatch("B")
 
     // A판 — 모든 컬럼에 서로 다른 값을 넣어 뒤바뀜도 잡히게 한다.
-    db.prepare(
+    await db.prepare(
       `INSERT INTO fact_ad_spend (id, connection_id, batch_id, library_id, version, updated_at,
          mapping_version, source_key, campaign_key, campaign_name, spent_on, campaign_type,
          impressions, clicks, spend_amount, conversions, conversion_amount)
        VALUES ('ad-1','C','A','L',1,'t1','v1','SK-1','CK-1','캠페인 A','2026-07-01','GROWTH',
                111,222,333,444,555)`,
     ).run()
-    const before = db.prepare(`SELECT * FROM fact_ad_spend WHERE source_key='SK-1'`).get()!
+    const before = await db.prepare(`SELECT * FROM fact_ad_spend WHERE source_key='SK-1'`).get()!
 
     // B가 덮는다 — 전 컬럼을 다른 값으로.
-    db.prepare(
+    await db.prepare(
       `UPDATE fact_ad_spend SET batch_id='B', version=2, updated_at='t2', mapping_version='v2',
          campaign_key='CK-9', campaign_name='캠페인 B', spent_on='2026-08-01', campaign_type='NEW',
          impressions=999, clicks=888, spend_amount=777, conversions=666, conversion_amount=NULL
@@ -153,17 +154,17 @@ describe("G-1 — 그림자 트리거 컬럼 커버리지", () => {
     ).run()
 
     // 그림자에서 복원.
-    const cols = columnsOf(db, "fact_ad_spend")
-    db.prepare(
+    const cols = await columnsOf(db, "fact_ad_spend")
+    await db.prepare(
       `UPDATE fact_ad_spend SET ${cols.map((c) => `${c} = json_extract(s.prev_row_json, '$.${c}')`).join(", ")}
          FROM (SELECT * FROM row_shadow WHERE batch_id='B' AND target_table='fact_ad_spend') AS s
         WHERE fact_ad_spend.connection_id = s.connection_id AND fact_ad_spend.source_key = s.source_key`,
     ).run()
 
-    const after = db.prepare(`SELECT * FROM fact_ad_spend WHERE source_key='SK-1'`).get()!
+    const after = (await db.prepare(`SELECT * FROM fact_ad_spend WHERE source_key='SK-1'`).get())!
     for (const c of cols) {
-      expect(after[c], `${c}가 복원되지 않았다`).toBe(before[c])
+      expect(after[c], `${c}가 복원되지 않았다`).toBe(before![c])
     }
-    db.close()
+    await db.close()
   })
 })

@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { Repository, FACT_TABLES } from "../src/core/store/repository.js"
 import type { Driver, Row, SqlValue, Statement } from "../src/core/store/driver.js"
+import { DRIVER_SURFACE } from "../src/core/store/driver.js"
+import { openNodeDriver } from "../src/core/store/driver-node.js"
 
 const STORE_DIR = fileURLToPath(new URL("../src/core/store", import.meta.url))
 
@@ -26,7 +28,7 @@ class FakeDriver implements Driver {
     this.canned = row
   }
 
-  exec(sql: string): void {
+  async exec(sql: string): Promise<void> {
     this.sql.push(sql)
   }
 
@@ -34,34 +36,50 @@ class FakeDriver implements Driver {
     this.sql.push(sql)
     const self = this
     return {
-      run(...p: readonly SqlValue[]) {
+      async run(...p: readonly SqlValue[]) {
         self.params.push([...p])
         return { changes: self.changes }
       },
-      get(...p: readonly SqlValue[]) {
+      async get(...p: readonly SqlValue[]) {
         self.params.push([...p])
         // 집계 조회에만 준비된 답을 준다. 존재 확인 조회(되돌리기 가능 여부 등)에
         // 값을 돌려주면 "행이 있다"는 뜻이 되어 엉뚱한 분기를 탄다.
         return sql.includes("COUNT(*)") ? self.canned : undefined
       },
-      all(...p: readonly SqlValue[]) {
+      async all(...p: readonly SqlValue[]) {
         self.params.push([...p])
         return []
       },
     }
   }
 
-  transaction<T>(fn: () => T): T {
+  /** 벌크 실행 — 도메인 로직 없이 같은 SQL을 N번. 파라미터는 전부 기록한다. */
+  readonly bulk: { sql: string; rows: number }[] = []
+
+  async runMany(sql: string, rows: Iterable<readonly SqlValue[]>) {
+    this.sql.push(sql)
+    // 계약이 `Iterable`이므로 **한 번만 순회한다** — 제너레이터는 두 번 못 돈다.
+    // `rows.length`에 기대는 구현은 여기서 터진다.
+    let n = 0
+    for (const p of rows) {
+      this.params.push([...p])
+      n++
+    }
+    this.bulk.push({ sql, rows: n })
+    return { changes: n * this.changes }
+  }
+
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
     this.txDepth++
     this.maxTxDepth = Math.max(this.maxTxDepth, this.txDepth)
     try {
-      return fn()
+      return await fn()
     } finally {
       this.txDepth--
     }
   }
 
-  close(): void {}
+  async close(): Promise<void> {}
 }
 
 const BATCH = {
@@ -76,28 +94,28 @@ const BATCH = {
 }
 
 describe("드라이버 경계 — 교체가 파일 하나로 끝나는가", () => {
-  it("SQLite 없이 가짜 드라이버만으로 리포지토리가 돈다", () => {
+  it("SQLite 없이 가짜 드라이버만으로 리포지토리가 돈다", async () => {
     const fake = new FakeDriver()
     const repo = new Repository(fake)
 
-    repo.openBatch(BATCH)
+    await repo.openBatch(BATCH)
     fake.setNextGet({ n: 0 })
-    repo.loadChunk("fact_order", BATCH, [
+    await repo.loadChunk("fact_order", BATCH, [
       { id: "o1", source_key: "K1", ordered_at: "2026-07-01", status: "PAID", total_amount: 1000 },
     ])
-    repo.commitBatch("b1", "2026-08-12T00:01:00Z")
-    repo.undoBatch("b1", "2026-08-12T00:02:00Z")
+    await repo.commitBatch("b1", "2026-08-12T00:01:00Z")
+    await repo.undoBatch("b1", "2026-08-12T00:02:00Z")
 
     // 계약 밖의 것을 부르지 않았다면 여기까지 예외 없이 온다.
     expect(fake.sql.length).toBeGreaterThan(0)
     expect(fake.maxTxDepth).toBeGreaterThanOrEqual(1)
   })
 
-  it("적재가 청크당 트랜잭션 하나를 쓴다 (ADR-001 조건 3)", () => {
+  it("적재가 청크당 트랜잭션 하나를 쓴다 (ADR-001 조건 3)", async () => {
     const fake = new FakeDriver()
     const repo = new Repository(fake)
     fake.setNextGet({ n: 0 })
-    repo.loadChunk(
+    await repo.loadChunk(
       "fact_order",
       BATCH,
       Array.from({ length: 50 }, (_, i) => ({
@@ -113,7 +131,7 @@ describe("드라이버 경계 — 교체가 파일 하나로 끝나는가", () =
     expect(fake.maxTxDepth).toBe(1)
   })
 
-  it("행마다 prepare하지 않는다 — 문장을 재사용한다", () => {
+  it("행마다 prepare하지 않는다 — 문장을 재사용한다", async () => {
     const fake = new FakeDriver()
     const repo = new Repository(fake)
     fake.setNextGet({ n: 0 })
@@ -124,15 +142,43 @@ describe("드라이버 경계 — 교체가 파일 하나로 끝나는가", () =
       status: "PAID",
       total_amount: i,
     }))
-    repo.loadChunk("fact_order", BATCH, rows)
-    repo.loadChunk("fact_order", BATCH, rows)
+    await repo.loadChunk("fact_order", BATCH, rows)
+    await repo.loadChunk("fact_order", BATCH, rows)
 
-    const inserts = fake.sql.filter((s) => s.startsWith("INSERT INTO fact_order"))
-    // 100행 × 2청크를 넣었는데 INSERT 문장 준비는 한 번뿐이어야 한다.
-    expect(inserts).toHaveLength(1)
+    // ★ 청크당 1회다. 행당 1회가 아니다 ★
+    // 원격 드라이버(Tauri IPC)에서 행마다 왕복하면 #13이 80,137번이 된다 (ADR-008).
+    const inserts = fake.bulk.filter((b) => b.sql.startsWith("INSERT INTO fact_order"))
+    expect(inserts).toHaveLength(2) // 청크 2개
+    expect(inserts.map((b) => b.rows)).toEqual([100, 100])
+
+    // SQL 문자열은 캐시되어 두 청크가 **같은 문장**을 쓴다.
+    expect(inserts[0]!.sql).toBe(inserts[1]!.sql)
+    // 그리고 파라미터는 200행이 전부 내려갔다 — 벌크가 행을 삼키지 않았다.
+    expect(fake.params.filter((p) => p.length > 5)).toHaveLength(200)
   })
 
-  it("store 밖으로 드라이버 구현이 새지 않는다", () => {
+  it("★ 드라이버 표면은 SQL 실행 계열뿐이다 — 도메인 로직이 내려가지 않았다 ★", () => {
+    // ADR-008 조건 2. 리포지토리를 Rust로 옮기는 안(B)을 기각한 이유가
+    // "되돌리기 의미론·shadow 규칙·LIFO 판정이 두 벌이 된다"였다. A로 가더라도
+    // 그 로직이 드라이버로 스며들면 기각의 의미가 사라진다.
+    const actual = Object.keys(openNodeDriver(":memory:", { pragmas: false })).sort()
+    expect(actual).toEqual([...DRIVER_SURFACE].sort())
+
+    // 이름만 봐도 도메인이 아니어야 한다 — batch·undo·shadow·adjustment 금지.
+    const domainWords = /batch|undo|shadow|adjust|recon|fact_|profit|source_key/i
+    const leaked = actual.filter((k) => domainWords.test(k))
+    expect(leaked.join(", "), "드라이버에 도메인 개념이 생겼다 (ADR-008 조건 2)").toBe("")
+  })
+
+  it("드라이버 계약 자체에도 도메인 이름이 없다", () => {
+    const contract = readFileSync(join(STORE_DIR, "driver.ts"), "utf-8")
+    // 인터페이스 본문의 메서드 이름만 본다 — 주석의 설명은 의존이 아니다.
+    const body = contract.slice(contract.indexOf("export interface Driver"))
+    const methods = [...body.matchAll(/^\s{2}(\w+)[<(]/gm)].map((m) => m[1]!)
+    expect(methods.sort()).toEqual([...DRIVER_SURFACE].sort())
+  })
+
+  it("store 밖으로 드라이버 구현이 새지 않는다", async () => {
     // `node:sqlite`를 **코드에서** 아는 파일은 어댑터 하나뿐이어야 한다.
     // 주석에서 언급하는 건 설명이지 의존이 아니므로 걷어내고 본다.
     const stripComments = (s: string): string =>
@@ -146,7 +192,7 @@ describe("드라이버 경계 — 교체가 파일 하나로 끝나는가", () =
 })
 
 describe("좁은 커맨드 표면 — 합격 기준 4", () => {
-  it("전체 테이블을 읽는 함수가 존재하지 않는다", () => {
+  it("전체 테이블을 읽는 함수가 존재하지 않는다", async () => {
     const surface = Object.getOwnPropertyNames(Repository.prototype)
     // 있으면 안 되는 이름들. "없다"를 테스트로 고정한다.
     for (const banned of ["selectAll", "findAll", "loadAll", "all", "dump", "query", "raw", "exec"]) {
@@ -154,7 +200,7 @@ describe("좁은 커맨드 표면 — 합격 기준 4", () => {
     }
   })
 
-  it("조회는 범위를 반드시 받는다", () => {
+  it("조회는 범위를 반드시 받는다", async () => {
     const repo = new Repository(new FakeDriver())
     // countInRange·sumInRange 둘 다 from/to가 필수 인자다 — 시그니처로 강제된다.
     expect(Repository.prototype.countInRange.length).toBeGreaterThanOrEqual(5)
@@ -162,28 +208,28 @@ describe("좁은 커맨드 표면 — 합격 기준 4", () => {
     expect(repo).toBeDefined()
   })
 
-  it("Fact 테이블 직접 조회를 거부한다", () => {
+  it("Fact 테이블 직접 조회를 거부한다", async () => {
     const repo = new Repository(new FakeDriver())
     for (const t of FACT_TABLES) {
-      expect(() => repo.countInRange(t, "lib", "ordered_at", "2026-07-01", "2026-07-31")).toThrow(
-        /active_\* 뷰로만/,
-      )
+      await expect(
+        repo.countInRange(t, "lib", "ordered_at", "2026-07-01", "2026-07-31"),
+      ).rejects.toThrow(/active_\* 뷰로만/)
     }
   })
 
-  it("식별자에 SQL을 끼워 넣을 수 없다", () => {
+  it("식별자에 SQL을 끼워 넣을 수 없다", async () => {
     const repo = new Repository(new FakeDriver())
-    expect(() =>
+    await expect(
       repo.sumInRange("active_order", "total_amount; DROP TABLE batch", "lib", "ordered_at", "a", "b"),
-    ).toThrow(/허용되지 않는 식별자/)
+    ).rejects.toThrow(/허용되지 않는 식별자/)
   })
 
-  it("공통 6컬럼을 호출자가 직접 넘길 수 없다", () => {
+  it("공통 6컬럼을 호출자가 직접 넘길 수 없다", async () => {
     const repo = new Repository(new FakeDriver())
-    expect(() =>
+    await expect(
       repo.loadChunk("fact_order", BATCH, [
         { id: "o1", source_key: "K1", library_id: "다른값" } as never,
       ]),
-    ).toThrow(/공통 컬럼은 직접 넘길 수 없다/)
+    ).rejects.toThrow(/공통 컬럼은 직접 넘길 수 없다/)
   })
 })

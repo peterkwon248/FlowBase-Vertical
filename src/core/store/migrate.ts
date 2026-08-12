@@ -17,9 +17,15 @@ import { dirname, join } from "node:path"
 const here = dirname(fileURLToPath(import.meta.url))
 export const MIGRATIONS_DIR = join(here, "migrations")
 
-/** 마이그레이션에 필요한 최소 DB 표면. */
+/**
+ * 마이그레이션에 필요한 최소 DB 표면.
+ *
+ * 반환 타입이 `void | Promise<void>`인 이유: 계약은 비동기지만(ADR-008)
+ * 동기 드라이버도 그대로 받을 수 있어야 한다. 적용부가 `await`하므로
+ * 어느 쪽이든 올바르게 순차 실행된다.
+ */
 export interface MigratableDb {
-  exec(sql: string): void
+  exec(sql: string): void | Promise<void>
 }
 
 export interface Migration {
@@ -42,10 +48,13 @@ export function loadMigrations(dir: string = MIGRATIONS_DIR): Migration[] {
 }
 
 /** 전부 적용한다. 이미 적용된 것은 건너뛴다. */
-export function migrate(db: MigratableDb, dir: string = MIGRATIONS_DIR): Migration[] {
+export async function migrate(
+  db: MigratableDb,
+  dir: string = MIGRATIONS_DIR,
+): Promise<Migration[]> {
   const applied: Migration[] = []
   for (const m of loadMigrations(dir)) {
-    db.exec(m.sql)
+    await db.exec(m.sql)
     applied.push(m)
   }
   return applied

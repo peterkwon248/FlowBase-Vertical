@@ -23,9 +23,9 @@ export interface AdjustmentEntry {
 /** 컬럼명 → SQLite 선언 타입 (`INTEGER` · `TEXT` · `REAL` …). */
 export type ColumnTypes = Readonly<Record<string, string>>
 
-export function columnTypesOf(db: Driver, table: string): ColumnTypes {
+export async function columnTypesOf(db: Driver, table: string): Promise<ColumnTypes> {
   const out: Record<string, string> = {}
-  for (const r of db.prepare(`SELECT name, type FROM pragma_table_info(?)`).all(table)) {
+  for (const r of await db.prepare(`SELECT name, type FROM pragma_table_info(?)`).all(table)) {
     out[String(r.name)] = String(r.type).toUpperCase()
   }
   return out

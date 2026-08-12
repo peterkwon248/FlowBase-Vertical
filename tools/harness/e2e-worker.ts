@@ -44,14 +44,14 @@ const tParse = performance.now()
 
 // ── 2. 저장 준비 ──────────────────────────────────────────────
 const db = openNodeDriver(dbPath)
-migrate(db)
+await migrate(db)
 const repo = new Repository(db)
 const LIB = "lib-1"
 const CONN = "conn-1"
 const now = new Date(2026, 7, 12).toISOString()
 
-db.prepare(`INSERT INTO library (id, name, created_at) VALUES (?,?,?)`).run(LIB, "기본", now)
-db.prepare(
+await db.prepare(`INSERT INTO library (id, name, created_at) VALUES (?,?,?)`).run(LIB, "기본", now)
+await db.prepare(
   `INSERT INTO connection (id, library_id, pack_id, marketplace_key, display_name, state, created_at, updated_at)
    VALUES (?,?,?,?,?,?,?,?)`,
 ).run(CONN, LIB, profile.packId, profile.marketplaceKey, "연결", "CONNECTED", now, now)
@@ -66,7 +66,7 @@ const batch = {
   mappingVersion: profileVersion(profile),
   startedAt: now,
 }
-repo.openBatch(batch)
+await repo.openBatch(batch)
 
 // ── 3. 스트리밍: 정규화 → 매핑 → 적재 ──────────────────────────
 const { chunks, getSummary } = streamSheet(src, 0, { chunkSize })
@@ -106,7 +106,7 @@ for await (const chunk of chunks) {
 
   // 측정용: SKIP_LOAD=1이면 적재를 건너뛴다 — SQLite가 차지하는 메모리 몫을 분리한다.
   if (mapped.rows.length > 0 && process.env.SKIP_LOAD !== "1") {
-    repo.loadChunk(
+    await repo.loadChunk(
       profile.targetTable as FactTable,
       batch,
       mapped.rows.map((r, i) => ({
@@ -120,13 +120,13 @@ for await (const chunk of chunks) {
   post({ type: "progress", rows: loaded })
 }
 
-repo.commitBatch(batch.id, now)
+await repo.commitBatch(batch.id, now)
 src.close()
 const tLoad = performance.now()
 
 // ── 4. 확인 — 적재된 것을 SQL로 되센다 ────────────────────────
-const counted = repo.countInRange("active_ad_spend", LIB, "spent_on", "2026-01-01", "2026-12-31")
-const spend = repo.sumInRange(
+const counted = await repo.countInRange("active_ad_spend", LIB, "spent_on", "2026-01-01", "2026-12-31")
+const spend = await repo.sumInRange(
   "active_ad_spend",
   "spend_amount",
   LIB,
@@ -134,7 +134,7 @@ const spend = repo.sumInRange(
   "2026-01-01",
   "2026-12-31",
 )
-db.close()
+await db.close()
 
 post({
   type: "done",
