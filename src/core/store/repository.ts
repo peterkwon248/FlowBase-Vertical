@@ -22,6 +22,33 @@ export const FACT_TABLES = [
 
 export type FactTable = (typeof FACT_TABLES)[number]
 
+/**
+ * **Dimension 테이블** — Fact와 다른 규칙으로 산다.
+ *
+ * 목록을 따로 두는 것은 성격이 **타입으로 읽히게** 하기 위해서다. 주석은 지나치면
+ * 안 읽히지만 목록이 갈려 있으면 `loadChunk`에 dimension을 넘기는 코드가 애초에
+ * 컴파일되지 않는다.
+ *
+ * | | Fact | Dimension |
+ * |---|---|---|
+ * | 공통 6컬럼 (B-1) | 강제 | **없다** — batch에 묶이지 않으므로 |
+ * | batch | 소속된다 | 무관 |
+ * | 되돌리기 | batch 행 제거 | **불가침** |
+ * | 재가져오기 | UPSERT (version↑) | 사람이 정한 값은 **보존** |
+ */
+export const DIMENSION_TABLES = ["marketplace_listing"] as const
+
+export type DimensionTable = (typeof DIMENSION_TABLES)[number]
+
+/** 리스팅 한 줄. 파일이 말해주는 것만 담는다 — 연결 상태는 사람이 정한다. */
+export interface ListingUpsert {
+  /** 마켓의 상품/옵션 식별자. **문자열로 유지한다** (ADR-002 · 숫자로 바꾸면 정밀도를 잃는다). */
+  readonly listingKey: string
+  readonly title: string
+  /** 이 리스팅이 상품 단위인가 옵션 단위인가 (마이그레이션 004). */
+  readonly grain: "product" | "option"
+}
+
 /** 헌장 B-1 공통 6컬럼. 적재 시 리포지토리가 채운다 — 호출자가 빠뜨릴 수 없다. */
 const COMMON_COLUMNS = [
   "connection_id",
@@ -89,6 +116,82 @@ export class Repository {
         b.mappingVersion,
         b.startedAt,
       )
+  }
+
+  /**
+   * 마켓 리스팅을 **보존 UPSERT**한다 (ADR-012).
+   *
+   * ─────────────────────────────────────────────────────────────
+   * ★ 사람의 결정은 파일의 재도착보다 오래 산다 ★
+   *
+   * 파일이 다시 오면 갱신되는 것은 **마켓이 소유한 값뿐**이다:
+   *
+   *   갱신   title · grain · updated_at
+   *   보존   sku_id · link_state · linked_by · linked_at
+   *
+   * 재가져오기가 `sku_id`를 덮으면 사용자가 맺은 연결이 조용히 증발한다. ADR-004가
+   * "되돌리기 후 재가져오기 시 조정 생존"을 정한 것과 같은 원리를 dimension에
+   * 적용한 것이다 — 새 결정이 아니라 기존 결정의 이행이다.
+   *
+   * ★ 부재는 삭제 신호가 아니다 ★
+   * 파일이 어떤 리스팅을 싣고 오지 않아도(단종 등) 그 행과 연결은 남는다.
+   * **연결을 끊는 유일한 경로는 사람의 명시적 행위**(연결 화면의 unlink)다
+   * (§10-3 "연결 해제 시 데이터 남길지 묻는다"와 같은 계열).
+   *
+   * 그래서 이 함수에는 삭제가 없고, `undoBatch`도 이 표를 건드리지 않는다.
+   * ─────────────────────────────────────────────────────────────
+   */
+  async upsertListings(
+    libraryId: string,
+    connectionId: string,
+    listings: readonly ListingUpsert[],
+    now: string,
+  ): Promise<LoadStats> {
+    if (listings.length === 0) return { inserted: 0, updated: 0 }
+
+    // `UNIQUE (connection_id, listing_key)`가 충돌 지점이다. 충돌 시 마켓이 소유한
+    // 값만 덮고 연결 4필드는 **UPDATE 절에 아예 적지 않는다** — 적지 않은 컬럼은
+    // 건드려지지 않으므로, 보존이 "잊지 않고 유지하는 것"이 아니라 구조가 된다.
+    const sql =
+      `INSERT INTO marketplace_listing
+         (id, library_id, connection_id, listing_key, title, grain,
+          sku_id, link_state, linked_at, linked_by, updated_at)
+       VALUES (?,?,?,?,?,?, NULL, 'unlinked', NULL, NULL, ?)
+       ON CONFLICT (connection_id, listing_key) DO UPDATE SET
+         title = excluded.title,
+         grain = excluded.grain,
+         updated_at = excluded.updated_at`
+
+    const width = 7
+    function* paramRows(): Generator<SqlValue[]> {
+      for (const l of listings) {
+        const p: SqlValue[] = new Array(width)
+        // id는 **자연키에서 만든다** — 재가져오기마다 새 id를 뽑으면 같은 리스팅이
+        // 매번 다른 행으로 보인다. 충돌 시 어차피 기존 id가 유지된다.
+        p[0] = `lst-${connectionId}-${l.listingKey}`
+        p[1] = libraryId
+        p[2] = connectionId
+        p[3] = l.listingKey
+        p[4] = l.title
+        p[5] = l.grain
+        p[6] = now
+        yield p
+      }
+    }
+
+    return this.db.transaction(async () => {
+      const before = await this.countListings(connectionId)
+      await this.db.runMany(sql, paramRows())
+      const inserted = (await this.countListings(connectionId)) - before
+      return { inserted, updated: listings.length - inserted }
+    })
+  }
+
+  private async countListings(connectionId: string): Promise<number> {
+    const r = await this.db
+      .prepare(`SELECT COUNT(*) AS n FROM marketplace_listing WHERE connection_id = ?`)
+      .get(connectionId)
+    return Number(r?.["n"] ?? 0)
   }
 
   /**
