@@ -21,7 +21,7 @@
  */
 
 import { describe, expect, it } from "vitest"
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { createElement } from "react"
 import { renderToString } from "react-dom/server"
 import { openNodeDriver } from "../src/core/store/driver-node.js"
@@ -35,6 +35,7 @@ import { orderVals } from "../src/app/order.js"
 import { settlementVals } from "../src/app/settlement.js"
 import { linkingVals } from "../src/app/linking.js"
 import { Template } from "../src/app/generated/Template.js"
+import { emptyVals } from "../src/app/generated/vals.js"
 import { shellVals, shellStateFor } from "../src/app/shell.js"
 
 const DB = ".tmp/pnl.sqlite"
@@ -153,5 +154,67 @@ run("내부 키가 화면에 새지 않는다 (헌장 C-4)", () => {
 
     const html = renderToString(createElement(Template, { vals }))
     expect(html.includes(KEY_SEP), "흠집을 냈는데 가드가 못 봤다").toBe(true)
+  })
+})
+
+/**
+ * ★ LOCK 10의 기계화 — §17-3 금지어 ★
+ *
+ * "동기화"는 양방향·자동이 실존하기 전까지 금지다. 우리 어휘는 **연결 / 가져오기 /
+ * batch**다. 세 번 걸렸고(결함 46 · 48 · 50) 그때마다 **사람이 눈으로** 찾았다 —
+ * 그게 이 블록이 생긴 이유다.
+ *
+ * ─────────────────────────────────────────────────────────────
+ * ★ 왜 렌더만 보면 안 되나 — 결함 50이 그 증거다 ★
+ *
+ * 세 번째 «동기화»는 상품 화면 원가 안내문(`ctCogs`) 안에 있었는데, `emptyVals()`가
+ * `ctCogs: false`를 주므로 **어떤 렌더 검사로도 그 문장은 나오지 않는다.** 렌더만
+ * 봤다면 게이트는 녹색인데 위반은 그대로 남아 있었을 것이다.
+ *
+ * 그래서 두 층으로 본다. 어느 한쪽도 다른 쪽을 대신하지 못한다:
+ *
+ *   소스 전수  조건 뒤에 숨은 정적 카피를 잡는다   ← 결함 50이 여기서 잡힌다
+ *   렌더      vals가 **런타임에 만든** 문구를 잡는다  ← 소스에는 없는 말
+ * ─────────────────────────────────────────────────────────────
+ */
+describe("§17-3 금지어가 화면에 없다 (LOCK 10)", () => {
+  const BANNED: readonly [string, string][] = [
+    ["동기화", "LOCK 10 — 양방향·자동이 실존하지 않는다. 어휘는 연결 / 가져오기 / batch"],
+    // 규칙이 아니라 **회귀 방지**다. ADR-012가 보증하는 것은 같은 `listing_key`의
+    // 보존이지 새 리스팅의 자동 연결이 아니다 (결함 48).
+    ["자동으로 붙습니다", "결함 48 — ADR-012가 보증하지 않는 약속"],
+  ]
+
+  it("마크업 소스에 금지어가 없다 — 조건 뒤에 숨은 카피까지", () => {
+    const src = readFileSync("src/app/generated/Template.tsx", "utf8")
+    for (const [word, why] of BANNED) {
+      expect(src.includes(word), `Template.tsx에 "${word}"가 있다 — ${why}`).toBe(false)
+    }
+  })
+
+  /**
+   * 화면 문구를 vals가 만드는 경우는 소스 검사가 못 본다. 데이터가 없어도 도는
+   * 검사라 `.tmp/pnl.sqlite` 유무와 무관하게 **늘 실행된다** — 카피 가드가 픽스처에
+   * 매여 있으면 새 기기에서 조용히 꺼진다.
+   */
+  it("전 화면 렌더에도 금지어가 없다 — vals가 만든 문구까지", () => {
+    for (const key of Object.keys(emptyVals().v)) {
+      const vals = emptyVals()
+      ;(vals.v as Record<string, boolean>)[key] = true
+      vals.firstRun = false
+      vals.notFirstRun = true
+      const html = renderToString(createElement(Template, { vals }))
+      for (const [word, why] of BANNED) {
+        expect(html.includes(word), `${key} 화면에 "${word}"가 있다 — ${why}`).toBe(false)
+      }
+    }
+  })
+
+  /** 가드를 부러뜨려 확인한다 (작업 리듬 3) — 소스 검사가 정말 읽고 있는가. */
+  it("금지어를 넣으면 소스 검사가 잡는다", () => {
+    const src = readFileSync("src/app/generated/Template.tsx", "utf8")
+    const scarred = src.replace("가져오기가 덮어쓰지 않습니다", "동기화가 덮어쓰지 않습니다")
+    expect(scarred, "치환이 실제로 일어나야 시험이 성립한다").not.toBe(src)
+    expect(scarred.includes("동기화")).toBe(true)
   })
 })

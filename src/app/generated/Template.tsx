@@ -3050,7 +3050,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                             <Lic name="square-pen" size={14} />
                             {" "}
                             <span style={{ flex: "1", font: "var(--fw-regular) 12px/1.6 var(--font-sans)", color: "var(--fg-2)", textWrap: "pretty" }}>
-                              원가는 마켓이 주지 않습니다. 회사만 아는 값이라 여기서 직접 입력하고, 동기화가 덮어쓰지 않습니다. 단가는
+                              원가는 마켓이 주지 않습니다. 회사만 아는 값이라 여기서 직접 입력하고, 가져오기가 덮어쓰지 않습니다. 단가는
                               <span style={{ fontWeight: "var(--fw-semi)" }}>
                                 적용 시작일
                               </span>
