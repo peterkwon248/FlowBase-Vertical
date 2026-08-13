@@ -9,6 +9,14 @@
   "targetTable": "fact_order",
   "label": "ESM 주문통합검색 (G마켓·옥션)",
   "displayName": "ESM (G마켓·옥션)",
+
+  "_listingNote": "이 파일에는 옵션 컬럼이 없다 — 12열 전체를 실측했고 상품번호·상품명·수량뿐이다. 그래서 리스팅은 상품 단위이며, 같은 실물 상품이 11번가에서는 옵션 수만큼 여러 리스팅이 된다. 연결 화면에서 N:1로 나타나는 것이 정상이다.",
+  "listing": {
+    "grain": "product",
+    "keyColumns": ["상품번호"],
+    "titleColumns": ["상품명"]
+  },
+
   "recognitionRules": {
     "containerFormats": [
       "xlsx"

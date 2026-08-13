@@ -37,6 +37,9 @@ export interface FieldMapping {
   readonly valueMap?: Readonly<Record<string, RawCell>>
 }
 
+export type { ListingRule } from "./listing.js"
+import type { ListingRule } from "./listing.js"
+
 export interface MappingProfile {
   readonly id: string
   readonly version: string
@@ -79,6 +82,13 @@ export interface MappingProfile {
     readonly columns?: readonly string[]
   }
   readonly fieldMappings: readonly FieldMapping[]
+  /**
+   * 이 파일에서 **마켓 리스팅**을 뽑는 규칙 (`listing.ts`).
+   *
+   * 없으면 리스팅을 만들지 않는다 — 광고 보고서처럼 상품 식별자가 없는 문서가
+   * 그렇다. 있으면 `grain`으로 자기 입도를 선언한다 (마이그레이션 004).
+   */
+  readonly listing?: ListingRule
   /**
    * 한 파일 안에서 행을 **여러 테이블로 나눠 보낸다.**
    *
@@ -294,6 +304,10 @@ export function mapRows(
   // 쓰는 컬럼을 "버렸다"고 세면 숫자가 거짓말을 한다.
   const usedColumns = new Set<string>()
   for (const m of profile.fieldMappings) if (m.source) usedColumns.add(m.source)
+  // 리스팅 컬럼도 **읽는 컬럼**이다. 세지 않으면 "미매핑 52개"가 실제보다 부풀어
+  // 보이고, 그 숫자는 §18-3(0행·미매핑 표시)이 사용자에게 보여줄 값이다.
+  for (const c of profile.listing?.keyColumns ?? []) usedColumns.add(c)
+  for (const c of profile.listing?.titleColumns ?? []) usedColumns.add(c)
   for (const r of routing?.routes ?? []) {
     for (const m of r.fieldMappings) if (m.source) usedColumns.add(m.source)
   }
