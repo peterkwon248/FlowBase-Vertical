@@ -25,13 +25,32 @@
  */
 
 import type { Driver } from "../store/driver.js"
+import { KEY_SEP } from "../import/mapping/listing.js"
 
 export type Grain = "product" | "option"
 export type LinkState = "linked" | "ignored" | "unlinked"
 
 export interface LinkingListing {
   readonly id: string
+  /**
+   * ⚠ **내부 키다. 화면에 그대로 내보내지 않는다** (헌장 C-4 · `source_key`와 같은 계열).
+   *
+   * 여러 컬럼을 `U+0001`로 이어 붙인 합성값이라(ADR-006) 그대로 그리면 보이지 않는
+   * 제어문자가 HTML에 섞이고, 합성 방식 자체가 우리 구현 사정이지 사용자가 알아야 할
+   * 사실이 아니다. 화면이 쓸 것은 아래 `keyParts`다.
+   */
   readonly listingKey: string
+  /**
+   * `listingKey`를 만든 **조각들** — 마켓이 준 값 그대로다 (11번가는 `[상품번호, 옵션명]`,
+   * ESM은 `[상품번호]`).
+   *
+   * 합성한 쪽이 분해도 한다. 화면이 구분자를 알아야 한다면 그건 내부 규약이 화면까지
+   * 샌 것이고, 화면이 늘 때마다 같은 split이 복사된다.
+   *
+   * core는 어느 조각이 무엇인지 **모른다** — 그건 프로파일의 `keyColumns`가 아는 것이고
+   * 마켓 지식이다 (LOCK 4). 그래서 이름표 없이 순서대로 준다.
+   */
+  readonly keyParts: readonly string[]
   readonly title: string
   readonly grain: Grain
   readonly channel: string
@@ -127,6 +146,7 @@ export async function loadLinkingView(
   const listings: LinkingListing[] = rows.map((r) => ({
     id: String(r["id"]),
     listingKey: String(r["listing_key"]),
+    keyParts: String(r["listing_key"]).split(KEY_SEP),
     title: String(r["title"]),
     grain: String(r["grain"]) === "option" ? "option" : "product",
     channel: String(r["ch"]),

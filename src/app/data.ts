@@ -18,6 +18,9 @@ import { openTauriDriver } from "@core/store/driver-tauri.js"
 import { loadPnlSnapshot, type PnlSnapshot } from "@core/profit/snapshot.js"
 import { loadSettlementRows, type SettlementRow } from "@core/settlement/rows.js"
 import { loadOrderRows, type OrderRow } from "@core/order/rows.js"
+import { loadLinkingView, type LinkingView } from "@core/linking/view.js"
+import { Repository } from "@core/store/repository.js"
+import { krLinkingMatcher } from "@packs/kr-marketplace/linking-matcher.js"
 import type { Period } from "@core/profit/index.js"
 
 declare const __PROJECT_ROOT__: string
@@ -37,6 +40,14 @@ export interface LoadResult {
   settlement: readonly SettlementRow[]
   /** 주문 화면이 그리는 행 (주문 + 클레임). */
   orders: readonly OrderRow[]
+  /**
+   * 상품 연결 화면이 그리는 카드 (§21-6).
+   *
+   * 기간을 받지 않는다 — 리스팅은 «사실»이 아니라 «기준»이라 7월에만 팔린 상품도
+   * 여전히 연결 대상이다. 기간으로 자르면 지난달 상품이 목록에서 사라지고,
+   * 사용자는 자기가 연결했던 것이 없어졌다고 읽는다.
+   */
+  linking: LinkingView | null
   /** 못 읽은 이유. 숨기지 않고 화면이 말할 수 있게 들고 나간다 (헌장 6). */
   error: string | null
 }
@@ -50,7 +61,8 @@ export async function loadDevSnapshot(): Promise<LoadResult> {
       const snapshot = await loadPnlSnapshot(db, DEV_LIBRARY, DEV_PERIOD)
       const settlement = await loadSettlementRows(db, DEV_LIBRARY, DEV_PERIOD)
       const orders = await loadOrderRows(db, DEV_LIBRARY, DEV_PERIOD)
-      return { snapshot, settlement, orders, error: null }
+      const linking = await loadLinkingView(db, DEV_LIBRARY, krLinkingMatcher)
+      return { snapshot, settlement, orders, linking, error: null }
     } finally {
       await db.close()
     }
@@ -59,7 +71,43 @@ export async function loadDevSnapshot(): Promise<LoadResult> {
       snapshot: null,
       settlement: [],
       orders: [],
+      linking: null,
       error: e instanceof Error ? e.message : String(e),
     }
   }
 }
+
+/**
+ * **이 앱에서 사용자가 일으키는 첫 쓰기.** 리포지토리를 열어 한 번 쓰고 닫는다.
+ *
+ * ★ 쓰기 뒤에 반드시 다시 읽는다 ★
+ * 화면 상태를 손으로 갱신하면(«방금 만든 SKU를 목록에 밀어넣기») 그 순간 화면이
+ * DB와 다른 것을 믿기 시작한다. 카운트를 한 곳에서만 세기로 한 것과 같은 이유로,
+ * 쓰기 결과도 **다시 조회해서** 받는다. 61장짜리 목록이라 비용도 문제가 아니다.
+ *
+ * 실패를 삼키지 않는다 (헌장 6) — 호출한 쪽이 이유를 받아 화면에 말할 수 있다.
+ */
+export async function writeThenReload(
+  write: (repo: Repository) => Promise<void>,
+): Promise<LoadResult> {
+  try {
+    const db = await openTauriDriver(DEV_DB_PATH, { pragmas: false })
+    try {
+      await write(new Repository(db))
+    } finally {
+      await db.close()
+    }
+  } catch (e) {
+    return {
+      snapshot: null,
+      settlement: [],
+      orders: [],
+      linking: null,
+      error: e instanceof Error ? e.message : String(e),
+    }
+  }
+  return loadDevSnapshot()
+}
+
+/** 쓰기 시각. 되돌리기·이력이 이 값을 본다 (ADR-004). */
+export const nowStamp = (): string => new Date().toISOString().slice(0, 19)

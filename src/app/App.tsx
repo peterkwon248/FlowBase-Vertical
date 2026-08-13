@@ -26,10 +26,12 @@ import { Template } from "./generated/Template.js"
 import { dashboardVals } from "./dashboard.js"
 import { settlementVals } from "./settlement.js"
 import { orderVals } from "./order.js"
-import { DEV_PERIOD, loadDevSnapshot } from "./data.js"
+import { linkingVals, type LinkTab, type LinkingActions } from "./linking.js"
+import { DEV_LIBRARY, DEV_PERIOD, loadDevSnapshot, nowStamp, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import type { SettlementRow } from "@core/settlement/rows.js"
 import type { OrderRow } from "@core/order/rows.js"
+import type { LinkingCard, LinkingView } from "@core/linking/view.js"
 import { shellStateFor, shellVals, type NavKey, type ShellState } from "./shell.js"
 
 /** 목업 L3908과 같은 기준. 사이드바가 서랍이 되는 폭이다. */
@@ -69,14 +71,73 @@ export function App(): React.JSX.Element {
   const [snap, setSnap] = useState<PnlSnapshot | null>(null)
   const [setRows, setSetRows] = useState<readonly SettlementRow[]>([])
   const [ordRows, setOrdRows] = useState<readonly OrderRow[]>([])
-  useEffect(() => {
-    void loadDevSnapshot().then((r) => {
-      if (r.snapshot) setSnap(r.snapshot)
-      else console.warn("[data] 스냅샷을 읽지 못했다 — 빈 화면이 지금의 사실이다:", r.error)
-      setSetRows(r.settlement)
-      setOrdRows(r.orders)
-    })
+  const [linking, setLinking] = useState<LinkingView | null>(null)
+
+  const take = useCallback((r: LoadResult) => {
+    if (r.snapshot) setSnap(r.snapshot)
+    else console.warn("[data] 스냅샷을 읽지 못했다 — 빈 화면이 지금의 사실이다:", r.error)
+    setSetRows(r.settlement)
+    setOrdRows(r.orders)
+    setLinking(r.linking)
   }, [])
+
+  useEffect(() => {
+    void loadDevSnapshot().then(take)
+  }, [take])
+
+  // ── 상품 연결 (§21-6) ────────────────────────────────────────────
+  // 탭과 선택은 **화면 상태**라 여기 산다. 연결 자체는 DB에 있고, 쓰기가 끝나면
+  // 다시 조회해서 받는다 (`writeThenReload`) — 손으로 목록을 고치지 않는다.
+  const [linkTab, setLinkTab] = useState<LinkTab>("todo")
+  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set())
+
+  const write = useCallback(
+    (fn: Parameters<typeof writeThenReload>[0]) => {
+      void writeThenReload(fn).then((r) => {
+        if (r.error) console.warn("[linking] 쓰기에 실패했다:", r.error)
+        // 쓰기가 끝난 카드는 선택에 남아 있을 이유가 없다 — 다음 탭으로 갔다
+        setPicked(new Set())
+        take(r)
+      })
+    },
+    [take],
+  )
+
+  const ids = (c: LinkingCard): string[] => c.listings.map((l) => l.id)
+
+  const linkActions: LinkingActions = {
+    pickTab: (t) => {
+      setLinkTab(t)
+      // 탭이 바뀌면 선택도 뜻을 잃는다. 남겨두면 «선택 3개»가 보이지 않는 카드를
+      // 가리키게 되고, 일괄 등록이 사용자가 못 본 것에 손을 댄다
+      setPicked(new Set())
+    },
+    newSku: (c) => write((repo) => repo.createSkuForListings(DEV_LIBRARY, ids(c), c.title, nowStamp()).then(() => {})),
+    link: (c, skuId) => write((repo) => repo.linkListings(ids(c), skuId, nowStamp()).then(() => {})),
+    ignore: (c) => write((repo) => repo.ignoreListings(ids(c), nowStamp()).then(() => {})),
+    undo: (c) => write((repo) => repo.unlinkListings(ids(c), nowStamp()).then(() => {})),
+    toggle: (key) =>
+      setPicked((s) => {
+        const next = new Set(s)
+        if (!next.delete(key)) next.add(key)
+        return next
+      }),
+    toggleAll: () =>
+      setPicked((s) => {
+        const cards = linking ? (linkTab === "todo" ? linking.todo : linkTab === "done" ? linking.done : linking.ignored) : []
+        return s.size === cards.length ? new Set() : new Set(cards.map((c) => c.key))
+      }),
+    bulkNewSku: () => {
+      const cards = (linking?.todo ?? []).filter((c) => picked.has(c.key))
+      if (cards.length === 0) return
+      // ★ **각각** 새 SKU다 — 하나로 합치지 않는다 (§21-6 ②) ★
+      // 합치는 것은 서로 다른 상품을 한 SKU로 만드는 되돌리기 어려운 행위이고,
+      // 그건 카드마다 사람이 봐야 한다 (작업 리듬 12).
+      write(async (repo) => {
+        for (const c of cards) await repo.createSkuForListings(DEV_LIBRARY, ids(c), c.title, nowStamp())
+      })
+    },
+  }
 
   const go = useCallback((view: NavKey) => setState((s) => ({ ...s, view })), [])
   const toggleNav = useCallback(
@@ -108,6 +169,10 @@ export function App(): React.JSX.Element {
   // 읽으므로(loadDevSnapshot이 연결을 한 번만 연다) 화면끼리 어긋나지 않는다.
   if (setRows.length > 0) settlementVals(vals, setRows, DEV_PERIOD)
   if (ordRows.length > 0) orderVals(vals, ordRows, DEV_PERIOD)
+  // 연결은 **0장도 사실**이다. 다른 화면과 달리 길이로 거르지 않는 이유는, 리스팅이
+  // 하나도 없으면 "연결할 것이 없습니다"가 떠야 하기 때문이다 — 목업의 빈 상태가
+  // 그 자리에 이미 있다.
+  if (linking) linkingVals(vals, linking, linkTab, picked, linkActions)
 
   return <Template vals={vals} />
 }

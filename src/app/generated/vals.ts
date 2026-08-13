@@ -295,8 +295,13 @@ export interface TemplateVals {
   licState: string
   licTabs: readonly any[]
   linkBadge: string
+  linkBulkNewSku: (...args: any[]) => void
   linkEmpty: boolean
   linkEmptyMsg: string
+  linkPickAll: (...args: any[]) => void
+  linkPickAllLabel: string
+  linkPicked: boolean
+  linkPickedLabel: string
   linkRows: readonly any[]
   linkTabDone: boolean
   linkTabs: readonly any[]
@@ -791,8 +796,13 @@ export function emptyVals(): TemplateVals {
     licState: "",
     licTabs: [],
     linkBadge: "",
+    linkBulkNewSku: () => {},
     linkEmpty: false,
     linkEmptyMsg: "",
+    linkPickAll: () => {},
+    linkPickAllLabel: "",
+    linkPicked: false,
+    linkPickedLabel: "",
     linkRows: [],
     linkTabDone: false,
     linkTabs: [],

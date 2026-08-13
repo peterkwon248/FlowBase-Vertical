@@ -4567,7 +4567,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                 <section data-screen-label="상품 연결" style={{ padding: "14px", maxWidth: "1180px" }}>
                   <div style={{ display: "flex", alignItems: "baseline", gap: "10px", padding: "0 2px 12px" }}>
                     <span style={{ font: "var(--fw-medium) 12px/1.7 var(--font-sans)", color: "var(--fg-3)", textWrap: "pretty", maxWidth: "780px" }}>
-                      마켓에서 들어온 리스팅 중 FlowBase SKU에 아직 붙지 않은 것만 모입니다. 한 번 이어주면 그 마켓 ID는 기록으로 남아 다음 동기화부터 자동으로 붙습니다.
+                      마켓에서 들어온 리스팅 중 FlowBase SKU에 아직 붙지 않은 것만 모입니다. 한 번 이어주면 같은 리스팅이 다시 올 때 그 연결이 유지됩니다.
                     </span>
                   </div>
                   {" "}
@@ -4581,6 +4581,24 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                         </span>
                     ))}
                   </div>
+                  {" "}
+                  {vals.linkTabTodo && !vals.linkEmpty && (
+                      <div data-s21="link-bulk" style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "var(--r-md)", background: "var(--bg-subtle)" }}>
+                        <span className="v-btn" style={{ height: "26px", cursor: "pointer" }} onClick={vals.linkPickAll}>
+                          {vals.linkPickAllLabel}
+                        </span>
+                        {" "}
+                        <span style={{ flex: "1", minWidth: "0", font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)", textWrap: "pretty" }}>
+                          여러 카드를 골라 한 번에 등록합니다. 고른 카드는 하나로 합쳐지지 않고 각각 SKU가 됩니다.
+                        </span>
+                        {" "}
+                        {vals.linkPicked && (
+                            <span className="v-btn v-btn--primary" style={{ height: "26px", cursor: "pointer", flex: "none" }} onClick={vals.linkBulkNewSku}>
+                              {vals.linkPickedLabel}
+                            </span>
+                        )}
+                      </div>
+                  )}
                   {" "}
                   {vals.linkEmpty && (
                       <div style={{ border: "1px dashed var(--border)", borderRadius: "var(--r-md)", padding: "40px", textAlign: "center", font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-4)" }}>
@@ -4612,9 +4630,41 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               <div className="v-num" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)" }}>
                                 {r.ext}·{r.price}
                               </div>
+                              {" "}
+                              {r.folded && (
+                                  <div data-s21="link-cluster" style={{ display: "grid", gap: "4px", marginTop: "2px", paddingLeft: "9px", borderLeft: "1px solid var(--border)" }}>
+                                    <span style={{ font: "var(--fw-semi) 11px var(--font-sans)", color: "var(--fg-3)" }}>
+                                      {r.foldLabel}
+                                    </span>
+                                    {" "}
+                                    {r.items.map((it: any, $index: number) => (
+                                        <span key={$index} style={{ display: "flex", alignItems: "baseline", gap: "8px", minWidth: "0" }}>
+                                          <span className="v-num" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                            {it.ident}
+                                          </span>
+                                          {" "}
+                                          <span style={{ font: "var(--fw-medium) 10px var(--font-sans)", color: "var(--fg-4)", flex: "none" }}>
+                                            {it.ch}
+                                          </span>
+                                        </span>
+                                    ))}
+                                  </div>
+                              )}
                             </div>
                             {" "}
                             <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: "none" }}>
+                              {vals.linkTabTodo && (
+                                  <span data-s21="link-newsku" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <span className="v-chip" style={{ height: "26px", padding: "0 9px", cursor: "pointer" }} onClick={r.toggle}>
+                                      {r.picked ? "선택됨" : "선택"}
+                                    </span>
+                                    {" "}
+                                    <span className="v-btn v-btn--primary" style={{ height: "26px", cursor: "pointer" }} onClick={r.newSku}>
+                                      새 SKU로 등록
+                                    </span>
+                                  </span>
+                              )}
+                              {" "}
                               {vals.linkTabTodo && (
                                   <span className="v-btn" style={{ height: "26px", cursor: "pointer" }} onClick={r.ignore}>
                                     무시
@@ -4635,7 +4685,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                             </div>
                           </div>
                           {" "}
-                          {vals.linkTabTodo && (
+                          {vals.linkTabTodo && r.hasCands && (
                               <div style={{ borderTop: "1px solid var(--border)", background: "var(--bg-subtle)", padding: "10px 14px" }}>
                                 <div style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)", marginBottom: "8px" }}>
                                   추천 SKU — 이름과 코드가 겹치는 정도
@@ -4643,13 +4693,17 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                 {" "}
                                 <div style={{ display: "grid", gap: "6px" }}>
                                   {r.cands.map((c: any, $index: number) => (
-                                      <div key={$index} style={{ display: "grid", gridTemplateColumns: "44px minmax(0, 1fr) 148px 62px", alignItems: "center", gap: "12px" }}>
+                                      <div key={$index} style={{ display: "grid", gridTemplateColumns: "44px minmax(0, 1fr) minmax(0, 1fr) 96px 62px", alignItems: "center", gap: "12px" }}>
                                         <span className="v-num" style={{ font: "var(--fw-semi) 11px var(--font-mono)", color: c.confColor }}>
                                           {c.conf}
                                         </span>
                                         {" "}
                                         <span style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                           {c.label}
+                                        </span>
+                                        {" "}
+                                        <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                          {c.shared}
                                         </span>
                                         {" "}
                                         <span className="v-num" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -4682,7 +4736,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                 </div>
                                 {" "}
                                 <div className="v-num" style={{ font: "var(--fw-medium) 10px var(--font-mono)", color: "var(--fg-4)" }}>
-                                  {r.key}— 다음 가져오기부터 자동으로 붙습니다
+                                  {r.key}— 같은 리스팅이 다시 오면 이 연결이 유지됩니다
                                 </div>
                               </div>
                           )}

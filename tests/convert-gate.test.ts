@@ -122,6 +122,115 @@ const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[
     to: ["k.value", "k.hasDelta", "k.deltaColor"],
     why: 'KPI 카드의 «전월 대비» 라벨 줄을 `k.hasDelta`로 감쌌다. 값은 비어 있는데 라벨만 남아 "계산 중"처럼 읽혔다',
   },
+
+  // ── §21-6 «상품 연결» ─────────────────────────────────────────────────
+  // 신설 요소 셋은 `S21_REGIONS`가 통째로 빼고, 여기 남는 것은 **기존 마크업에
+  // 남은 자국**이다 — 신설 요소를 감싼 조건, 넓어진 그리드, 그리고 카피 2건.
+  {
+    field: "texts",
+    from: [
+      "마켓에서 들어온 리스팅 중 FlowBase SKU에 아직 붙지 않은 것만 모입니다. 한 번 이어주면 그 마켓 ID는 기록으로 남아 다음 동기화부터 자동으로 붙습니다.",
+    ],
+    to: [
+      "마켓에서 들어온 리스팅 중 FlowBase SKU에 아직 붙지 않은 것만 모입니다. 한 번 이어주면 같은 리스팅이 다시 올 때 그 연결이 유지됩니다.",
+    ],
+    why:
+      "결함 48 — 한 문장에 위반이 둘이었다. «동기화»는 LOCK 10이 금지하고(우리는 파일 " +
+      "가져오기뿐이다), «자동으로 붙습니다»는 ADR-012가 보증하지 않는다. 보증되는 것은 " +
+      "같은 `listing_key`가 다시 왔을 때의 **보존**이지 새 리스팅의 자동 연결이 아니다",
+  },
+  {
+    field: "texts",
+    from: ["— 다음 가져오기부터 자동으로 붙습니다"],
+    to: ["— 같은 리스팅이 다시 오면 이 연결이 유지됩니다"],
+    why:
+      "결함 48 — done 탭의 같은 약속. 새 옵션(색상:그린)은 `unlinked`로 태어난다. " +
+      "자동 연결을 만들지 않는 이유는 작업 리듬 12다 — 같은 SKU인지는 사실이 아니라 " +
+      "판단이고(옵션마다 원가가 다를 수 있다), 검토 전에 접으면 사람은 접힌 것만 본다",
+  },
+  {
+    field: "holes",
+    from: ["t.count", "linkEmpty"],
+    to: ["t.count", "linkTabTodo&&!vals.linkEmpty", "linkEmpty"],
+    why:
+      "§21-6 ② 일괄 바(`data-s21=\"link-bulk\"`)를 감싼 조건. 구간 자체는 빠지지만 " +
+      "**조건은 부모에 남는다** — 신설 요소가 기존 마크업에 남기는 자국이고, 그 자국까지 " +
+      "선언해야 «선언 밖은 그대로»가 참이 된다",
+  },
+  {
+    field: "holes",
+    from: ["r.price", "linkTabTodo", "r.ignore"],
+    to: ["r.price", "r.folded", "linkTabTodo", "linkTabTodo", "r.ignore"],
+    why:
+      "§21-6 ①②가 남긴 조건 둘 — `r.folded`(군집 블록) · `linkTabTodo` 하나 더" +
+      "([새 SKU로 등록] 묶음). 뒤의 `linkTabTodo`·`r.ignore`는 목업의 «무시» 버튼 그대로다",
+  },
+  {
+    field: "holes",
+    from: ["linkTabTodo", "r.cands"],
+    to: ["linkTabTodo&&r.hasCands", "r.cands"],
+    why:
+      "«추천 SKU — 이름과 코드가 겹치는 정도» 머리글의 **존재 조건을 데이터에 묶었다.** " +
+      "목업은 SKU가 이미 있는 세계를 전제해 후보가 빌 일이 없었지만, 콜드스타트(SKU 0)에서는 " +
+      "카드 61장 전부가 아무것도 없는 머리글을 이고 서서 «계산 중»처럼 읽힌다. " +
+      "결함 47(비교 문장)과 **같은 처방**이고 — 문구가 아니라 조건을 고친다 — 첫 SKU가 " +
+      "생기는 순간 스스로 살아난다. 그 자리를 지금 채우는 것이 §21-6 ②다",
+  },
+  {
+    field: "holes",
+    from: ["c.label", "c.sku"],
+    to: ["c.label", "c.shared", "c.sku"],
+    why:
+      "§21-6 ③ «후보별 근거 한 줄» — 겹친 토큰을 후보 행에 **인라인으로** 넣는다. " +
+      "구간 선언이 아니라 값 치환으로 둔 이유는, 이 자리는 통째로 갈아엎는 곳이 아니라 " +
+      "기존 행에 칸 하나가 늘어난 곳이라서다 — 나머지 네 칸은 여전히 1:1로 대조된다",
+  },
+  {
+    field: "styles",
+    from: [
+      "gridTemplateColumns:44px minmax(0, 1fr) 148px 62px",
+      "alignItems:center", "gap:12px",
+      "font:var(--fw-semi) 11px var(--font-mono)", "color:{c.confColor}",
+      "font:var(--fw-medium) 12px var(--font-sans)", "color:var(--fg-2)",
+      "whiteSpace:nowrap", "overflow:hidden", "textOverflow:ellipsis",
+      "font:var(--fw-medium) 11px var(--font-mono)", "color:var(--fg-4)",
+      "whiteSpace:nowrap", "overflow:hidden", "textOverflow:ellipsis",
+    ],
+    to: [
+      // 148px → 96px. §21-6이 못박은 우선순위다 — «공간이 부족하면 SKU 코드 열을
+      // 줄이지 근거를 접지 않는다». 근거가 툴팁으로 밀리는 순간 제안은 근거 없는
+      // 지시가 되고, §21-1이 derived에 건 근거 진입로 의무가 깨진다.
+      "gridTemplateColumns:44px minmax(0, 1fr) minmax(0, 1fr) 96px 62px",
+      "alignItems:center", "gap:12px",
+      "font:var(--fw-semi) 11px var(--font-mono)", "color:{c.confColor}",
+      "font:var(--fw-medium) 12px var(--font-sans)", "color:var(--fg-2)",
+      "whiteSpace:nowrap", "overflow:hidden", "textOverflow:ellipsis",
+      // 신설 — 근거 칸. 식별자가 아니라 낱말이라 mono가 아닌 sans이고,
+      // SKU 코드(--fg-4)보다 한 단계 밝게(--fg-3) 둬서 «읽는 것»임을 표시한다.
+      "font:var(--fw-medium) 11px var(--font-sans)", "color:var(--fg-3)",
+      "whiteSpace:nowrap", "overflow:hidden", "textOverflow:ellipsis",
+      "font:var(--fw-medium) 11px var(--font-mono)", "color:var(--fg-4)",
+      "whiteSpace:nowrap", "overflow:hidden", "textOverflow:ellipsis",
+    ],
+    why: "§21-6 ③ — 후보 행이 4칸에서 5칸이 된다. SKU 코드 열을 줄여 근거 칸을 만들었다",
+  },
+  {
+    field: "tokens",
+    // 앞의 `--font-mono`(일치도 칸)까지 붙여야 유일해진다 — 뒤 6개만으로는 4곳에서
+    // 잡히고, `indexOfRun`이 그걸 세우고 알려줬다. 가드의 가드가 실제로 일한 자리다.
+    from: [
+      "--font-mono",
+      "--fw-medium", "--font-sans", "--fg-2",
+      "--fw-medium", "--font-mono", "--fg-4",
+    ],
+    to: [
+      "--font-mono",
+      "--fw-medium", "--font-sans", "--fg-2",
+      "--fw-medium", "--font-sans", "--fg-3",
+      "--fw-medium", "--font-mono", "--fg-4",
+    ],
+    why: "§21-6 ③ 근거 칸이 참조하는 토큰 3개. 위 `styles` 선언의 짝이다",
+  },
 ]
 
 /**
@@ -192,6 +301,17 @@ function applyDeviations(ir: ReturnType<typeof irFromTree>): ReturnType<typeof i
  * 대조할 원본이 없으므로 증명되는 것은 **"여기가 바뀐다고 선언돼 있다"**뿐이다.
  * 게이트의 값은 **선언 밖 전 항목이 그대로임**을 보증하는 데 있고, 아래 두
  * 테스트가 선언 자체의 유효성(목업에 실재 · 출력에 표식 실재)을 지킨다.
+ *
+ * ★ 두 종류를 구분한다 — `mockupStyle`이 있으면 «교체», `null`이면 «순수 신설» ★
+ *
+ * 도넛→막대는 목업의 요소를 **치우고 그 자리에** 다른 것을 놓았다. §21-6의 셋은
+ * 다르다 — 목업에 대응물이 아예 없다. 목업이 «SKU가 이미 있는 세계»를 전제하고
+ * 그려서 콜드스타트(SKU 0)를 보지 못했기 때문이고, 그건 결함이 아니라 전제의
+ * 시차다 (§21-6).
+ *
+ * 둘을 한 어휘로 뭉뚱그리면 «없앤 것»과 «더한 것»이 구분되지 않는다. 신설 구간은
+ * 목업 쪽에서 **아무것도 빼지 않으므로**, 그 사실이 선언에 보여야 한다 —
+ * 보증 범위를 부풀리지 않는 것이 이 게이트의 규율이다.
  */
 const S21_REGIONS = [
   {
@@ -202,11 +322,34 @@ const S21_REGIONS = [
       "툴팁이 통째로 빠지고 항목별 가로 막대(라벨 · 금액 · 매출 대비 · 막대)가 들어온다. " +
       "금액이 인라인으로 나오면서 §9의 «S/M hover 의존 금지»도 함께 해소된다",
   },
+  {
+    id: "link-cluster",
+    mockupStyle: null,
+    why:
+      "§21-6 ① «군집 카드» — 신설. 목업 `linking`은 리스팅-평면이라 11번가 옵션 44개가 " +
+      "44줄이 된다. 같은 상품부의 옵션을 한 카드로 접고 접힌 목록을 펴는 블록이 " +
+      "들어온다. 접기 기준은 유사도가 아니라 **상품부 완전 일치**다 (작업 리듬 12)",
+  },
+  {
+    id: "link-newsku",
+    mockupStyle: null,
+    why:
+      "§21-6 ② «[새 SKU로 등록]» — 신설. 후보가 없을 때의 기본 액션이고, 이것이 없으면 " +
+      "SKU 0개 상태에서 화면이 작동 자체를 못 한다. 일괄형의 선택 칩도 같은 자리에 붙는다",
+  },
+  {
+    id: "link-bulk",
+    mockupStyle: null,
+    why:
+      "§21-6 ② 일괄형 «선택 N개를 각각 새 SKU로 등록» — 신설. 콜드스타트의 none 19건이 " +
+      "여기로 들어온다. **각각**이라는 말이 요점이다 — 고른 카드를 하나로 합치지 않는다",
+  },
 ] as const
 
 const want = applyDeviations(
   irFromTree(parseTemplate(src.html, src.startLine).nodes, {
-    styleContains: S21_REGIONS.map((r) => r.mockupStyle),
+    // 신설 구간(`mockupStyle: null`)은 목업에서 뺄 것이 없다 — 애초에 없던 요소다.
+    styleContains: S21_REGIONS.map((r) => r.mockupStyle).filter((s) => s !== null),
   }),
 )
 
@@ -254,10 +397,15 @@ describe("보존 게이트 — 변환 출력이 목업과 같은가", () => {
   it("§21 구간 선언이 양쪽에서 정확히 하나씩 짚힌다", () => {
     const mockupSrc = readFileSync(MOCKUP, "utf8")
     for (const r of S21_REGIONS) {
-      expect(
-        mockupSrc.split(r.mockupStyle).length - 1,
-        `목업에서 "${r.mockupStyle}"가 하나만 잡혀야 한다 — 0이면 낡았고, 2 이상이면 엉뚱한 구간까지 뺀다`,
-      ).toBe(1)
+      // 신설 구간은 목업 쪽 짝이 **없는 것이 정상**이다. 그래도 검사는 한다 —
+      // 목업에 실재하는 요소를 실수로 «신설»이라 선언하면 그 구간이 양쪽에서
+      // 조용히 빠져 아무도 안 보는 자리가 된다.
+      if (r.mockupStyle !== null) {
+        expect(
+          mockupSrc.split(r.mockupStyle).length - 1,
+          `목업에서 "${r.mockupStyle}"가 하나만 잡혀야 한다 — 0이면 낡았고, 2 이상이면 엉뚱한 구간까지 뺀다`,
+        ).toBe(1)
+      }
       expect(
         generated.split(`data-s21="${r.id}"`).length - 1,
         `출력에 data-s21="${r.id}" 표식이 하나여야 한다`,

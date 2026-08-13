@@ -18,10 +18,8 @@ import { renderToString } from "react-dom/server"
 import { openNodeDriver } from "../src/core/store/driver-node.js"
 import { loadPnlSnapshot } from "../src/core/profit/snapshot.js"
 import { loadOrderRows } from "../src/core/order/rows.js"
-import { loadSettlementRows } from "../src/core/settlement/rows.js"
 import type { Period } from "../src/core/profit/index.js"
 import { orderVals } from "../src/app/order.js"
-import { settlementVals } from "../src/app/settlement.js"
 import { Template } from "../src/app/generated/Template.js"
 import { shellVals, shellStateFor } from "../src/app/shell.js"
 
@@ -48,7 +46,6 @@ run("주문 화면 — 화면 숫자 = CLI 숫자", () => {
       return {
         snap: await loadPnlSnapshot(db, LIB, PERIOD),
         rows: await loadOrderRows(db, LIB, PERIOD),
-        settlement: await loadSettlementRows(db, LIB, PERIOD),
       }
     } finally {
       await db.close()
@@ -121,43 +118,11 @@ run("주문 화면 — 화면 숫자 = CLI 숫자", () => {
 })
 
 /**
- * ★ 내부 키는 화면에 나오지 않는다 (헌장 C-4) ★
+ * ★ «내부 키가 화면에 새지 않는다»는 여기 있었다 → `tests/screen-safety.test.ts` ★
  *
- * `connection_id`·`batch_id`·`source_key`는 우리 안에서만 뜻을 갖는 값이다.
- * 사용자에게 `conn-11st`나 `batch-esm`이 보이면 그건 우리가 이름을 안 붙였다는
- * 뜻이지 사용자가 알아야 할 사실이 아니다. 채널 이름의 출처는 프로파일이
- * 선언한 `displayName`이고 `connection.display_name`에 산다.
+ * 정산·주문 둘을 한 번에 지키려고 이 파일에 뒀던 것인데, 그 이유가 **다음 화면에서도
+ * 같은 실수가 나오기 때문**이었다. 실제로 상품 연결에서 났고(합성 키의 U+0001),
+ * 그때 파일 이름이 `order-rows`에 묶여 있는 것이 오히려 «공용»이라는 목적을 가렸다.
  *
- * 두 화면을 한 테스트로 묶는 이유는 **다음 화면에서도 같은 실수가 나오기 때문**이다.
+ * 내용은 한 곳 그대로다 — 옮긴 것은 이름뿐이다.
  */
-run("내부 키가 화면에 새지 않는다 (헌장 C-4)", () => {
-  const LEAKS = ["conn-", "batch-", "source_key", "connection_id", "library_id"]
-
-  it("정산 · 주문 화면 어디에도 내부 키가 없다", async () => {
-    const db = openNodeDriver(DB, { pragmas: false })
-    const settlement = await loadSettlementRows(db, LIB, PERIOD)
-    const orders = await loadOrderRows(db, LIB, PERIOD)
-    await db.close()
-
-    // 화면마다 나오는 채널이 다르다 — 정산은 11번가, 주문은 ESM에서 왔다.
-    // 그 자체가 "연결 3개가 섞여 있다"는 단서의 다른 표현이다.
-    const views = [
-      { key: "settlement", channel: "11번가", wire: (v: never) => settlementVals(v, settlement, PERIOD) },
-      { key: "orders", channel: "ESM", wire: (v: never) => orderVals(v, orders, PERIOD) },
-    ] as const
-
-    for (const view of views) {
-      const vals = shellVals(shellStateFor(false), emptyActions() as never)
-      view.wire(vals as never)
-      vals.firstRun = false
-      vals.notFirstRun = true
-      ;(vals.v as Record<string, boolean>)[view.key] = true
-
-      const html = renderToString(createElement(Template, { vals }))
-      for (const leak of LEAKS) {
-        expect(html.includes(leak), `${view.key} 화면에 "${leak}"가 보인다`).toBe(false)
-      }
-      expect(html, `${view.key} 화면에 채널 이름이 없다`).toContain(view.channel)
-    }
-  })
-})
