@@ -1272,83 +1272,34 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   매출{vals.heroRev}원이 이렇게 나뉩니다
                                 </span>
                                 {" "}
-                                <span style={{ display: "flex", alignItems: "center", gap: "14px", position: "relative" }}>
-                                  <span style={{ width: "112px", height: "112px", flex: "none", borderRadius: "50%", position: "relative", background: vals.costDonut }}>
+                                <span data-s21="cost-bars" style={{ display: "grid", gap: "10px", position: "relative", minWidth: "0" }}>
+                                  <span style={{ display: "grid", gap: "10px", minWidth: "0" }}>
                                     {vals.costMix.map((m: any, $index: number) => (
-                                        <span key={$index} style={{ position: "absolute", inset: "0", borderRadius: "50%", clipPath: m.clip }} onMouseEnter={m.enter} onMouseLeave={m.leave}></span>
-                                    ))}
-                                    {" "}
-                                    {vals.mixHiClip && (
-                                        <span style={{ position: "absolute", inset: "-4px", borderRadius: "50%", pointerEvents: "none", clipPath: vals.mixHiClip, background: vals.costDonut, filter: "brightness(1.4) saturate(1.1)" }}></span>
-                                    )}
-                                    {" "}
-                                    <span style={{ position: "absolute", inset: "21px", borderRadius: "50%", background: "var(--bg-app)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1px" }}>
-                                      <span style={{ font: "var(--fw-medium) 9px var(--font-sans)", color: "var(--fg-4)" }}>
-                                        기여이익률
-                                      </span>
-                                      {" "}
-                                      <span className="v-num" style={{ font: "var(--fw-semi) 17px var(--font-sans)", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em", color: vals.contribColor }}>
-                                        {vals.contribMargin}
-                                      </span>
-                                    </span>
-                                  </span>
-                                  {" "}
-                                  <span style={{ flex: "1", display: "grid", gap: "6px", minWidth: "0" }}>
-                                    {vals.costMix.map((m: any, $index: number) => (
-                                        <span key={$index} style={{ display: "flex", alignItems: "baseline", gap: "6px", minWidth: "0", cursor: "default" }} onMouseEnter={m.enter} onMouseLeave={m.leave}>
-                                          <span style={{ width: "7px", height: "7px", borderRadius: "2px", background: m.color, flex: "none", transform: "translateY(-1px)" }}></span>
-                                          {" "}
-                                          <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                            {m.label}
+                                        <span key={$index} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: "10px", rowGap: "5px", alignItems: "baseline", minWidth: "0" }}>
+                                          <span style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: "0" }}>
+                                            <span style={{ width: "7px", height: "7px", borderRadius: "2px", background: m.color, flex: "none" }}></span>
+                                            {" "}
+                                            <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                              {m.label}
+                                            </span>
                                           </span>
                                           {" "}
-                                          <span style={{ flex: "1" }}></span>
+                                          <span style={{ display: "flex", alignItems: "baseline", gap: "8px", whiteSpace: "nowrap" }}>
+                                            <span className="v-num" style={{ font: "var(--fw-semi) 11px var(--font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--fg-2)" }}>
+                                              {m.amount}
+                                            </span>
+                                            {" "}
+                                            <span className="v-num" style={{ font: "var(--fw-medium) 11px var(--font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--fg-4)", minWidth: "44px", textAlign: "right" }}>
+                                              {m.pct}
+                                            </span>
+                                          </span>
                                           {" "}
-                                          <span className="v-num" style={{ font: "var(--fw-semi) 11px var(--font-mono)", color: "var(--fg-2)", whiteSpace: "nowrap" }}>
-                                            {m.pct}
+                                          <span style={{ gridColumn: "1 / -1", height: "6px", borderRadius: "var(--r-pill)", background: "var(--bg-elevated-2)", overflow: "hidden" }}>
+                                            <span style={{ display: "block", height: "100%", width: m.barW, background: m.color, borderRadius: "var(--r-pill)" }}></span>
                                           </span>
                                         </span>
                                     ))}
                                   </span>
-                                  {" "}
-                                  {vals.mixTip && (
-                                      <span style={{ position: "absolute", zIndex: "40", left: vals.mixTip.x, top: "calc(100% + 10px)", width: "180px", display: "flex", flexDirection: "column", gap: "3px", padding: "9px 11px", background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-popover)", pointerEvents: "none", textAlign: "left" }}>
-                                        <span style={{ display: "flex", alignItems: "center", gap: "6px", font: "var(--fw-semi) 11px var(--font-sans)", color: "var(--fg)", paddingBottom: "6px", marginBottom: "4px", borderBottom: "1px solid var(--border)" }}>
-                                          <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: vals.mixTip.color, flex: "none" }}></span>
-                                          {vals.mixTip.label}
-                                        </span>
-                                        {" "}
-                                        <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "14px" }}>
-                                          <span style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-3)" }}>
-                                            금액
-                                          </span>
-                                          {" "}
-                                          <span className="v-num" style={{ font: "var(--fw-semi) 12px var(--font-mono)", color: "var(--fg)" }}>
-                                            {vals.mixTip.amount}
-                                          </span>
-                                        </span>
-                                        {" "}
-                                        <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "14px" }}>
-                                          <span style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-3)" }}>
-                                            매출 대비
-                                          </span>
-                                          {" "}
-                                          <span className="v-num" style={{ font: "var(--fw-semi) 12px var(--font-mono)", color: "var(--fg)" }}>
-                                            {vals.mixTip.pct}
-                                          </span>
-                                        </span>
-                                        {" "}
-                                        <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "14px" }}>
-                                          <span style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-3)" }}>
-                                            건당 평균
-                                          </span>
-                                          {" "}
-                                          <span className="v-num" style={{ font: "var(--fw-semi) 12px var(--font-mono)", color: "var(--fg)" }}>
-                                            {vals.mixTip.per}
-                                          </span>
-                                        </span>
-                                      </span>
-                                  )}
                                 </span>
                               </span>
                             </div>

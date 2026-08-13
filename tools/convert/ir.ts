@@ -168,10 +168,36 @@ export function collectTokens(s: string, into: string[]): void {
  * (`sc-if`의 조건 · `sc-for`의 리스트)이 자식보다 먼저 나오는 것도 그래서다 —
  * JSX에서도 `{cond && (…)}` · `{xs.map(…)}` 순으로 앞에 온다.
  */
-export function irFromTree(nodes: readonly Node[]): Ir {
+/**
+ * §21이 **통째로 갈아엎는 구간**을 대조에서 빼기 위한 선언.
+ *
+ * 도넛을 가로 막대로 바꾼 자리에는 **대조할 원본이 없다.** 그런 구간을 값 단위로
+ * 선언하려 하면 스타일·토큰만 백 개가 넘고, 그 목록은 유지되지 않는다. 그래서
+ * **구간 단위**로 뺀다 — 원본 쪽은 그 요소의 `style` 원문 한 조각으로 짚고,
+ * 출력 쪽은 `data-s21` 표식으로 짚는다 (`irFromTsx`).
+ *
+ * ★ 게이트가 무뎌지지 않는 이유 ★
+ * 빼는 것은 **선언한 구간뿐**이고, 나머지 전 항목은 여전히 1:1로 맞아야 한다.
+ * 그리고 짚는 문자열이 원본에서 사라지면(= 선언이 낡으면) 호출부가 그것을 잡는다.
+ */
+export interface IrSkip {
+  /** 이 문자열을 `style` 속성 원문에 포함하는 요소의 **서브트리 전체**를 건너뛴다. */
+  readonly styleContains: readonly string[]
+}
+
+export function irFromTree(nodes: readonly Node[], skip?: IrSkip): Ir {
   const ir = emptyIr()
   visit(nodes)
   return ir
+
+  /** 이 요소가 §21 교체 구간의 뿌리인가. */
+  function isSkipped(n: ElNode): boolean {
+    if (!skip || skip.styleContains.length === 0) return false
+    const style = n.attrs.find((a) => a.name === "style")
+    if (!style?.parts) return false
+    const raw = style.parts.map((p) => (p.t === "lit" ? p.text : "")).join("")
+    return skip.styleContains.some((s) => raw.includes(s))
+  }
 
   function visit(list: readonly Node[]): void {
     for (const n of list) {
@@ -194,6 +220,9 @@ export function irFromTree(nodes: readonly Node[]): Ir {
   }
 
   function visitElement(n: ElNode): void {
+    // §21 교체 구간이면 이 요소도 자식도 세지 않는다 — 대조할 원본이 없는 자리다
+    if (isSkipped(n)) return
+
     // 지시자의 표현식이 먼저
     if (n.tag === "sc-if") pushAttrHoles(n, "value")
     if (n.tag === "sc-for") pushAttrHoles(n, "list")

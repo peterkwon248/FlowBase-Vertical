@@ -28,6 +28,13 @@ import {
 
 type Segment = { lit?: string; expr?: string }
 
+/**
+ * §21이 통째로 갈아엎은 구간의 표식. 이 속성이 붙은 요소는 **서브트리째** 세지
+ * 않는다 — 목업에 대조할 원본이 없는 자리이기 때문이다.
+ * 목업 쪽의 짝은 `irFromTree(nodes, { styleContains })`가 뺀다 (`IrSkip` 참조).
+ */
+export const S21_MARK = "data-s21"
+
 export function irFromTsx(fileName: string, source: string): Ir {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TSX)
 
@@ -48,13 +55,26 @@ export function irFromTsx(fileName: string, source: string): Ir {
   walk(sf)
   return ir
 
+  /**
+   * §21이 통째로 갈아엎은 구간의 표식. 이 속성이 붙은 요소는 **서브트리째** 세지
+   * 않는다 — 목업에 대조할 원본이 없는 자리이기 때문이다 (`IrSkip` 참조).
+   * 목업 쪽의 짝은 `irFromTree(nodes, { styleContains })`가 뺀다.
+   */
+  function isMarked(el: ts.JsxOpeningElement | ts.JsxSelfClosingElement): boolean {
+    return el.attributes.properties.some(
+      (a) => ts.isJsxAttribute(a) && a.name.getText(sf) === S21_MARK,
+    )
+  }
+
   function walk(node: ts.Node): void {
     if (ts.isJsxElement(node)) {
+      if (isMarked(node.openingElement)) return
       opening(node.openingElement)
       for (const c of node.children) walk(c)
       return
     }
     if (ts.isJsxSelfClosingElement(node)) {
+      if (isMarked(node)) return
       opening(node)
       return
     }

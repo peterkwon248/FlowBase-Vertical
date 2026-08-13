@@ -119,13 +119,24 @@ export function dashboardVals(vals: TemplateVals, snap: PnlSnapshot, period: Per
   // 비용 구성 — 목업 L4242.
   // mixHead·mixFoot·mixRows는 renderVals가 만들지만 **마크업이 소비하지 않는다**
   // (변환기가 뽑은 홀 목록에 없다). 죽은 값이라 채우지 않는다.
+  // ★ 막대 길이의 분모는 **가장 큰 항목**이다 (§21 패치) ★
+  //
+  // "매출 대비"(den)로 길이를 정하면 광고비가 198.8%라 트랙을 넘는다 — 이 기간의
+  // 광고비가 매출보다 크다는 것이 사실이기 때문이다. 도넛이었을 때는 조각 합이
+  // 항상 원을 채워 이 문제가 숨어 있었다.
+  //
+  // 가로 막대는 **크기 비교**가 본업이므로 최댓값을 100%로 잡는다. "매출 대비"는
+  // 사라지지 않고 옆의 `pct`가 그대로 말한다 — 길이와 비율이 다른 질문에 답한다.
+  const barDen = Math.max(...mix.map((m) => m.v), 1)
+
   vals.costMix = mix.map((m) => ({
     label: m.label,
     color: m.color,
     pct: `${((m.v / den) * 100).toFixed(1)}%`,
     amount: `${won(m.v)}원`,
-    // 도넛 조각(clip)은 채우지 않는다. §21이 이 차트를 **가로 막대로** 바꾸므로
-    // 도넛 기하를 배선했다가 지우는 이중 작업이 된다. 막대는 §21 패치에서 그린다.
+    barW: `${((m.v / barDen) * 100).toFixed(1)}%`,
+    // 도넛 조각(clip)은 채우지 않는다 — §21이 도넛을 없앴다. 값은 남아 있지만
+    // 히어로에서 그것을 읽던 마크업이 사라졌고, 사이드 카드는 pct만 쓴다.
     clip: "",
     op: "1",
     align: "center",
