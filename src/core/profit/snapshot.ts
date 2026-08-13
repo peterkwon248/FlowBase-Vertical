@@ -66,6 +66,14 @@ export interface PnlSnapshot {
   }
   /** 발생일이 **추정**인 클레임 수 (`date_precision='proxy'`, ADR-009 ①-보완). */
   readonly proxyDatedClaims: number
+  /**
+   * 이 기간에 데이터를 보탠 **연결의 수**. 매출·광고비·정산을 통틀어 센다.
+   *
+   * 2 이상이면 순이익이 여러 연결의 합성이다 — 한 채널의 완결된 손익으로 읽으면
+   * 안 된다는 뜻이고, `pnlGaps`가 그 단서를 만든다. 연결이 하나로 정리되면
+   * 단서는 **스스로 사라진다** (하드코딩된 경고문이면 그러지 못한다).
+   */
+  readonly contributingConnections: number
 }
 
 export async function loadPnlSnapshot(
@@ -143,6 +151,31 @@ export async function loadPnlSnapshot(
     amount: Number(r["amount"]),
   }))
 
+  /**
+   * 기간에 데이터를 보탠 연결 수. 세 테이블을 `UNION`해 **서로 다른 연결**만 센다.
+   *
+   * 테이블별로 `COUNT(DISTINCT)`를 세면 "각각 1개"가 나와 섞인 것을 못 잡는다 —
+   * 섞임은 테이블 **사이**에서 생기기 때문이다.
+   */
+  const conns = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT DISTINCT connection_id FROM active_order
+          WHERE library_id = ? AND ordered_at >= ? AND ordered_at < date(?, '+1 day')
+         UNION
+         SELECT DISTINCT connection_id FROM active_ad_spend
+          WHERE library_id = ? AND spent_on >= ? AND spent_on < date(?, '+1 day')
+         UNION
+         SELECT DISTINCT connection_id FROM active_settlement
+          WHERE library_id = ? AND settled_on >= ? AND settled_on < date(?, '+1 day')
+       )`,
+    )
+    .get(
+      libraryId, period.from, period.to,
+      libraryId, period.from, period.to,
+      libraryId, period.from, period.to,
+    )
+
   const num = (row: Record<string, unknown> | undefined, k: string): number => Number(row?.[k] ?? 0)
 
   const pnl = computePnl({
@@ -179,5 +212,6 @@ export async function loadPnlSnapshot(
       },
     },
     proxyDatedClaims: claimRows.filter((r) => r["date_precision"] === "proxy").length,
+    contributingConnections: num(conns, "n"),
   }
 }

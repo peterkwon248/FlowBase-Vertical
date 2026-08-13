@@ -21,8 +21,66 @@ const MOCKUP = "mockup/FlowBase.dc.html"
 const GENERATED = "src/app/generated/Template.tsx"
 
 const src = readTemplate(MOCKUP)
-const want = irFromTree(parseTemplate(src.html, src.startLine).nodes)
 const generated = readFileSync(GENERATED, "utf8")
+
+/**
+ * ★ 선언된 이탈 — 목업과 **일부러** 다른 자리 ★
+ *
+ * 게이트의 원래 규칙은 "diff 0"이었다. 그런데 목업을 그대로 따르면 오히려 헌장을
+ * 어기는 자리가 실제로 있다. 그때 선택지는 둘뿐이다 — 게이트를 빨간 채로 두거나,
+ * 이탈을 **선언**하거나. 빨간 게이트는 곧 꺼지므로(이 저장소가 이미 아는 교훈)
+ * 선언하는 쪽을 만든다.
+ *
+ * 선언은 게이트를 무르게 하지 않는다. **오히려 강해진다** —
+ *   · 선언한 것 말고 다른 차이가 있으면 여전히 실패한다
+ *   · 선언이 **낡으면**(목업에 그 문구가 더는 없으면) 실패한다. 목록이 썩지 않는다
+ *
+ * 그래서 이 배열이 곧 *"목업과 다르게 만든 자리의 전체 목록"*의 기계 검사판이다.
+ * 사람이 읽는 판은 `docs/목업-결함-발견분.md`에 있다.
+ */
+const DEVIATIONS: { field: IrField; from: string; to: string; why: string }[] = [
+  {
+    field: "texts",
+    from: "데이터 신선도",
+    to: "이 숫자가 담지 못한 것",
+    why:
+      "이 카드에 연결별 신선도 대신 손익의 결손(`pnlGaps`)을 올렸다. CLI가 손익 밑에 " +
+      "늘 출력하던 단서를 화면이 두고 오면 사용자는 순이익을 완성된 숫자로 읽는다 (A-5). " +
+      "실제 연결 신선도는 연결 배선이 생길 때 자기 카드를 받는다",
+  },
+  {
+    field: "texts",
+    from: "마켓 API 장애와 무관하게 마지막 성공 동기화 데이터로 계속 조회됩니다.",
+    to: "여기 있는 항목은 위 숫자에 반영되지 않았습니다. 기준 데이터를 넣거나 빠진 파일을 가져오면 목록에서 사라집니다.",
+    why:
+      'LOCK 10 — "동기화" 카피는 양방향·자동이 실존하기 전까지 금지다. 게다가 우리는 ' +
+      "마켓 API를 부르지 않으므로(파일 가져오기뿐) 원문은 사실도 아니다. 문서 우선순위상 " +
+      "헌장이 목업을 이긴다",
+  },
+]
+
+/**
+ * 선언된 이탈을 기대값에 반영한다. **자리(인덱스)는 그대로 두고 값만 바꾼다** —
+ * 카피가 *어느 자리에* 있는지까지 지키는 게이트의 성질을 잃지 않기 위해서다.
+ */
+function applyDeviations(ir: ReturnType<typeof irFromTree>): ReturnType<typeof irFromTree> {
+  const out = { ...ir }
+  for (const d of DEVIATIONS) {
+    const list = [...out[d.field]]
+    const at = list.indexOf(d.from)
+    if (at === -1) {
+      throw new Error(
+        `선언된 이탈이 낡았다: 목업의 ${d.field}에 ${JSON.stringify(d.from)}가 없다. ` +
+          `목업이 바뀌었거나 이탈이 필요 없어진 것이다 — DEVIATIONS에서 지워야 한다`,
+      )
+    }
+    list[at] = d.to
+    out[d.field] = list
+  }
+  return out
+}
+
+const want = applyDeviations(irFromTree(parseTemplate(src.html, src.startLine).nodes))
 
 /** 흠집 하나를 낸 출력으로 IR을 만들고 게이트를 돌린다. */
 function gateAfter(mutate: (s: string) => string) {
@@ -46,6 +104,15 @@ describe("보존 게이트 — 변환 출력이 목업과 같은가", () => {
       .map(([k, v]) => `${k}: ${v.slice(0, 3).join(" / ")}`)
       .join("\n")
     expect(irDiffCount(diff), report).toBe(0)
+  })
+
+  it("선언된 이탈에는 이유가 붙어 있다 — 이유 없는 이탈은 사고와 구분되지 않는다", () => {
+    // 목업에 실재하는 문구를 가리키는지는 `applyDeviations`가 모듈 로드 시점에
+    // 이미 검증했다 (낡으면 이 파일 전체가 선다).
+    expect(DEVIATIONS.length, "이탈이 하나도 없으면 이 장치는 필요 없다").toBeGreaterThan(0)
+    for (const d of DEVIATIONS) {
+      expect(d.why.length, `${d.from}의 이탈에 이유가 없다`).toBeGreaterThan(20)
+    }
   })
 
   it("문법이 깨진 출력은 IR을 만들기 전에 세운다", () => {

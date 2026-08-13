@@ -36,6 +36,7 @@ import { migrate } from "../../src/core/store/migrate-node.js"
 import { Repository, type FactTable } from "../../src/core/store/repository.js"
 import { type Period } from "../../src/core/profit/index.js"
 import { loadPnlSnapshot } from "../../src/core/profit/snapshot.js"
+import { pnlGaps } from "../../src/core/profit/gaps.js"
 import { FIXTURES, fixturePath, RAW_DIR, CLEAN_DIR } from "../../tests/fixtures.js"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -194,13 +195,6 @@ for (const l of loaded) {
 // 두 번째 진실이 생긴다. CLI도 화면도 `loadPnlSnapshot`의 소비자일 뿐이다.
 const snap = await loadPnlSnapshot(db, LIB, period)
 const { pnl } = snap
-const orders = snap.orderCount
-const proxyDated = snap.proxyDatedClaims
-const feeJoined = snap.settlement.joined
-const feeAll = snap.settlement.all
-const cogs = pnl.cogs
-const fixedMonthly = 0
-
 const won = (n: number): string => `${n < 0 ? "-" : ""}${Math.abs(n).toLocaleString()}원`
 const line = (label: string, v: number): string => `  ${label.padEnd(14)}${won(v).padStart(16)}`
 
@@ -219,31 +213,12 @@ console.log(line("채널 기여이익", pnl.channelContribution))
 console.log(line("회사 순이익", pnl.netProfit))
 
 // ── 정직 구간 — 이 숫자가 무엇을 담지 못했는지 ────────────────
+//
+// ★ 판정은 여기 없다 ★ `core/profit/gaps.ts`에 있다. 조건을 이 파일에 두면
+// 화면을 배선할 때 같은 조건을 다시 쓰게 되고, 그때부터 CLI와 화면이 서로 다른
+// 것을 "빠졌다"고 말한다. 숫자를 한 곳에서 계산하는 것과 같은 이유다.
 console.log(`\n이 숫자가 담지 못한 것`)
-const gaps: string[] = []
-if (feeJoined.count === 0 && feeAll.count > 0) {
-  gaps.push(
-    `수수료 ${won(feeAll.fee)}가 손익에서 빠졌다 — 정산 ${feeAll.count}건이 주문에 이어지지 않는다.\n` +
-      `    11번가 정산 파일은 있는데 11번가 **주문** 파일이 없어 order_source_key 조인이 비어 있다.\n` +
-      `    (정산 자체 합계: 판매 ${won(feeAll.gross)} · 공제 ${won(feeAll.fee)} · 정산 ${won(feeAll.net)})`,
-  )
-}
-if (proxyDated > 0) {
-  gaps.push(
-    `클레임 ${proxyDated}건의 발생일이 **추정**이다 — ESM 양식에 클레임 일자 컬럼이 없어
-` +
-      `    결제일을 프록시로 썼다(date_precision='proxy'). 실제 반품일이 다음 달이면
-` +
-      `    그 달에 잡혀야 하지만 파일이 말해주지 않는다 (ADR-009 ①-보완)`,
-  )
-}
-if (cogs === 0) gaps.push("원가 0 — cost_history가 비어 있다. 기준 데이터라 파일이 아니라 사람이 넣는다")
-if (fixedMonthly === 0) gaps.push("고정비·운영비 0 — 같은 이유")
-gaps.push(
-  `채널이 섞여 있다 — 매출은 ESM(주문 ${orders}건), 광고비는 쿠팡, 수수료는 11번가다.\n` +
-    `    한 채널의 완결된 손익이 아니므로 순이익을 채널 성과로 읽으면 안 된다`,
-)
-for (const g of gaps) console.log(`  · ${g}`)
+for (const g of pnlGaps(snap)) console.log(`  · ${g.detail}`)
 
 await db.close()
 console.log(`\nDB: ${DB_PATH}`)

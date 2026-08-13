@@ -20,6 +20,7 @@ import { createElement } from "react"
 import { renderToString } from "react-dom/server"
 import { openNodeDriver } from "../src/core/store/driver-node.js"
 import { loadPnlSnapshot } from "../src/core/profit/snapshot.js"
+import { pnlGaps } from "../src/core/profit/gaps.js"
 import type { Period } from "../src/core/profit/index.js"
 import { dashboardVals } from "../src/app/dashboard.js"
 import { Template } from "../src/app/generated/Template.js"
@@ -67,16 +68,7 @@ run("대시보드 1단 — 화면 숫자 = CLI 숫자", () => {
     expect(s.orderCount).toBe(CLI.orderCount)
   })
 
-  // ★ 아직 통과하지 못한다 — 남은 일이 정확히 여기다 ★
-  //
-  // 스냅샷 값은 CLI와 일치하고(위 테스트) KPI 스트립도 렌더된다. 그런데 비용
-  // 구성(costMix)이 화면에 안 뜬다 — `showHero` 말고 **표시 카드 조건이 하나 더**
-  // 있다 (목업 L5558 `dispCards`의 `cards.cost` 계열). 그 조건을 찾아 배선하면
-  // 이 테스트가 켜진다. 조용히 통과시키지 않으려고 skip이 아니라 todo로 둔다.
-  it.todo("★ 화면 HTML에 그 숫자가 실제로 뜬다 ★ — 비용 구성 표시 조건이 남았다")
-
-  it.skip("(위 todo의 본문)", async () => {
-    const s = await snapshot()
+  function render(s: Awaited<ReturnType<typeof snapshot>>): string {
     const vals = shellVals(shellStateFor(false), {
       go: () => {},
       toggleNav: () => {},
@@ -89,23 +81,45 @@ run("대시보드 1단 — 화면 숫자 = CLI 숫자", () => {
     vals.firstRun = false
     vals.notFirstRun = true
     vals.v.dash = true
+    return renderToString(createElement(Template, { vals }))
+  }
 
-    const html = renderToString(createElement(Template, { vals }))
+  it("★ 화면 HTML에 그 숫자가 실제로 뜬다 ★", async () => {
+    const html = render(await snapshot())
 
-    // ★ 표기가 두 가지다 ★ KPI 카드는 축약(compact), 비용 구성은 원 단위(won).
-    // 목업 설계 그대로다 — 큰 숫자는 한눈에, 정확한 숫자는 자세히 보는 곳에.
-    // **값이 같은지는 위 테스트가 원 단위로 이미 확인했다.**
+    // ── 원 단위 — 히어로 블록이 그린다 ──────────────────────────
+    expect(html, "총매출이 화면에 없다").toContain("7,896,500")
+    expect(html, "순이익이 화면에 없다").toContain("-8,192,734")
+    expect(html, "전사 광고비가 화면에 없다").toContain("15,700,534원")
 
-    // 비용 구성 — 원 단위 그대로 뜬다
-    expect(html, "클레임이 화면에 없다").toContain("388,700원")
-    expect(html, "광고비가 화면에 없다").toContain("15,700,534원")
-
-    // KPI — 축약 표기
+    // ── 축약 표기 — KPI 스트립 ─────────────────────────────────
     expect(html, "총매출 KPI가 없다").toContain("790만원")
     expect(html, "순이익 KPI가 없다").toContain("-819만원")
-
-    // 주문 건수는 원 단위
     expect(html, "주문 건수가 없다").toContain("주문 146건")
+
+    // ── 비용 구성 카드 — `showCost` 복원의 결과 ────────────────
+    // 이 문자열이 없으면 카드 자체가 안 그려진 것이다. 이게 원래 막혀 있던 자리다.
+    expect(html, "비용 구성 카드가 안 그려졌다").toContain("매출 대비 비용 구성")
+    expect(html, "클레임 항목이 없다").toContain("클레임")
+    expect(html, "광고비 항목이 없다").toContain("광고비")
+  })
+
+  /**
+   * ★ 여기에 `388,700원`이 없는 이유 ★
+   *
+   * 이 테스트의 이전 판은 비용 구성이 **원 단위**를 화면에 그린다고 전제하고
+   * `388,700원`을 기대했다. 실측하니 아니었다 — 범례(`ins-leg-num`)가 그리는
+   * 것은 `m.pct`뿐이고, 원 단위 금액은 `mixTip`(호버 툴팁) 안에만 있다.
+   * 서버 렌더에서 `mixTip`은 `null`이라 HTML에 존재하지 않는다.
+   *
+   * 그래서 **마크업을 고쳐 금액을 넣지 않았다.** 승인 없이 목업에 없는 표시를
+   * 만드는 것이라 헌장 E-1에 걸린다. 비용 구성의 원 단위 표기는 §21이 이 차트를
+   * **가로 막대**로 바꾸는 2단에서 제자리를 찾는다 — 막대는 라벨과 금액을 함께
+   * 들기 때문이다. 지금 값이 맞는지는 위 스냅샷 테스트가 원 단위로 이미 지킨다.
+   */
+  it("클레임 금액은 호버 안에만 있다 — 2단(§21 가로 막대)이 꺼낼 자리다", async () => {
+    const html = render(await snapshot())
+    expect(html, "호버 툴팁이 서버 렌더에 나오면 안 된다").not.toContain("388,700원")
   })
 
   it("비용 구성이 실제 항목을 담는다 — 클레임이 사라지지 않는다", async () => {
@@ -117,6 +131,52 @@ run("대시보드 1단 — 화면 숫자 = CLI 숫자", () => {
     expect(labels).toContain("광고비")
     // 0인 항목은 빼고 그린다 — 원가·할인은 아직 기준 데이터가 없다
     expect(labels).not.toContain("매출원가")
+  })
+
+  /**
+   * ★ 정직성이 화면으로 넘어왔는가 ★
+   *
+   * CLI는 손익 5줄 밑에 "이 숫자가 담지 못한 것"을 늘 함께 출력해왔다. 화면이
+   * 숫자만 가져오고 단서를 두고 오면 사용자는 −8,192,734를 완성된 순이익으로
+   * 읽는다 — 지금 그것은 한 연결의 광고비를 다른 연결의 매출에서 뺀 미완성
+   * 합성이다. **단서 없는 표시가 정확히 조용히 틀린 숫자다** (헌장 A-5).
+   *
+   * ★ 왜 전부를 세는가 ★
+   * 판정이 core 하나여도 화면이 그중 몇 개만 그리면 정직성은 반쯤 사라진다.
+   * 개수를 묶어두면 새 단서가 생겼을 때 화면이 따라오지 않는 순간 여기서 깨진다.
+   */
+  it("이 숫자가 담지 못한 것 — CLI가 말하던 단서가 화면에도 있다", async () => {
+    const s = await snapshot()
+    const gaps = pnlGaps(s)
+    const html = render(s)
+
+    expect(gaps.length, "단서가 없을 리 없다 — 원가도 고정비도 비어 있다").toBeGreaterThan(0)
+    expect(html, "단서 카드가 안 그려졌다").toContain("이 숫자가 담지 못한 것")
+
+    // 화면이 단서를 골라 그리지 않는다 — 전부 그린다
+    for (const g of gaps) {
+      expect(html, `단서 "${g.label}"이 화면에 없다`).toContain(g.label)
+    }
+
+    // 가장 무거운 단서. 이게 빠지면 순이익을 채널 성과로 읽게 된다
+    expect(gaps.map((g) => g.id), "연결 섞임 단서가 없다").toContain("connections-mixed")
+  })
+
+  /**
+   * 진짜 앱 창을 띄워 눈으로 본 뒤에야 걸린 것이다 — 전 게이트가 녹색이었다.
+   * 헤더 부제가 상수 `"2026년 8월"`(목업 L3667)이라 7월 데이터 위에 8월이 적혀
+   * 있었고, 히어로는 "2026년 7월 순이익"이라 **한 화면에 두 달이 동시에** 있었다.
+   * 빈 값이면 모르고 넘어가지만 **틀린 값은 사용자가 믿는다.**
+   */
+  it("헤더 부제가 보고 있는 기간과 같다 — 한 화면에 두 달이 있으면 안 된다", async () => {
+    const html = render(await snapshot())
+    expect(html, "부제가 기간을 따르지 않는다").toContain("2026년 7월")
+    expect(html, "다른 달이 헤더에 남아 있다").not.toContain("2026년 8월 손익")
+  })
+
+  it('"동기화"는 화면에 없다 — 목업 카피가 아니라 사실을 쓴다 (LOCK 10)', async () => {
+    const html = render(await snapshot())
+    expect(html, "양방향·자동이 실존하기 전까지 쓰지 않는 낱말이다").not.toContain("동기화")
   })
 
   it("데이터가 없으면 배선하지 않는다 — 빈 값이 그대로 남는다", () => {

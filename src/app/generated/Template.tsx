@@ -1896,7 +1896,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               {vals.showFresh && (
                                   <div style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "12px" }}>
                                     <div style={{ font: "var(--fw-semi) 13px var(--font-sans)", color: "var(--fg)", marginBottom: "10px" }}>
-                                      데이터 신선도
+                                      이 숫자가 담지 못한 것
                                     </div>
                                     {" "}
                                     <div style={{ display: "grid", gap: "6px" }}>
@@ -1922,7 +1922,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                     </div>
                                     {" "}
                                     <div style={{ marginTop: "10px", paddingTop: "9px", borderTop: "1px solid var(--border)", font: "var(--fw-regular) 11px/1.5 var(--font-sans)", color: "var(--fg-4)" }}>
-                                      마켓 API 장애와 무관하게 마지막 성공 동기화 데이터로 계속 조회됩니다.
+                                      여기 있는 항목은 위 숫자에 반영되지 않았습니다. 기준 데이터를 넣거나 빠진 파일을 가져오면 목록에서 사라집니다.
                                     </div>
                                   </div>
                               )}

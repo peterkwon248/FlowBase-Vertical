@@ -9,7 +9,11 @@
 
 mod db;
 
-use tauri::{LogicalSize, Manager, WebviewWindow};
+use tauri::{LogicalSize, Manager, Monitor, PhysicalPosition, WebviewWindow};
+
+/// 어떤 계산 결과로도 창을 이보다 작게 만들지 않는다. 크기 계산이 어긋나
+/// 0에 가까운 값이 나오면 **창이 있으나 마나가 되고, 안 뜬 것과 구분되지 않는다.**
+const MIN_SIDE: f64 = 320.0;
 
 /// 창을 **현재 모니터의 작업영역 안**으로 들인다.
 ///
@@ -28,16 +32,68 @@ fn fit_to_work_area(win: &WebviewWindow) {
     let avail_h = work.size.height as f64 / scale;
 
     let Ok(outer) = win.outer_size() else { return };
+    let Ok(inner) = win.inner_size() else { return };
     let cur = outer.to_logical::<f64>(scale);
+
+    // ★ `set_size`가 정하는 것은 **내부 크기**다 ★
+    //
+    // 이 자리가 실제로 틀려 있었다. 목표를 `outer_size()` 기준으로 계산해 그대로
+    // 넘기면 창은 **프레임만큼 더 커진다.** 실측(200% · 작업영역 852논리):
+    //
+    //   outer 1293x835.5 → set_size(1293x828) → outer 1306x**863.5**
+    //                                                   ↑ 852를 여전히 넘는다
+    //
+    // 작업영역에 맞추라고 만든 함수가 맞추지 못하고, center()가 그 큰 창을
+    // 가운데 두면서 제목 표시줄이 화면 위로 밀려났다(y = -3).
+    let frame_w = (outer.width.saturating_sub(inner.width)) as f64 / scale;
+    let frame_h = (outer.height.saturating_sub(inner.height)) as f64 / scale;
 
     // 가장자리에 딱 붙지 않게 약간 남긴다.
     let margin = 24.0;
-    let w = cur.width.min((avail_w - margin).max(320.0));
-    let h = cur.height.min((avail_h - margin).max(320.0));
+    let max_w = (avail_w - margin).max(MIN_SIDE);
+    let max_h = (avail_h - margin).max(MIN_SIDE);
 
-    if w < cur.width || h < cur.height {
-        let _ = win.set_size(LogicalSize::new(w, h));
+    if cur.width > max_w || cur.height > max_h {
+        let target_w = cur.width.min(max_w);
+        let target_h = cur.height.min(max_h);
+        let _ = win.set_size(LogicalSize::new(
+            (target_w - frame_w).max(MIN_SIDE),
+            (target_h - frame_h).max(MIN_SIDE),
+        ));
+    }
+
+    ensure_on_work_area(win, &monitor);
+}
+
+/// 창이 **작업영역 밖으로 나가 있으면 중앙으로 되돌린다.**
+///
+/// 크기를 맞춰도 위치는 따로 어긋날 수 있다 — 줄이지 않은 경우(이미 작은 창)에도
+/// 이전 위치가 화면 밖일 수 있고, 모니터 구성이 바뀌면 저장된 좌표가 아니어도
+/// 창이 허공에 놓인다. 그때 사용자에게는 **앱이 안 뜬 것과 구분되지 않는다.**
+///
+/// 음수 좌표·화면 밖을 정상으로 보지 않는 것이 요점이다. 실제로 이 기기에서
+/// 위 버그 때문에 `y = -3`이 나왔고, 그건 제목 표시줄을 잡을 수 없다는 뜻이다.
+fn ensure_on_work_area(win: &WebviewWindow, monitor: &Monitor) {
+    let (Ok(pos), Ok(size)) = (win.outer_position(), win.outer_size()) else { return };
+    let work = monitor.work_area();
+    let (wx, wy) = (work.position.x, work.position.y);
+    let (ww, wh) = (work.size.width as i32, work.size.height as i32);
+
+    let inside = pos.x >= wx
+        && pos.y >= wy
+        && pos.x + size.width as i32 <= wx + ww
+        && pos.y + size.height as i32 <= wy + wh;
+
+    if !inside {
         let _ = win.center();
+        // center()는 **모니터** 기준이라 작업표시줄을 모른다. 그래도 남으면 직접 민다.
+        if let Ok(p) = win.outer_position() {
+            let x = p.x.clamp(wx, (wx + ww - size.width as i32).max(wx));
+            let y = p.y.clamp(wy, (wy + wh - size.height as i32).max(wy));
+            if (x, y) != (p.x, p.y) {
+                let _ = win.set_position(PhysicalPosition::new(x, y));
+            }
+        }
     }
 }
 
@@ -57,6 +113,16 @@ pub fn run() {
         .setup(|app| {
             if let Some(win) = app.get_webview_window("main") {
                 fit_to_work_area(&win);
+                // 창 기하는 테스트로 덮을 수 없는 자리다(모니터·배율·작업표시줄이
+                // 기기마다 다르다). 개발 빌드에서 한 줄이라도 남겨두면 회귀가
+                // 눈에 띈다 — 이 값이 작업영역을 넘으면 그때가 회귀다.
+                if cfg!(debug_assertions) {
+                    if let (Ok(p), Ok(s)) = (win.outer_position(), win.outer_size()) {
+                        eprintln!("[win] outer={:?} at {:?}", s, p);
+                    }
+                }
+            } else {
+                eprintln!("[win] get_webview_window(\"main\") == None — 창이 없다");
             }
             if cfg!(debug_assertions) {
                 app.handle().plugin(

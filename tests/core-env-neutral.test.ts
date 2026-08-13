@@ -62,6 +62,45 @@ describe("src/core — 실행 환경 중립 (ADR-011)", () => {
   }
 })
 
+/**
+ * `src/core`는 **마켓도 모른다** — LOCK 4의 경계 테스트.
+ *
+ * 스키마 쪽은 `schema.test.ts`가 이미 지키지만 그건 **DB 스키마 SQL만** 본다.
+ * core의 소스는 아무도 보고 있지 않았다. `gaps.ts`가 core에 처음으로 **사용자에게
+ * 보일 한국어 문구**를 들이면서 그 구멍이 위험해졌다 — 단서 문장은 "11번가 정산인데
+ * 11번가 주문이 없다"라고 쓰고 싶어지는 자리다. 그렇게 쓰는 순간 마켓 지식이
+ * core로 새고, `packs/`가 있어야 할 이유가 사라진다.
+ */
+describe("src/core — 마켓을 모른다 (LOCK 4)", () => {
+  const BANNED = ["쿠팡", "네이버", "지마켓", "G마켓", "옥션", "11번가", "ESM", "coupang", "gmarket", "auction"]
+
+  /**
+   * **주석은 본다고 치지 않는다.** 위 `node:` 가드가 이미 배운 것과 같은 교훈이다 —
+   * "11번가라고 쓰지 않는다"라고 설명하는 주석까지 잡으면 가드가 시끄러워지고,
+   * 시끄러운 가드는 곧 꺼진다. 잡아야 할 것은 **코드와 문자열**이다: 분기 조건에
+   * 박힌 마켓 이름, 사용자에게 나갈 문구 속 마켓 이름.
+   */
+  const stripComments = (src: string): string =>
+    src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter((l) => !/^\s*(\/\/|\*)/.test(l))
+      .join("\n")
+
+  for (const file of FILES) {
+    const base = file.replace(/\\/g, "/").split("/").pop() ?? file
+    it(base, () => {
+      const code = stripComments(readFileSync(file, "utf8")).toLowerCase()
+      for (const word of BANNED) {
+        expect(
+          code.includes(word.toLowerCase()),
+          `${base}의 코드·문자열에 "${word}"가 있다 — 마켓 지식은 packs/kr-marketplace/ 안에만 산다 (LOCK 4)`,
+        ).toBe(false)
+      }
+    })
+  }
+})
+
 describe("어댑터 짝이 갖춰져 있다", () => {
   it("Node 어댑터마다 환경 중립 짝이 있다", () => {
     // driver-node.ts ↔ driver.ts · migrate-node.ts ↔ migrate.ts

@@ -17,6 +17,7 @@
 
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import type { Period } from "@core/profit/index.js"
+import { pnlGaps } from "@core/profit/gaps.js"
 import type { TemplateVals } from "./generated/vals.js"
 import { compact, pct, signed, won } from "./format.js"
 
@@ -33,6 +34,8 @@ const MIX_COLORS = {
 
 const GREEN = "var(--pnl-pos, #4CB782)"
 const RED = "var(--pnl-neg, #EB5757)"
+/** 단서의 경고 톤. 목업 `ORG`와 같은 값이고 DS 토큰으로 참조한다. */
+const WARN = "var(--label-orange, #F2994A)"
 
 /**
  * 비용 구성. 목업 `mix`(L4201)와 같은 자리이고 **클레임 한 줄이 늘었다.**
@@ -70,9 +73,38 @@ export function dashboardVals(vals: TemplateVals, snap: PnlSnapshot, period: Per
   const mixTotal = mix.reduce((s, m) => s + m.v, 0)
   const den = p.revenue > 0 ? p.revenue : mixTotal
 
-  // 히어로 블록 전체를 여는 스위치. 이게 꺼져 있으면 KPI도 비용 구성도
-  // 통째로 안 그려진다 — 데이터가 있으니 켠다.
-  vals.showHero = true
+  // ★ layout 파생 값 — 한 가족이 통째로 이식되지 않았다 ★
+  //
+  // 목업 L5489~5495는 `this.state.layout`("default"·"report"·"workbench") 하나에서
+  // 표시 스위치 한 벌을 파생시킨다. 이식 때 이 가족이 따라오지 않아 `emptyVals()`의
+  // `false`/`""`가 그대로 남았고, **값은 배선됐는데 화면이 안 그려지는** 상태가 됐다.
+  // 화면에서는 "데이터가 없다"와 구분되지 않는다 — 조용한 실패다 (LOCK 6).
+  //
+  // 여기서는 기본 레이아웃("default")의 초기값을 복원한다. 조건을 지우거나
+  // 우회하지 않는다 — `layout` 상태 자체의 배선(리포트·워크벤치 전환)은 남은 일이다.
+  //
+  // ★ 스위치는 그 데이터가 배선된 뒤에 켠다 ★
+  // `showCal`(캘린더)은 목업 기본값이 `true`지만 켜지 않는다 — `calendar`가 비어
+  // 있어 빈 달력이 그려진다. 빈 껍데기를 켜는 것은 복원이 아니라 새 결함이다.
+  // 캘린더는 3단에서 데이터와 함께 켠다.
+  vals.showHero = true // layout !== "workbench"
+  vals.showSide = true // layout !== "workbench" — 사이드 카드 3장을 담는 그리드
+  vals.sectionGap = "12px" // layout !== "report"
+  vals.sectionPad = "0 14px 14px" // layout !== "report"
+
+  // 사이드 카드 두 장 — 목업 L3689 `cards: { cost: true, fresh: true }`의 복원.
+  // 이 토글은 §19에서 살아남은 정당한 기능이다(표시 설정 메뉴의 `dispCards`).
+  // 토글 자체의 배선은 아직이므로 지금은 초기값 그대로 둘 다 켜져 있다.
+  vals.showCost = true
+  vals.showFresh = true
+
+  // ★ 헤더 부제는 **보고 있는 기간**이다 ★
+  //
+  // `TITLES.dash`(shell.ts)가 목업 L3667에서 온 상수 `"2026년 8월"`이라, 7월
+  // 데이터를 띄워도 헤더에는 8월이라고 적혀 있었다. 빈 값보다 나쁘다 —
+  // **틀린 값은 사용자가 믿는다.** 히어로는 이미 기간에서 파생시키고 있었으므로
+  // 한 화면에 7월과 8월이 동시에 적혀 있던 셈이다.
+  vals.subtitle = periodLabel(period)
 
   // 히어로 — 목업 L5543~5552
   vals.heroLabel = `${periodLabel(period)} 순이익`
@@ -101,6 +133,23 @@ export function dashboardVals(vals: TemplateVals, snap: PnlSnapshot, period: Per
       { label: "금액", value: `${won(m.v)}원` },
       { label: "매출 대비", value: `${((m.v / den) * 100).toFixed(1)}%` },
     ],
+  }))
+
+  // ★ 이 숫자가 담지 못한 것 ★
+  //
+  // CLI(`tools/harness/pnl.ts`)는 손익 5줄 밑에 **무엇이 빠졌는지**를 늘 함께
+  // 출력해왔다. 숫자만 화면으로 옮기고 이 단서를 두고 오면 A-5 후퇴다 —
+  // 사용자는 순이익을 완성된 숫자로 읽지만, 지금 그것은 한 연결의 광고비를 다른
+  // 연결의 매출에서 뺀 미완성 합성이다. **단서 없는 표시가 조용히 틀린 숫자다.**
+  //
+  // 판정은 `pnlGaps` 하나뿐이라 CLI와 화면이 갈라질 수 없다. 여기서 하는 일은
+  // 그 결과를 카드 행 세 칸(이름·상태·수치)에 놓는 것뿐이다.
+  vals.freshness = pnlGaps(snap).map((g) => ({
+    name: g.label,
+    state: g.state,
+    last: g.note,
+    color: g.tone === "warn" ? WARN : "var(--fg-4)",
+    dot: g.tone === "warn" ? WARN : "var(--fg-4)",
   }))
 
   // KPI 스트립 — 목업 L4057~4073. 6장 중 값이 있는 것만.
