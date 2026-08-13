@@ -34,7 +34,8 @@ import {
 import { openNodeDriver } from "../../src/core/store/driver-node.js"
 import { migrate } from "../../src/core/store/migrate-node.js"
 import { Repository, type FactTable } from "../../src/core/store/repository.js"
-import { computePnl, prorateFixed, type Period } from "../../src/core/profit/index.js"
+import { type Period } from "../../src/core/profit/index.js"
+import { loadPnlSnapshot } from "../../src/core/profit/snapshot.js"
 import { FIXTURES, fixturePath, RAW_DIR, CLEAN_DIR } from "../../tests/fixtures.js"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -187,71 +188,18 @@ for (const l of loaded) {
   )
 }
 
-// ── 집계 — 전부 SQL에 위임한다 (헌장 B-2) ──────────────────────
-const revenue = await repo.sumInRange("active_order", "total_amount", LIB, "ordered_at", period.from, period.to)
-const orders = await repo.countInRange("active_order", LIB, "ordered_at", period.from, period.to)
-const adSpend = await repo.sumInRange("active_ad_spend", "spend_amount", LIB, "spent_on", period.from, period.to)
-
-/**
- * 수수료는 **주문 귀속**이다 — 정산일이 아니라 주문의 ordered_at 달에 잡힌다
- * (ADR-009 ① · profit/index.ts 주석). `order_source_key`로 이어 붙인다.
- *
- * 지금은 11번가 정산에 대응하는 11번가 **주문** 파일이 없어서 조인이 비어 있다.
- * 그 사실을 숨기지 않고 두 값을 나란히 낸다 (헌장 A-5).
- */
-const feeJoined = await db
-  .prepare(
-    `SELECT COALESCE(SUM(s.fee_amount),0) AS fee, COALESCE(SUM(s.vat_amount),0) AS vat,
-            COALESCE(SUM(s.shipping_amount),0) AS ship, COUNT(*) AS n
-       FROM active_settlement s
-       JOIN active_order o ON o.source_key = s.order_source_key
-                          AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')
-      WHERE s.library_id = ?`,
-  )
-  .get(period.from, period.to, LIB)
-
-const feeAll = await db
-  .prepare(
-    `SELECT COALESCE(SUM(fee_amount),0) AS fee, COALESCE(SUM(vat_amount),0) AS vat,
-            COALESCE(SUM(shipping_amount),0) AS ship, COALESCE(SUM(gross_amount),0) AS gross,
-            COALESCE(SUM(net_amount),0) AS net, COUNT(*) AS n
-       FROM active_settlement
-        WHERE library_id = ? AND settled_on >= ? AND settled_on < date(?, '+1 day')`,
-  )
-  .get(LIB, period.from, period.to)
-
-/**
- * 클레임 — **발생일 기준**이다 (ADR-009 ①). 원거래 월로 소급하지 않는다.
- * 부호는 저장값이 아니라 `claim_type`이 정하므로 유형과 금액을 그대로 넘긴다.
- */
-const claimRows = await db
-  .prepare(
-    `SELECT claim_type, amount, date_precision FROM active_claim
-      WHERE library_id = ? AND claimed_at >= ? AND claimed_at < date(?, '+1 day')`,
-  )
-  .all(LIB, period.from, period.to)
-const claims = claimRows.map((r) => ({ type: String(r.claim_type), amount: Number(r.amount) }))
-const proxyDated = claimRows.filter((r) => r.date_precision === "proxy").length
-
-// 기준 데이터가 아직 없다 — 원가·운영비·고정비는 사람이 넣는 값이다.
-const cogs = 0
-const ops = 0
+// ── 집계 + 계산 — **공용 스냅샷 하나로 간다** ─────────────────
+//
+// 이 조회를 여기 두면 화면 배선에서 같은 SQL을 다시 쓰게 되고, 그 순간
+// 두 번째 진실이 생긴다. CLI도 화면도 `loadPnlSnapshot`의 소비자일 뿐이다.
+const snap = await loadPnlSnapshot(db, LIB, period)
+const { pnl } = snap
+const orders = snap.orderCount
+const proxyDated = snap.proxyDatedClaims
+const feeJoined = snap.settlement.joined
+const feeAll = snap.settlement.all
+const cogs = pnl.cogs
 const fixedMonthly = 0
-const fixed = prorateFixed(fixedMonthly, period)
-
-const pnl = computePnl({
-  period,
-  revenue,
-  fee: Number(feeJoined?.fee ?? 0),
-  vat: Number(feeJoined?.vat ?? 0),
-  shipping: Number(feeJoined?.ship ?? 0),
-  claims,
-  cogs,
-  adDirect: 0,
-  adUnallocated: adSpend,
-  ops,
-  fixed,
-})
 
 const won = (n: number): string => `${n < 0 ? "-" : ""}${Math.abs(n).toLocaleString()}원`
 const line = (label: string, v: number): string => `  ${label.padEnd(14)}${won(v).padStart(16)}`
@@ -273,11 +221,11 @@ console.log(line("회사 순이익", pnl.netProfit))
 // ── 정직 구간 — 이 숫자가 무엇을 담지 못했는지 ────────────────
 console.log(`\n이 숫자가 담지 못한 것`)
 const gaps: string[] = []
-if (Number(feeJoined?.n ?? 0) === 0 && Number(feeAll?.n ?? 0) > 0) {
+if (feeJoined.count === 0 && feeAll.count > 0) {
   gaps.push(
-    `수수료 ${won(Number(feeAll?.fee ?? 0))}가 손익에서 빠졌다 — 정산 ${Number(feeAll?.n)}건이 주문에 이어지지 않는다.\n` +
+    `수수료 ${won(feeAll.fee)}가 손익에서 빠졌다 — 정산 ${feeAll.count}건이 주문에 이어지지 않는다.\n` +
       `    11번가 정산 파일은 있는데 11번가 **주문** 파일이 없어 order_source_key 조인이 비어 있다.\n` +
-      `    (정산 자체 합계: 판매 ${won(Number(feeAll?.gross ?? 0))} · 공제 ${won(Number(feeAll?.fee ?? 0))} · 정산 ${won(Number(feeAll?.net ?? 0))})`,
+      `    (정산 자체 합계: 판매 ${won(feeAll.gross)} · 공제 ${won(feeAll.fee)} · 정산 ${won(feeAll.net)})`,
   )
 }
 if (proxyDated > 0) {
