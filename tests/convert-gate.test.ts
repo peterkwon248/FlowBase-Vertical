@@ -57,16 +57,94 @@ const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[
       "마켓 API를 부르지 않으므로(파일 가져오기뿐) 원문은 사실도 아니다. 문서 우선순위상 " +
       "헌장이 목업을 이긴다",
   },
+
+  // ── §21-4 «KPI 카드 — 스파크라인 제거» ────────────────────────────────
+  // "값 · 변화 · 분모만 남긴다. 추세는 아래의 큰 차트가 말한다."
+  {
+    field: "styles",
+    from: [
+      "display:grid", "gridAutoFlow:column", "gridAutoColumns:1fr", "alignItems:end",
+      "gap:2px", "height:18px",
+      "display:block", "width:100%", "height:{s.h}", "background:{s.c}",
+      "borderRadius:1px", "opacity:{s.op}", "cursor:default",
+    ],
+    to: [],
+    why: "§21-4 스파크라인 제거 — 막대 컨테이너(6)와 막대 자체(7)의 스타일이 통째로 빠진다",
+  },
+  {
+    field: "attrs",
+    from: ["onMouseEnter={s.enter}", "onMouseLeave={s.leave}"],
+    to: [],
+    why: "§21-4 스파크라인 제거 — 막대의 호버 핸들러도 함께 사라진다",
+  },
+  {
+    field: "holes",
+    from: ["k.spark", "s.h", "s.c", "s.op", "s.enter", "s.leave"],
+    to: [],
+    why: "§21-4 스파크라인 제거 — 막대를 그리던 동적 자리 6개가 전부 없어진다",
+  },
+  {
+    field: "styles",
+    from: ["gridTemplateRows:15px 26px 15px 18px 14px"],
+    to: ["gridTemplateRows:{kpiRows}"],
+    why:
+      "스파크라인 줄(18px)이 빠지고, 비교가 없으면 «변화» 줄(15px)도 빠진다. 행 정의를 " +
+      "상수로 두면 사라진 요소 자리에 빈 칸이 남으므로 데이터를 따르게 한다",
+  },
+  {
+    field: "holes",
+    from: ["kpis", "k.label"],
+    to: ["kpis", "kpiRows", "k.label"],
+    why: "위 `gridTemplateRows:{kpiRows}`가 만든 새 동적 자리",
+  },
+
+  // ── 비교 문장을 데이터에 묶는다 (결함 47의 잔여분) ────────────────────
+  // 값은 이미 비어 있었지만 **문장**이 살아 있어 화면이 없는 비교를 있는 것처럼
+  // 말했다. 고치는 방향은 문장을 바꾸는 것이 아니라 **존재 조건을 데이터에 묶는 것**이다 —
+  // 그래야 8월 파일이 들어오는 날 스스로 살아나고, 그때 다시 켜는 작업이 생기지 않는다.
+  {
+    field: "holes",
+    from: ["heroNet", "heroBg"],
+    to: ["heroNet", "hasCompare", "heroBg"],
+    why: '히어로의 «vs 지난달» 줄 전체를 `hasCompare`로 감쌌다. 비교 대상이 DB에 없는데 "vs 7월 같은 기간"이 떠 있었다',
+  },
+  {
+    field: "holes",
+    from: ["r.val", "kpiTip"],
+    to: ["r.val", "hasCompare", "kpiTip"],
+    why:
+      '지표 스트립의 설명문("숫자 = 8월 누계 · 옆의 %는 전월 같은 기간 대비 · 막대는 8/1 → 8/8")을 ' +
+      "감쌌다. 한 문장에 거짓이 셋이었다 — 8월도, 전월 비교도, 일별 막대(스파크라인)도 없다",
+  },
+  {
+    field: "holes",
+    from: ["k.value", "k.deltaColor"],
+    to: ["k.value", "k.hasDelta", "k.deltaColor"],
+    why: 'KPI 카드의 «전월 대비» 라벨 줄을 `k.hasDelta`로 감쌌다. 값은 비어 있는데 라벨만 남아 "계산 중"처럼 읽혔다',
+  },
 ]
 
-/** `hay`에서 `needle` **연속 구간**의 시작 위치. 없으면 -1. */
+/**
+ * `hay`에서 `needle` **연속 구간**의 시작 위치. 없으면 -1.
+ *
+ * ★ 여러 번 나오면 오류다 ★ 첫 자리를 고르면 **엉뚱한 구간을 갈아끼우고도
+ * 게이트는 녹색**이 된다. `"v-num"` 하나처럼 흔한 값은 특히 그렇다. 그래서
+ * 모호하면 세우고, 선언하는 쪽이 문맥을 붙여 유일하게 만들도록 요구한다.
+ */
 function indexOfRun(hay: readonly string[], needle: readonly string[]): number {
   if (needle.length === 0) return -1
+  const hits: number[] = []
   outer: for (let i = 0; i + needle.length <= hay.length; i++) {
     for (let j = 0; j < needle.length; j++) if (hay[i + j] !== needle[j]) continue outer
-    return i
+    hits.push(i)
   }
-  return -1
+  if (hits.length > 1) {
+    throw new Error(
+      `선언이 모호하다: ${JSON.stringify(needle).slice(0, 90)} 구간이 ${hits.length}곳에서 잡힌다. ` +
+        `앞뒤 항목을 붙여 유일하게 만들어야 한다 — 아니면 엉뚱한 자리가 바뀌어도 게이트가 녹색이다`,
+    )
+  }
+  return hits[0] ?? -1
 }
 
 /**

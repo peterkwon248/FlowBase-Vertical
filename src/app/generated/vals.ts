@@ -441,6 +441,10 @@ export interface TemplateVals {
   setTabs: readonly any[]
   setUrl: (...args: any[]) => void
   showAllProducts: (...args: any[]) => void
+  /** §21 패치 — 비교(전월 대비) 문장이 존재할 조건. `snap.hasPriorPeriod`가 정한다. */
+  hasCompare: boolean
+  /** §21 패치 — 스파크라인·비교 줄이 빠지면서 KPI 카드 행 정의가 데이터를 따른다. */
+  kpiRows: string
   showCal: boolean
   showCost: boolean
   showCoverage: boolean
@@ -920,6 +924,9 @@ export function emptyVals(): TemplateVals {
     setTabs: [],
     setUrl: () => {},
     showAllProducts: () => {},
+    // 데이터가 없으면 비교도 없다 — 빈 화면에서 "전월 대비"가 뜨지 않는다
+    hasCompare: false,
+    kpiRows: "",
     showCal: false,
     showCost: false,
     showCoverage: false,

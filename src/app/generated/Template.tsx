@@ -1229,19 +1229,21 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                 {vals.heroNet}
                               </span>
                               {" "}
-                              <span style={{ display: "flex", alignItems: "center", gap: "7px", marginTop: "8px" }}>
-                                <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", height: "20px", padding: "0 7px", borderRadius: "var(--r-pill)", background: vals.heroBg, font: "var(--fw-semi) 11px var(--font-sans)", color: vals.heroColor }}>
-                                  <Lic name={vals.heroIcon} size={12} />
-                                  {" "}
-                                  <span>
-                                    {vals.heroDelta}
+                              {vals.hasCompare && (
+                                  <span style={{ display: "flex", alignItems: "center", gap: "7px", marginTop: "8px" }}>
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", height: "20px", padding: "0 7px", borderRadius: "var(--r-pill)", background: vals.heroBg, font: "var(--fw-semi) 11px var(--font-sans)", color: vals.heroColor }}>
+                                      <Lic name={vals.heroIcon} size={12} />
+                                      {" "}
+                                      <span>
+                                        {vals.heroDelta}
+                                      </span>
+                                    </span>
+                                    {" "}
+                                    <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                                      vs 7월 같은 기간
+                                    </span>
                                   </span>
-                                </span>
-                                {" "}
-                                <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
-                                  vs 7월 같은 기간
-                                </span>
-                              </span>
+                              )}
                               {" "}
                               <span style={{ display: "flex", alignItems: "baseline", gap: "5px", marginTop: "9px", flexWrap: "wrap" }}>
                                 <span style={{ font: "var(--fw-regular) 11px/1.6 var(--font-sans)", color: "var(--fg-4)", textWrap: "pretty" }}>
@@ -1353,9 +1355,11 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                           지표
                         </span>
                         {" "}
-                        <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
-                          숫자 = 8월 누계 · 옆의 %는 전월 같은 기간 대비 · 막대는 8/1 → 8/8 일별 추이
-                        </span>
+                        {vals.hasCompare && (
+                            <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                              숫자 = 8월 누계 · 옆의 %는 전월 같은 기간 대비 · 막대는 8/1 → 8/8 일별 추이
+                            </span>
+                        )}
                       </div>
                       {" "}
                       <div style={{ position: "relative", display: "grid", gridAutoFlow: "column", gridAutoColumns: "minmax(0, 1fr)", borderBottom: "1px solid var(--border)", marginTop: "6px" }}>
@@ -1386,7 +1390,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                         )}
                         {" "}
                         {vals.kpis.map((k: any, $index: number) => (
-                            <div key={$index} style={{ display: "grid", gridTemplateRows: "15px 26px 15px 18px 14px", rowGap: "5px", padding: "12px 12px 13px", borderRight: "1px solid var(--border)", minWidth: "0", overflow: "hidden", cursor: "default" }}>
+                            <div key={$index} style={{ display: "grid", gridTemplateRows: vals.kpiRows, rowGap: "5px", padding: "12px 12px 13px", borderRight: "1px solid var(--border)", minWidth: "0", overflow: "hidden", cursor: "default" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: "4px", minWidth: "0" }}>
                                 <span style={{ font: "var(--fw-medium) 11px/15px var(--font-sans)", color: "var(--fg-4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                   {k.label}
@@ -1401,21 +1405,17 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                 {k.value}
                               </div>
                               {" "}
-                              <div style={{ display: "flex", alignItems: "center", gap: "4px", minWidth: "0" }}>
-                                <span className="v-num" style={{ font: "var(--fw-semi) 11px/15px var(--font-mono)", color: k.deltaColor }}>
-                                  {k.delta}
-                                </span>
-                                {" "}
-                                <span style={{ font: "var(--fw-medium) 10px/15px var(--font-sans)", color: "var(--fg-4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                  전월 대비
-                                </span>
-                              </div>
-                              {" "}
-                              <div style={{ display: "grid", gridAutoFlow: "column", gridAutoColumns: "1fr", alignItems: "end", gap: "2px", height: "18px" }}>
-                                {k.spark.map((s: any, $index: number) => (
-                                    <span key={$index} style={{ display: "block", width: "100%", height: s.h, background: s.c, borderRadius: "1px", opacity: s.op, cursor: "default" }} onMouseEnter={s.enter} onMouseLeave={s.leave}></span>
-                                ))}
-                              </div>
+                              {k.hasDelta && (
+                                  <div style={{ display: "flex", alignItems: "center", gap: "4px", minWidth: "0" }}>
+                                    <span className="v-num" style={{ font: "var(--fw-semi) 11px/15px var(--font-mono)", color: k.deltaColor }}>
+                                      {k.delta}
+                                    </span>
+                                    {" "}
+                                    <span style={{ font: "var(--fw-medium) 10px/15px var(--font-sans)", color: "var(--fg-4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                      전월 대비
+                                    </span>
+                                  </div>
+                              )}
                               {" "}
                               <div style={{ font: "var(--fw-medium) 10px/14px var(--font-sans)", color: "var(--fg-4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                 {k.sub}

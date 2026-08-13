@@ -74,6 +74,14 @@ export interface PnlSnapshot {
    * 단서는 **스스로 사라진다** (하드코딩된 경고문이면 그러지 못한다).
    */
   readonly contributingConnections: number
+  /**
+   * 이 기간 **이전에** 데이터가 있는가 — 비교(전월 대비)가 성립하는지의 근거.
+   *
+   * 화면의 "전월 대비"·"vs 지난달" 문장은 이 값에 묶인다. 하드코딩된 라벨이면
+   * 비교 대상이 없는데도 있는 척하고, 나중에 데이터가 들어와도 **누가 다시 켜야**
+   * 한다. 데이터에서 파생시키면 **8월 파일이 들어오는 날 스스로 살아난다.**
+   */
+  readonly hasPriorPeriod: boolean
 }
 
 export async function loadPnlSnapshot(
@@ -176,6 +184,17 @@ export async function loadPnlSnapshot(
       libraryId, period.from, period.to,
     )
 
+  /** 기간 시작 **이전**에 주문·광고비·정산이 하나라도 있나. 비교의 성립 근거다. */
+  const prior = await db
+    .prepare(
+      `SELECT (
+         EXISTS(SELECT 1 FROM active_order      WHERE library_id = ? AND ordered_at < ?) OR
+         EXISTS(SELECT 1 FROM active_ad_spend   WHERE library_id = ? AND spent_on   < ?) OR
+         EXISTS(SELECT 1 FROM active_settlement WHERE library_id = ? AND settled_on < ?)
+       ) AS n`,
+    )
+    .get(libraryId, period.from, libraryId, period.from, libraryId, period.from)
+
   const num = (row: Record<string, unknown> | undefined, k: string): number => Number(row?.[k] ?? 0)
 
   const pnl = computePnl({
@@ -213,5 +232,6 @@ export async function loadPnlSnapshot(
     },
     proxyDatedClaims: claimRows.filter((r) => r["date_precision"] === "proxy").length,
     contributingConnections: num(conns, "n"),
+    hasPriorPeriod: num(prior, "n") === 1,
   }
 }

@@ -208,12 +208,25 @@ export function dashboardVals(vals: TemplateVals, snap: PnlSnapshot, period: Per
     },
   ].map((k) => ({
     ...k,
-    // 전월 대비 — 비교 대상이 없다. 빈 구조로 두면 화면이 아무것도 그리지 않는다.
-    d: { text: "", color: "var(--fg-4)", bg: "transparent", icon: "" },
-    // 스파크라인 — §21이 전 폭에서 제거하라고 한 요소다. 빈 배열이면 안 그려진다.
-    spark: [],
+    // 전월 대비 — **문장의 존재 조건을 데이터에 묶는다** (§21 패치).
+    // 값을 비우는 것만으로는 부족했다. 라벨("전월 대비")이 살아 있으면 화면은
+    // 여전히 비교가 있는 것처럼 말한다. 8월 파일이 들어오면 스스로 살아난다.
+    hasDelta: snap.hasPriorPeriod,
+    delta: "",
+    deltaColor: "var(--fg-4)",
     qColor: "var(--fg-4)",
   }))
+
+  // ★ 비교가 성립하는가 — 화면의 비교 문장 전체가 여기 묶인다 (§21 패치) ★
+  //
+  // 히어로의 "vs 지난달" 줄 · 지표 스트립의 설명문 · KPI의 "전월 대비" 라벨.
+  // 셋 다 값이 아니라 **문장**이라 비워도 사라지지 않았고, 그래서 화면이 없는
+  // 비교를 있는 것처럼 말했다. 이제 데이터가 그 존재를 정한다.
+  vals.hasCompare = snap.hasPriorPeriod
+
+  // 스파크라인이 빠지면서(§21-4) KPI 카드가 한 줄 짧아진다. 비교가 없으면
+  // "변화" 줄도 없으므로 한 줄 더 짧다 — 빈 칸을 남기지 않는다.
+  vals.kpiRows = snap.hasPriorPeriod ? "15px 26px 15px 14px" : "15px 26px 14px"
 
   vals.scopeLine = `${period.from} ~ ${period.to} · 전 채널`
 }
