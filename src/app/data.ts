@@ -16,6 +16,7 @@
 
 import { openTauriDriver } from "@core/store/driver-tauri.js"
 import { loadPnlSnapshot, type PnlSnapshot } from "@core/profit/snapshot.js"
+import { loadSettlementRows, type SettlementRow } from "@core/settlement/rows.js"
 import type { Period } from "@core/profit/index.js"
 
 declare const __PROJECT_ROOT__: string
@@ -31,6 +32,8 @@ export const DEV_LIBRARY = "lib-1"
 
 export interface LoadResult {
   snapshot: PnlSnapshot | null
+  /** 정산 화면이 그리는 묶음. 대시보드와 **같은 DB·같은 연결**에서 읽는다. */
+  settlement: readonly SettlementRow[]
   /** 못 읽은 이유. 숨기지 않고 화면이 말할 수 있게 들고 나간다 (헌장 6). */
   error: string | null
 }
@@ -39,12 +42,19 @@ export async function loadDevSnapshot(): Promise<LoadResult> {
   try {
     const db = await openTauriDriver(DEV_DB_PATH, { pragmas: false })
     try {
+      // 연결을 한 번만 연다. 화면마다 열면 같은 순간의 두 화면이 서로 다른
+      // 스냅샷을 볼 수 있고, 그 차이는 아무도 모르게 쌓인다.
       const snapshot = await loadPnlSnapshot(db, DEV_LIBRARY, DEV_PERIOD)
-      return { snapshot, error: null }
+      const settlement = await loadSettlementRows(db, DEV_LIBRARY, DEV_PERIOD)
+      return { snapshot, settlement, error: null }
     } finally {
       await db.close()
     }
   } catch (e) {
-    return { snapshot: null, error: e instanceof Error ? e.message : String(e) }
+    return {
+      snapshot: null,
+      settlement: [],
+      error: e instanceof Error ? e.message : String(e),
+    }
   }
 }
