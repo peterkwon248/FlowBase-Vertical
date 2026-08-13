@@ -94,7 +94,11 @@ export async function buildManifest(): Promise<FixtureManifest[]> {
         columnCount: sheet.columnCount,
         headerRow: ex.header.rowIndex === null ? null : ex.header.rowIndex + 1,
         headerConfidence: Number(ex.header.confidence.toFixed(3)),
-        headerColumns: ex.header.columns.slice(0, 12),
+        // ★ 자르지 않는다 ★ 예전에는 `.slice(0, 12)`였다. 11번가 정산은 59열인데
+        // 앞의 12개만 담기니 상품번호(13)·상품명(14)·옵션명(15)이 매니페스트에서
+        // "없는" 것처럼 보였고, 실제로 그 때문에 한동안 없다고 알고 있었다.
+        // 매니페스트는 **무엇이 있는지 찾을 때 먼저 보는 곳**이라 자르면 안 된다.
+        headerColumns: ex.header.columns,
         dataRowCount: ex.dataRowCount,
         excludedCounts: counts,
         mergeCount: sheet.merges.length,
@@ -145,7 +149,11 @@ function render(m: FixtureManifest[]): string {
           (s.mergeCount ? `  병합 ${s.mergeCount}` : ""),
       )
       if (s.headerRow !== null) {
-        lines.push(`       ${s.headerColumns.slice(0, 8).join(" | ")}`)
+        // 사람이 읽는 요약이라 여기서는 줄인다 — 다만 **몇 개를 접었는지 말한다.**
+        // 조용히 자르면 "그게 전부"로 읽힌다.
+        const head = s.headerColumns.slice(0, 8)
+        const rest = s.headerColumns.length - head.length
+        lines.push(`       ${head.join(" | ")}${rest > 0 ? `  … 외 ${rest}열` : ""}`)
       }
     }
   }

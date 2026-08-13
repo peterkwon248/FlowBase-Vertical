@@ -33,7 +33,13 @@ import {
 } from "../../src/core/import/mapping/index.js"
 import { openNodeDriver } from "../../src/core/store/driver-node.js"
 import { migrate } from "../../src/core/store/migrate-node.js"
-import { Repository, type FactTable } from "../../src/core/store/repository.js"
+import {
+  Repository,
+  type FactTable,
+  type ListingUpsert,
+  type LoadStats,
+} from "../../src/core/store/repository.js"
+import { collectListings } from "../../src/core/import/mapping/listing.js"
 import { type Period } from "../../src/core/profit/index.js"
 import { loadPnlSnapshot } from "../../src/core/profit/snapshot.js"
 import { pnlGaps } from "../../src/core/profit/gaps.js"
@@ -85,6 +91,8 @@ interface Loaded {
   readonly unmapped: number
 }
 const loaded: Loaded[] = []
+/** 채널별 리스팅 적재 결과 — ②(연결 화면) 설계의 입력이 되는 숫자다. */
+const listingStats = new Map<string, LoadStats>()
 
 for (const t of TARGETS) {
   const f = FIXTURES.find((x) => x.id === t.fixture)!
@@ -130,6 +138,8 @@ for (const t of TARGETS) {
   let unmapped = 0
   let offset = 0
   const perTable = new Map<string, number>()
+  /** 이 파일이 만드는 리스팅 **종류**. 청크를 가로질러 모인다. */
+  const listings = new Map<string, ListingUpsert>()
 
   for await (const chunk of chunks) {
     if (!matched) {
@@ -145,6 +155,8 @@ for (const t of TARGETS) {
       { fileName: f.file, fileNameCaptures: captures, keyState },
       offset,
     )
+    if (profile.listing) collectListings(profile.listing, headers, chunk, listings)
+
     offset += chunk.rowCount
     errors += mapped.errors.length
     unmapped = mapped.unmappedColumnCount
@@ -165,6 +177,14 @@ for (const t of TARGETS) {
       perTable.set(table, (perTable.get(table) ?? 0) + rows.length)
       n += rows.length
     }
+  }
+
+  // ★ 리스팅은 청크마다 적재하지 않고 **다 모은 뒤 한 번** 넣는다 ★
+  // 종류의 목록이라 청크마다 넣으면 같은 리스팅에 UPSERT가 반복된다.
+  // 파일 하나가 만드는 종류 수는 행 수보다 훨씬 작으므로 모아둬도 가볍다.
+  if (profile.listing && listings.size > 0) {
+    const stats = await repo.upsertListings(LIB, t.conn, [...listings.values()], NOW)
+    listingStats.set(t.market, stats)
   }
 
   const sum = getSummary()
@@ -192,6 +212,16 @@ for (const l of loaded) {
     `  ${l.market.padEnd(8)} ${l.table.padEnd(34)} ${l.rows.toLocaleString().padStart(7)}행` +
       ` · 제외 ${l.excluded} · 매핑오류 ${l.errors} · 미매핑컬럼 ${l.unmapped}`,
   )
+}
+
+// ── 리스팅 — ②(연결 화면)의 설계 입력이다 ────────────────────────
+// 몇 개가 생겼는지가 연결 화면의 무게를 정한다. 20개면 최소형으로 족하고
+// 200개면 일괄 액션이 필수다.
+if (listingStats.size > 0) {
+  console.log(`\n마켓 리스팅 (연결 대상)`)
+  for (const [market, s] of listingStats) {
+    console.log(`  ${market.padEnd(8)} 신규 ${String(s.inserted).padStart(4)} · 갱신 ${s.updated}`)
+  }
 }
 
 // ── 집계 + 계산 — **공용 스냅샷 하나로 간다** ─────────────────
