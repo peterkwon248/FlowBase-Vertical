@@ -20,9 +20,27 @@ import type { Attr, ElNode, Node, Part } from "./parse.js"
 export interface EmitOptions {
   /** `<x-import from="…">`를 실제 모듈 경로로 바꾸는 표. 없는 값이 오면 세운다. */
   moduleMap: Record<string, string>
+  /**
+   * 컴포넌트 prop이 실제로 무엇인지. **HTML 속성과 달리 문자열이 아닐 수 있고,
+   * 그건 마크업만 봐서는 알 수 없다** — 컴포넌트가 아는 것이다.
+   *
+   * 예: `<x-import … data="{{ netTrend }}">`의 `data`는 차트가 `.map`을 도는
+   * 배열이다. 여기 적지 않으면 값 골격이 문자열로 추론하고, 빈 값으로 화면을
+   * 그릴 때 `.map`에서 죽는다.
+   *
+   * 적히지 않은 prop은 문자열로 본다 — 실제로 `Lic`의 `name`처럼 대부분 그렇다.
+   */
+  componentPropUse: Record<string, Record<string, Use>>
   /** 값 객체의 이름. 스코프 변수가 아닌 홀은 전부 여기에 매달린다. */
   valsName: string
 }
+
+/**
+ * 홀이 **어떻게 쓰였는가**. 변환하는 순간에는 알지만 결과 JSX만 봐서는
+ * 되짚기 번거로운 정보라, 여기서 같이 들고 나간다. 값 골격을 만들 때
+ * `{{ x }}`가 조건인지 목록인지 핸들러인지가 곧 기본값을 정한다.
+ */
+export type Use = "cond" | "list" | "handler" | "text" | "style" | "attr"
 
 export interface EmitResult {
   /** 컴포넌트 본문 JSX (최상위 요소 하나). */
@@ -31,6 +49,8 @@ export interface EmitResult {
   imports: Map<string, Set<string>>
   /** 홀에서 쓰인 최상위 키. 생성 인터페이스의 필드가 된다. */
   valsKeys: Set<string>
+  /** 홀 경로(`go.dash`처럼 점을 포함한 전체) → 그 자리에서의 쓰임. */
+  valsUses: Map<string, Set<Use>>
   /** 사람이 봐야 할 것. 조용히 넘기지 않는다 (헌장 6). */
   notes: string[]
 }
@@ -60,6 +80,7 @@ const VOID = new Set([
 export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitResult {
   const imports = new Map<string, Set<string>>()
   const valsKeys = new Set<string>()
+  const valsUses = new Map<string, Set<Use>>()
   const notes: string[] = []
 
   const roots = nodes.filter((n) => !isBlank(n))
@@ -69,7 +90,7 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
   }
 
   const jsx = emitNode(first, 2, new Set())
-  return { jsx, imports, valsKeys, notes }
+  return { jsx, imports, valsKeys, valsUses, notes }
 
   // ── 노드 ────────────────────────────────────────────────────────────
 
@@ -124,7 +145,7 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
   /** `<sc-if value="{{ c }}">` → `{c && (…)}` (§4-1). */
   function emitIf(n: ElNode, depth: number, scope: ReadonlySet<string>): string {
     const pad = "  ".repeat(depth)
-    const cond = directiveExpr(n, "value", scope)
+    const cond = directiveExpr(n, "value", scope, "cond")
     const kids = emitChildren(n.kids, depth + 2, scope)
     if (kids.length === 0) return `${pad}{/* 빈 sc-if: ${cond} */}`
     const body = wrapFragment(kids, depth + 1)
@@ -134,7 +155,7 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
   /** `<sc-for list="{{ xs }}" as="x">` → `{xs.map((x, $index) => …)}` (§4-1). */
   function emitFor(n: ElNode, depth: number, scope: ReadonlySet<string>): string {
     const pad = "  ".repeat(depth)
-    const list = directiveExpr(n, "list", scope)
+    const list = directiveExpr(n, "list", scope, "list")
     const as = literalAttr(n, "as")
     if (!as) throw new Error(`<sc-for>에 as가 없다 — L${n.line}`)
 
@@ -191,10 +212,10 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
   // ── 속성 ────────────────────────────────────────────────────────────
 
   /** 지시자가 자기 속성에 담아둔 표현식 — `<sc-if value="{{ c }}">`의 `c`. */
-  function directiveExpr(n: ElNode, attr: string, scope: ReadonlySet<string>): string {
+  function directiveExpr(n: ElNode, attr: string, scope: ReadonlySet<string>, use: Use): string {
     const a = n.attrs.find((x) => x.name === attr)
     if (!a || a.parts === null) throw new Error(`<${n.tag}>에 ${attr}이 없다 — L${n.line}`)
-    return partsToExpr(a.parts, scope)
+    return partsToExpr(a.parts, scope, use)
   }
 
   function emitAttr(tag: string, a: Attr, scope: ReadonlySet<string>, isComponent: boolean): string {
@@ -224,7 +245,12 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
       }
     }
 
-    return `${name}=${partsToAttrValue(a.parts, scope)}`
+    const use: Use = /^on[A-Z]/.test(name)
+      ? "handler"
+      : isComponent
+        ? (opts.componentPropUse[tag]?.[name] ?? "attr")
+        : "attr"
+    return `${name}=${partsToAttrValue(a.parts, scope, use)}`
   }
 
   /** 인라인 style 문자열 → JSX 스타일 객체. 이 목업은 토큰이 style에 박혀 있다. */
@@ -233,7 +259,7 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
     const out: string[] = []
     for (const d of decls) {
       const prop = cssPropToJs(d.prop)
-      out.push(`${prop}: ${partsToExpr(d.value, scope)}`)
+      out.push(`${prop}: ${partsToExpr(d.value, scope, "style")}`)
     }
     return out.join(", ")
   }
@@ -245,7 +271,7 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
     const out: string[] = []
     for (const p of parts) {
       if (p.t === "hole") {
-        out.push(`{${qualify(p.expr, scope)}}`)
+        out.push(`{${qualify(p.expr, scope, "text")}}`)
         continue
       }
       const text = p.text
@@ -257,14 +283,14 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
   }
 
   /** JSX 속성값 — 통째로 리터럴이면 문자열, 홀 하나면 표현식, 섞이면 템플릿 리터럴. */
-  function partsToAttrValue(parts: readonly Part[], scope: ReadonlySet<string>): string {
+  function partsToAttrValue(parts: readonly Part[], scope: ReadonlySet<string>, use: Use): string {
     const lit = onlyLiteral(parts)
     if (lit !== null) return JSON.stringify(lit)
-    return `{${partsToExpr(parts, scope)}}`
+    return `{${partsToExpr(parts, scope, use)}}`
   }
 
   /** 중괄호 없는 표현식. style 객체의 값이나 속성값 안쪽에 쓴다. */
-  function partsToExpr(parts: readonly Part[], scope: ReadonlySet<string>): string {
+  function partsToExpr(parts: readonly Part[], scope: ReadonlySet<string>, use: Use): string {
     const lit = onlyLiteral(parts)
     if (lit !== null) return JSON.stringify(lit)
 
@@ -272,13 +298,13 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
     const lits = parts.filter((p) => p.t === "lit")
     if (holes.length === 1 && lits.every((p) => p.t === "lit" && p.text.trim() === "")) {
       const only = holes[0]
-      if (only && only.t === "hole") return qualify(only.expr, scope)
+      if (only && only.t === "hole") return qualify(only.expr, scope, use)
     }
 
     const body = parts
       .map((p) =>
         p.t === "hole"
-          ? `\${${qualify(p.expr, scope)}}`
+          ? `\${${qualify(p.expr, scope, use)}}`
           : p.text.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${"),
       )
       .join("")
@@ -292,7 +318,7 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
    * - `true`·`false`·숫자는 리터럴
    * - 나머지는 전부 renderVals가 주던 값 → `vals.`에 매단다
    */
-  function qualify(expr: string, scope: ReadonlySet<string>): string {
+  function qualify(expr: string, scope: ReadonlySet<string>, use: Use): string {
     if (/^(true|false|null|-?\d+(\.\d+)?)$/.test(expr)) return expr
     const root = expr.split(".")[0] ?? expr
     if (scope.has(root)) return expr
@@ -300,6 +326,12 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
       throw new Error(`홀 경로를 식별자로 볼 수 없다: {{ ${expr} }}`)
     }
     valsKeys.add(root)
+    let set = valsUses.get(expr)
+    if (!set) {
+      set = new Set()
+      valsUses.set(expr, set)
+    }
+    set.add(use)
     return `${opts.valsName}.${expr}`
   }
 }

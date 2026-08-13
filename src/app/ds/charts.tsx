@@ -17,7 +17,8 @@ export interface Point {
 }
 
 export interface LineProps {
-  data: Point[]
+  /** 차트는 읽기만 한다. `readonly`라야 값 골격의 `readonly any[]`가 그대로 들어온다. */
+  data: readonly Point[]
   area?: boolean
 }
 
