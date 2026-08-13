@@ -113,7 +113,7 @@ export interface TemplateVals {
     rows: readonly any[]
     run: (...args: any[]) => void
     title: string
-  }
+  } | null
   confirmFm: (...args: any[]) => void
   confirmType: string
   connBadge: string
@@ -138,7 +138,7 @@ export interface TemplateVals {
     head: string
     left: string
     rows: readonly any[]
-  }
+  } | null
   detail: {
     actions: readonly any[]
     adj: readonly any[]
@@ -275,7 +275,7 @@ export interface TemplateVals {
     left: string
     rows: readonly any[]
     w: string
-  }
+  } | null
   lastActions: readonly any[]
   lastDone: string
   lastImpact: string
@@ -319,7 +319,7 @@ export interface TemplateVals {
     per: string
     x: string
     x2: string
-  }
+  } | null
   modal: {
     desc: string
     fields: readonly any[]
@@ -398,7 +398,7 @@ export interface TemplateVals {
     rows: readonly any[]
     x: string
     y: string
-  }
+  } | null
   quadVx: string
   rangeLabel: string
   rangeOpen: boolean
@@ -501,7 +501,7 @@ export interface TemplateVals {
     head: string
     left: string
     rows: readonly any[]
-  }
+  } | null
   unmappedCount: string
   urlBusy: boolean
   urlError: string
@@ -616,20 +616,7 @@ export function emptyVals(): TemplateVals {
     cmdQuery: "",
     colRows: [],
     comparisons: [],
-    confirm: {
-      body: "",
-      btnBorder: "",
-      btnFg: "",
-      btnOp: "",
-      choices: [],
-      confirmLabel: "",
-      hasChoice: false,
-      hasRows: false,
-      hasType: false,
-      rows: [],
-      run: () => {},
-      title: "",
-    },
+    confirm: null,
     confirmFm: () => {},
     confirmType: "",
     connBadge: "",
@@ -649,12 +636,7 @@ export function emptyVals(): TemplateVals {
     ctAd: false,
     ctCogs: false,
     ctOps: false,
-    dayTip: {
-      foot: "",
-      head: "",
-      left: "",
-      rows: [],
-    },
+    dayTip: null,
     detail: {
       actions: [],
       adj: [],
@@ -785,13 +767,7 @@ export function emptyVals(): TemplateVals {
     isDraftTab: false,
     isReport: false,
     kpis: [],
-    kpiTip: {
-      foot: "",
-      head: "",
-      left: "",
-      rows: [],
-      w: "",
-    },
+    kpiTip: null,
     lastActions: [],
     lastDone: "",
     lastImpact: "",
@@ -827,15 +803,7 @@ export function emptyVals(): TemplateVals {
     manTargets: [],
     marketDown: false,
     mixHiClip: "",
-    mixTip: {
-      amount: "",
-      color: "",
-      label: "",
-      pct: "",
-      per: "",
-      x: "",
-      x2: "",
-    },
+    mixTip: null,
     modal: {
       desc: "",
       fields: [],
@@ -909,12 +877,7 @@ export function emptyVals(): TemplateVals {
     quadGroups: [],
     quadHy: "",
     quadLabels: [],
-    quadTip: {
-      name: "",
-      rows: [],
-      x: "",
-      y: "",
-    },
+    quadTip: null,
     quadVx: "",
     rangeLabel: "",
     rangeOpen: false,
@@ -1013,11 +976,7 @@ export function emptyVals(): TemplateVals {
       ship: "",
     },
     trendCols: [],
-    trendTip: {
-      head: "",
-      left: "",
-      rows: [],
-    },
+    trendTip: null,
     unmappedCount: "",
     urlBusy: false,
     urlError: "",

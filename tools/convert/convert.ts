@@ -139,17 +139,31 @@ const EMPTY: Record<Use, string> = {
 
 const key = (k: string): string => (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) ? k : JSON.stringify(k))
 
+/**
+ * **조건이자 객체**인 값은 비었을 때 `null`이어야 한다.
+ *
+ * 목업의 관용구다 — `{confirm && <모달/>}` 안에서 `confirm.title`을 쓴다.
+ * 여기서 빈 객체 `{}`를 주면 **항상 truthy라 모달이 영영 열려 있다.**
+ * 실제로 처음 셸을 띄웠을 때 확인 모달이 화면을 덮고 있었고, 그게 이 규칙이
+ * 빠져 있다는 신호였다.
+ */
+function isNullable(node: ShapeNode): boolean {
+  return node.children.size > 0 && node.uses.has("cond")
+}
+
 function renderType(node: ShapeNode, depth: number): string {
   if (node.children.size === 0) return TYPE[pick(node.uses)]
   const pad = "  ".repeat(depth + 1)
   const rows = [...node.children]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${pad}${key(k)}: ${renderType(v, depth + 1)}`)
-  return `{\n${rows.join("\n")}\n${"  ".repeat(depth)}}`
+  const obj = `{\n${rows.join("\n")}\n${"  ".repeat(depth)}}`
+  return isNullable(node) ? `${obj} | null` : obj
 }
 
 function renderEmpty(node: ShapeNode, depth: number): string {
   if (node.children.size === 0) return EMPTY[pick(node.uses)]
+  if (isNullable(node)) return "null"
   const pad = "  ".repeat(depth + 1)
   const rows = [...node.children]
     .sort(([a], [b]) => a.localeCompare(b))
