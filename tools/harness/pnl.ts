@@ -101,7 +101,12 @@ for (const t of TARGETS) {
       `INSERT INTO connection (id, library_id, pack_id, marketplace_key, display_name, state, created_at, updated_at)
        VALUES (?,?,?,?,?,?,?,?)`,
     )
-    .run(t.conn, LIB, profile.packId, profile.marketplaceKey, profile.label, "CONNECTED", NOW, NOW)
+    // display_name은 **프로파일이 선언한 채널 통칭**이다. `label`(문서 이름)이 아니다 —
+    // 화면의 채널 열에 "11번가 결제일 정산확정"이 뜨면 안 된다.
+    .run(
+      t.conn, LIB, profile.packId, profile.marketplaceKey,
+      profile.displayName, "CONNECTED", NOW, NOW,
+    )
 
   const batch = {
     id: `batch-${t.market}`,

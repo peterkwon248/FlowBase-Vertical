@@ -44,9 +44,9 @@ export function settlementVals(
     const linked = r.linked === r.count
     return {
       date: r.settledOn,
-      // 채널 — 지금은 **연결 식별자 그대로**다. 표시 이름은 연결 화면이 생길 때
-      // 거기서 온다. 없는 이름을 여기서 지어내지 않는다 (헌장 A-5).
-      ch: r.connectionId,
+      // 채널 — `connection.display_name`이고 값의 출처는 프로파일이다.
+      // 내부 키를 화면에 내보내지 않는다 (헌장 C-4).
+      ch: r.channel,
       color: DIM,
       count: `${won(r.count)}건`,
       gross: won(r.gross),

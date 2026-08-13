@@ -45,7 +45,23 @@ export interface MappingProfile {
   readonly docType: string
   readonly grain: string
   readonly targetTable: string
+  /** 이 **문서**의 이름. 예: "결제완료/정산확정". 화면의 채널 이름이 아니다. */
   readonly label: string
+  /**
+   * 이 **채널**의 통칭. `connection.display_name`의 기본값이 된다.
+   *
+   * ★ 왜 프로파일이 이름을 아는가 ★
+   * 화면에 `conn-11st` 같은 내부 키를 노출하는 것은 헌장 C-4 위반이고(`batch_id`를
+   * 숨기기로 한 것과 같은 계열), 그렇다고 앱이 이름을 지어낼 수도 없다. 프로파일은
+   * **그 마켓의 문서 구조 전체를 아는 주체**이므로 마켓의 통칭도 그 정당한 지식이다.
+   *
+   * LOCK 4와 충돌하지 않는다 — 이름이 사는 곳이 `core/`가 아니라 **팩의 프로파일**이다.
+   * core는 이 문자열을 읽어 옮길 뿐 무엇인지 모른다.
+   *
+   * 연결 화면이 생기면 사용자가 덮어쓸 수 있는 값이 된다 (§10-2 라벨).
+   * **여기 있는 것은 기본값이다.**
+   */
+  readonly displayName: string
   readonly recognitionRules: {
     readonly containerFormats: readonly string[]
     readonly requiredHeaders: readonly string[]

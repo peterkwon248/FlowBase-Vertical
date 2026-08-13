@@ -43,6 +43,7 @@ const PROFILE: MappingProfile = {
   grain: "order-line",
   targetTable: "fact_order",
   label: "테스트",
+  displayName: "테스트 채널",
   recognitionRules: { containerFormats: ["xlsx"], requiredHeaders: [], headerMatch: "all", minConfidence: 0 },
   extractionRules: { sheetSelector: { kind: "firstData" } },
   sourceKey: { strategy: "natural", columns: ["주문번호"] },

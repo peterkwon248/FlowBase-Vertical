@@ -25,9 +25,11 @@ import { useCallback, useEffect, useState } from "react"
 import { Template } from "./generated/Template.js"
 import { dashboardVals } from "./dashboard.js"
 import { settlementVals } from "./settlement.js"
+import { orderVals } from "./order.js"
 import { DEV_PERIOD, loadDevSnapshot } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import type { SettlementRow } from "@core/settlement/rows.js"
+import type { OrderRow } from "@core/order/rows.js"
 import { shellStateFor, shellVals, type NavKey, type ShellState } from "./shell.js"
 
 /** 목업 L3908과 같은 기준. 사이드바가 서랍이 되는 폭이다. */
@@ -66,11 +68,13 @@ export function App(): React.JSX.Element {
   // 것이 목적이고, 같은 DB를 같은 스냅샷 함수로 읽으므로 구조가 그걸 보장한다.
   const [snap, setSnap] = useState<PnlSnapshot | null>(null)
   const [setRows, setSetRows] = useState<readonly SettlementRow[]>([])
+  const [ordRows, setOrdRows] = useState<readonly OrderRow[]>([])
   useEffect(() => {
     void loadDevSnapshot().then((r) => {
       if (r.snapshot) setSnap(r.snapshot)
       else console.warn("[data] 스냅샷을 읽지 못했다 — 빈 화면이 지금의 사실이다:", r.error)
       setSetRows(r.settlement)
+      setOrdRows(r.orders)
     })
   }, [])
 
@@ -103,6 +107,7 @@ export function App(): React.JSX.Element {
   // 정산은 손익과 **다른 조회**라 따로 배선한다. 둘 다 같은 순간의 같은 DB를
   // 읽으므로(loadDevSnapshot이 연결을 한 번만 연다) 화면끼리 어긋나지 않는다.
   if (setRows.length > 0) settlementVals(vals, setRows, DEV_PERIOD)
+  if (ordRows.length > 0) orderVals(vals, ordRows, DEV_PERIOD)
 
   return <Template vals={vals} />
 }

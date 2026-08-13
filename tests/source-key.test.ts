@@ -54,6 +54,7 @@ function profile(sourceKey: MappingProfile["sourceKey"]): MappingProfile {
     grain: "test",
     targetTable: "fact_ad_spend",
     label: "테스트",
+    displayName: "테스트 채널",
     recognitionRules: {
       containerFormats: ["xlsx"],
       requiredHeaders: [],

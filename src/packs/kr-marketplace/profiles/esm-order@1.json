@@ -8,6 +8,7 @@
   "grain": "order-line",
   "targetTable": "fact_order",
   "label": "ESM 주문통합검색 (G마켓·옥션)",
+  "displayName": "ESM (G마켓·옥션)",
   "recognitionRules": {
     "containerFormats": [
       "xlsx"

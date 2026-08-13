@@ -18,7 +18,14 @@ import type { Period } from "../profit/index.js"
 /** 정산 한 묶음 — **정산일 × 연결**. 목업이 표를 그리는 단위와 같다. */
 export interface SettlementRow {
   readonly settledOn: string
-  readonly connectionId: string
+  /**
+   * 사람이 읽는 채널 이름 — `connection.display_name`.
+   *
+   * **내부 키(`connection_id`)를 화면에 내보내지 않는다** (헌장 C-4). 값의 출처는
+   * 프로파일이고(`MappingProfile.displayName`) 연결 화면이 생기면 사용자가
+   * 덮어쓴다. core는 이 문자열이 무엇인지 모른 채 옮기기만 한다 (LOCK 4).
+   */
+  readonly channel: string
   readonly count: number
   readonly gross: number
   readonly fee: number
@@ -50,7 +57,7 @@ export async function loadSettlementRows(
 ): Promise<SettlementRow[]> {
   const rows = await db
     .prepare(
-      `SELECT s.settled_on AS d, s.connection_id AS c, COUNT(*) AS n,
+      `SELECT s.settled_on AS d, COALESCE(cn.display_name, '(이름 없는 연결)') AS c, COUNT(*) AS n,
               COALESCE(SUM(s.gross_amount),0)    AS gross,
               COALESCE(SUM(s.fee_amount),0)      AS fee,
               COALESCE(SUM(s.vat_amount),0)      AS vat,
@@ -64,10 +71,11 @@ export async function loadSettlementRows(
               MIN(s.pay_out_on) AS payMin,
               MAX(s.pay_out_on) AS payMax
          FROM active_settlement s
+         LEFT JOIN connection cn ON cn.id = s.connection_id
         WHERE s.library_id = ?
           AND s.settled_on >= ? AND s.settled_on < date(?, '+1 day')
         GROUP BY s.settled_on, s.connection_id
-        ORDER BY s.settled_on DESC, s.connection_id`,
+        ORDER BY s.settled_on DESC, c`,
     )
     .all(libraryId, period.from, period.to)
 
@@ -78,7 +86,7 @@ export async function loadSettlementRows(
     const hi = r["payMax"] == null ? null : String(r["payMax"])
     return {
       settledOn: String(r["d"] ?? ""),
-      connectionId: String(r["c"] ?? ""),
+      channel: String(r["c"] ?? ""),
       count: num(r, "n"),
       gross: num(r, "gross"),
       fee: num(r, "fee"),

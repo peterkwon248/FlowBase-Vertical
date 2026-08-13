@@ -8,6 +8,7 @@
   "grain": "order-line",
   "targetTable": "fact_settlement",
   "label": "11번가 결제일 정산확정",
+  "displayName": "11번가",
 
   "recognitionRules": {
     "containerFormats": ["biff", "xlsx"],

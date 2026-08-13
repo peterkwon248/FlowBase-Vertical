@@ -8,6 +8,7 @@
   "grain": "campaign-breakdown",
   "targetTable": "fact_ad_spend",
   "label": "쿠팡 광고 보고서",
+  "displayName": "쿠팡",
 
   "recognitionRules": {
     "containerFormats": ["xlsx"],
