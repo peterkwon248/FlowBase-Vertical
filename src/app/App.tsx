@@ -23,6 +23,9 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { Template } from "./generated/Template.js"
+import { dashboardVals } from "./dashboard.js"
+import { DEV_PERIOD, loadDevSnapshot } from "./data.js"
+import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import { shellStateFor, shellVals, type NavKey, type ShellState } from "./shell.js"
 
 /** 목업 L3908과 같은 기준. 사이드바가 서랍이 되는 폭이다. */
@@ -56,6 +59,17 @@ export function App(): React.JSX.Element {
     document.documentElement.setAttribute("data-theme", state.theme)
   }, [state.theme])
 
+  // 3b-0 CLI가 만든 DB를 읽는다. 실제 배포 경로(사용자 데이터 디렉터리 +
+  // 가져오기 화면)는 아직 없다 — 지금은 **화면 숫자 = CLI 숫자**를 증명하는
+  // 것이 목적이고, 같은 DB를 같은 스냅샷 함수로 읽으므로 구조가 그걸 보장한다.
+  const [snap, setSnap] = useState<PnlSnapshot | null>(null)
+  useEffect(() => {
+    void loadDevSnapshot().then((r) => {
+      if (r.snapshot) setSnap(r.snapshot)
+      else console.warn("[data] 스냅샷을 읽지 못했다 — 빈 화면이 지금의 사실이다:", r.error)
+    })
+  }, [])
+
   const go = useCallback((view: NavKey) => setState((s) => ({ ...s, view })), [])
   const toggleNav = useCallback(
     () => setState((s) => ({ ...s, navCollapsed: !s.navCollapsed })),
@@ -73,5 +87,15 @@ export function App(): React.JSX.Element {
     [],
   )
 
-  return <Template vals={shellVals(state, { go, toggleNav, closeNav, openNav, goImport, toggleTheme })} />
+  const vals = shellVals(state, { go, toggleNav, closeNav, openNav, goImport, toggleTheme })
+  // 데이터가 있으면 대시보드 값을 덮어쓴다. 없으면 빈 값 그대로 —
+  // 시드를 넣어 채워 보이지 않는다 (헌장 C).
+  if (snap) {
+    dashboardVals(vals, snap, DEV_PERIOD)
+    // 데이터가 들어왔으니 첫 실행 안내는 지나간다.
+    vals.firstRun = false
+    vals.notFirstRun = true
+  }
+
+  return <Template vals={vals} />
 }
