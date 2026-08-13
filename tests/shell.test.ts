@@ -6,9 +6,9 @@
  */
 
 import { describe, expect, it } from "vitest"
-import { NAV, TITLES, INITIAL_SHELL, shellVals, type NavKey } from "../src/app/shell.js"
+import { NAV, TITLES, INITIAL_SHELL, shellStateFor, shellVals, type NavKey } from "../src/app/shell.js"
 
-const noop = { go: () => {}, toggleNav: () => {}, toggleTheme: () => {} }
+const noop = { go: () => {}, toggleNav: () => {}, closeNav: () => {}, openNav: () => {}, toggleTheme: () => {} }
 const at = (over: Partial<typeof INITIAL_SHELL> = {}) =>
   shellVals({ ...INITIAL_SHELL, ...over }, noop)
 
@@ -61,6 +61,68 @@ describe("셸 — 사이드바 (목업 L5348~5353)", () => {
   it("좁은 화면에서는 접힘을 무시하고 편다 — 폭이 0이면 열 수가 없다", () => {
     const vals = at({ navCollapsed: true, isNarrow: true })
     expect(vals.navW).toBe("232px")
+  })
+})
+
+describe("좁은 화면 — 서랍이 본문을 덮은 채 뜨면 안 된다 (§21)", () => {
+  it("폭이 좁으면 접힌 채로 시작한다 (목업 L3690)", () => {
+    expect(shellStateFor(true).navCollapsed).toBe(true)
+    expect(shellStateFor(false).navCollapsed).toBe(false)
+  })
+
+  it("좁은 화면에서 열려 있으면 스크림이 뜬다 (목업 L5354)", () => {
+    expect(at({ isNarrow: true, navCollapsed: false }).navScrim).toBe(true)
+  })
+
+  it("접혀 있으면 스크림은 없다 — 눌러서 닫을 것이 없다", () => {
+    expect(at({ isNarrow: true, navCollapsed: true }).navScrim).toBe(false)
+  })
+
+  it("넓은 화면에서는 열려 있어도 스크림이 없다 — 겹치지 않으니까", () => {
+    expect(at({ isNarrow: false, navCollapsed: false }).navScrim).toBe(false)
+  })
+
+  it("스크림을 닫는 손잡이가 배선돼 있다 (목업 L5355)", () => {
+    expect(typeof at().closeNav).toBe("function")
+  })
+})
+
+describe("하단 탭바 — §21의 \"4개+더보기\"", () => {
+  it("항목이 4개다 (목업 L5678)", () => {
+    const t = at().tabbar as { label: string }[]
+    expect(t.map((x) => x.label)).toEqual(["대시보드", "정산", "진단", "더보기"])
+  })
+
+  it("현재 화면만 active다", () => {
+    const t = at({ view: "settlement" }).tabbar as { label: string; on: string }[]
+    expect(t.filter((x) => x.on === "active").map((x) => x.label)).toEqual(["정산"])
+  })
+
+  it("더보기는 active가 되지 않는다 — 화면이 아니라 손잡이다", () => {
+    for (const v of NAV) {
+      const t = at({ view: v }).tabbar as { label: string; on: string }[]
+      expect(t[3]?.on, v).toBe("")
+    }
+  })
+
+  it("★ 더보기가 사이드바를 연다 ★ — 목업은 여기서 동작하지 않았다", () => {
+    let opened = false
+    const vals = shellVals(INITIAL_SHELL, { ...noop, openNav: () => { opened = true } })
+    const t = vals.tabbar as { pick: () => void }[]
+    t[3]?.pick()
+    expect(opened, "더보기를 눌러도 사이드바가 열리지 않는다 — S에서 11개 화면이 막힌다").toBe(true)
+  })
+
+  it("탭을 고르면 화면을 바꾸고 서랍을 닫는다", () => {
+    const seen: string[] = []
+    const vals = shellVals(INITIAL_SHELL, {
+      ...noop,
+      go: (v) => seen.push("go:" + v),
+      closeNav: () => seen.push("close"),
+    })
+    const t = vals.tabbar as { pick: () => void }[]
+    t[1]?.pick()
+    expect(seen).toEqual(["go:settlement", "close"])
   })
 })
 

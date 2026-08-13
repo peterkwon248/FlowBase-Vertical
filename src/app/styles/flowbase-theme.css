@@ -73,6 +73,20 @@
   }
   .sidebar[data-open="1"] { transform: translateX(0); }
   .nav-scrim {
+    /* ★ display를 여기서 되살린다 ★
+       Vector DS 사본에 순서 버그가 있다 — vector-app.css는 L36(미디어 안)에서
+       `.nav-scrim { display: block }`을 주고 L91(미디어 밖)에서 다시
+       `.nav-scrim { display: none }`을 준다. 미디어 쿼리는 특이성을 올리지
+       않으므로 **뒤에 온 none이 이기고 스크림은 영영 안 보인다.**
+
+       그냥 미관 문제가 아니다. 좁은 화면에서 서랍이 열리면 햄버거가 서랍
+       (z-index 220)에 가리므로, 스크림이 없으면 **닫을 방법이 사라진다.**
+       마크업(nav-scrim)과 핸들러(closeNav)가 목업에 멀쩡히 있는데 CSS가
+       그 의도를 죽이고 있던 것이라, 이건 이탈이 아니라 버그 수정이다.
+
+       DS 사본(vector-app.css)은 upstream과 대조할 수 있어야 하므로 건드리지
+       않고, 나중에 로드되는 이 테마에서 덮는다. */
+    display: block;
     position: fixed; inset: 0; z-index: 210; background: rgba(0,0,0,0.5);
   }
   /* 4열 이상 그리드는 2열로 접는다 */

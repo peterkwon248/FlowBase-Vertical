@@ -101,12 +101,45 @@ export const INITIAL_SHELL: ShellState = {
   firstRun: true,
 }
 
+/**
+ * 폭에 맞춘 초기 상태. **목업 L3690이 이걸 한다** —
+ * `navCollapsed: matchMedia("(max-width: 1023px)").matches`
+ *
+ * 좁은 화면에서 사이드바는 겹쳐 뜨는 서랍이므로 **접힌 채로 시작해야** 한다.
+ * 이 한 줄이 없으면 폰 폭에서 앱을 켜자마자 서랍이 본문을 덮은 채 뜬다.
+ */
+export function shellStateFor(isNarrow: boolean): ShellState {
+  return { ...INITIAL_SHELL, isNarrow, navCollapsed: isNarrow }
+}
+
 export interface ShellActions {
   /** 목업 L3709 `nav(v, extra)` — 화면을 바꾸고 선택을 푼다. */
   go: (view: NavKey) => void
   toggleNav: () => void
+  /** 목업 L5355. 좁은 화면에서 스크림을 눌러 드로어를 닫는다. */
+  closeNav: () => void
+  /** 하단 탭바의 "더보기"가 사이드바를 연다. */
+  openNav: () => void
   toggleTheme: () => void
 }
+
+/**
+ * 좁은 화면(S)의 하단 탭바 — 목업 L5678~5689. §21이 요구하는 "4개+더보기"다.
+ *
+ * ★ 목업의 결함 하나를 고쳐서 옮긴다 ★
+ * 원본의 `pick`은 `setState({ navOpen: true })`를 하는데, 렌더는
+ * `navOpen = !this.state.navCollapsed`(L3909)를 본다. 즉 **"더보기"를 눌러도
+ * 사이드바가 열리지 않는다** — 좁은 화면에서 나머지 11개 화면으로 가는 길이
+ * 막힌다. §21의 "어떤 브레이크포인트에서도 기능 제거 ❌ · 모든 기능 최대 2탭
+ * 도달"에 정면으로 걸리므로, 충돌 시 §21이 목업을 이긴다는 기준에 따라 고쳤다.
+ * 핸드오프의 알려진 결함 목록에는 없던 것이다.
+ */
+const TABBAR = [
+  { id: "dash", icon: "layout-dashboard", label: "대시보드" },
+  { id: "settlement", icon: "receipt", label: "정산" },
+  { id: "diag", icon: "target", label: "진단" },
+  { id: "__more", icon: "menu", label: "더보기" },
+] as const
 
 function byNav<T>(make: (k: NavKey) => T): Record<NavKey, T> {
   const out = {} as Record<NavKey, T>
@@ -130,8 +163,9 @@ export function shellVals(state: ShellState, actions: ShellActions): TemplateVal
   vals.nav = byNav((k) => (k === view ? "active" : ""))
   vals.go = byNav((k) => () => actions.go(k))
 
-  // 목업 L5348~5353. 좁은 화면에서는 접힘 상태를 무시하고 항상 편다 —
-  // 좁을 때 사이드바는 겹쳐 뜨는 서랍이라 폭이 0이면 열 수가 없다.
+  // 목업 L5348~5353. 좁은 화면에서 폭이 늘 232px인 것은 "항상 펴진다"는 뜻이
+  // 아니라 **서랍의 폭**이다 — 좁을 때 사이드바는 `position: fixed`로 겹쳐
+  // 뜨고, 보이고 말고는 `nav-open`/`data-open`이 정한다 (vector-app.css L35~39).
   const wide = isNarrow || !navCollapsed
   const navOpen = !navCollapsed
   vals.navW = wide ? "232px" : "0px"
@@ -141,6 +175,26 @@ export function shellVals(state: ShellState, actions: ShellActions): TemplateVal
   vals.navClosed = !navOpen
   vals.appNavClass = navOpen ? "nav-open" : ""
   vals.toggleNav = actions.toggleNav
+
+  // 목업 L5354~5355. 좁은 화면에서 서랍이 열려 있으면 뒤를 덮고, 그걸 눌러 닫는다.
+  // 이 두 줄이 없으면 서랍이 본문 위에 걸린 채 빠져나올 길이 없다.
+  vals.navScrim = isNarrow && navOpen
+  vals.closeNav = actions.closeNav
+
+  // 목업 L5678~5689. 탭을 고르면 화면을 바꾸고 서랍을 닫는다 — 원본의
+  // `navOpen: false`가 노린 동작이다.
+  vals.tabbar = TABBAR.map((t) => ({
+    icon: t.icon,
+    label: t.label,
+    on: t.id !== "__more" && view === t.id ? "active" : "",
+    pick:
+      t.id === "__more"
+        ? actions.openNav
+        : () => {
+            actions.go(t.id as NavKey)
+            actions.closeNav()
+          },
+  }))
 
   // 목업 L5272
   const [title, subtitle] = TITLES[view]
