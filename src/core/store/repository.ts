@@ -187,6 +187,119 @@ export class Repository {
     })
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // 연결 쓰기 — **이 앱의 첫 사용자 쓰기다** (§21-6)
+  //
+  // ★ 여기 오는 것은 사람이 누른 결과뿐이다 ★
+  // 유사도 제안은 `packs/…/listing-match.ts`가 점수만 내고 끝난다. 이 함수들은
+  // 그 점수를 보지도 않는다 — 인자로 받지 않으므로 **자동 확정이 구조적으로
+  // 불가능하다.** "AI 초안 · 사람 확정"의 확정 지점이 여기다.
+  // ══════════════════════════════════════════════════════════════
+
+  /**
+   * 리스팅에서 **새 SKU를 만들고 곧바로 잇는다.**
+   *
+   * `sku.product_id`가 NOT NULL이라 상품도 함께 만든다. 콜드스타트에서는 상품과
+   * SKU가 1:1이고, 나중에 사람이 여러 SKU를 한 상품으로 묶는 것은 상품 화면의 일이다.
+   *
+   * 여러 리스팅을 한 번에 받는 것이 **군집의 이행**이다 — 11번가 옵션 3개가
+   * 한 SKU로 간다 (§21-6 ①).
+   */
+  async createSkuForListings(
+    libraryId: string,
+    listingIds: readonly string[],
+    name: string,
+    now: string,
+  ): Promise<string> {
+    if (listingIds.length === 0) throw new Error("연결할 리스팅이 없다")
+
+    return this.db.transaction(async () => {
+      // 코드는 순번으로 뽑는다. 사람이 읽는 이름은 `name`이고, 코드는 나중에
+      // 상품 화면에서 바꾼다 (기준 데이터는 편집 가능 · §14-2).
+      const r = await this.db
+        .prepare(`SELECT COUNT(*) AS n FROM sku WHERE library_id = ?`)
+        .get(libraryId)
+      const seq = Number(r?.["n"] ?? 0) + 1
+      const code = `SKU-${String(seq).padStart(4, "0")}`
+      const productId = `prd-${libraryId}-${seq}`
+      const skuId = `sku-${libraryId}-${seq}`
+
+      await this.db
+        .prepare(
+          `INSERT INTO product (id, library_id, name, created_at, updated_at) VALUES (?,?,?,?,?)`,
+        )
+        .run(productId, libraryId, name, now, now)
+      await this.db
+        .prepare(
+          `INSERT INTO sku (id, library_id, product_id, code, name, status, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?)`,
+        )
+        .run(skuId, libraryId, productId, code, name, "ACTIVE", now, now)
+
+      await this.linkListingsInternal(listingIds, skuId, now)
+      return skuId
+    })
+  }
+
+  /** 이미 있는 SKU에 리스팅을 잇는다. */
+  async linkListings(
+    listingIds: readonly string[],
+    skuId: string,
+    now: string,
+  ): Promise<number> {
+    if (listingIds.length === 0) return 0
+    return this.db.transaction(async () => this.linkListingsInternal(listingIds, skuId, now))
+  }
+
+  private async linkListingsInternal(
+    listingIds: readonly string[],
+    skuId: string,
+    now: string,
+  ): Promise<number> {
+    const sql =
+      `UPDATE marketplace_listing
+          SET sku_id = ?, link_state = 'linked', linked_by = 'user', linked_at = ?, updated_at = ?
+        WHERE id = ?`
+    for (const id of listingIds) await this.db.prepare(sql).run(skuId, now, now, id)
+    return listingIds.length
+  }
+
+  /**
+   * 연결을 끊는다 — **사람의 명시적 행위만** (ADR-012 결정 3).
+   *
+   * `sku_id`를 비우고 `unlinked`로 되돌린다. 파일의 부재로는 절대 여기 오지 않는다.
+   */
+  async unlinkListings(listingIds: readonly string[], now: string): Promise<number> {
+    if (listingIds.length === 0) return 0
+    return this.db.transaction(async () => {
+      const sql =
+        `UPDATE marketplace_listing
+            SET sku_id = NULL, link_state = 'unlinked', linked_by = NULL, linked_at = NULL,
+                updated_at = ?
+          WHERE id = ?`
+      for (const id of listingIds) await this.db.prepare(sql).run(now, id)
+      return listingIds.length
+    })
+  }
+
+  /**
+   * "연결하지 않기로 했다"를 기록한다.
+   *
+   * **이것도 상태다** — 매번 다시 물어보지 않기 위해서다(001 스키마 주석).
+   * 무시는 삭제가 아니므로 리스팅은 그대로 남고 `ignored` 탭에서 되돌릴 수 있다.
+   */
+  async ignoreListings(listingIds: readonly string[], now: string): Promise<number> {
+    if (listingIds.length === 0) return 0
+    return this.db.transaction(async () => {
+      const sql =
+        `UPDATE marketplace_listing
+            SET link_state = 'ignored', linked_by = 'user', linked_at = ?, updated_at = ?
+          WHERE id = ?`
+      for (const id of listingIds) await this.db.prepare(sql).run(now, now, id)
+      return listingIds.length
+    })
+  }
+
   private async countListings(connectionId: string): Promise<number> {
     const r = await this.db
       .prepare(`SELECT COUNT(*) AS n FROM marketplace_listing WHERE connection_id = ?`)
