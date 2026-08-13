@@ -63,10 +63,15 @@ export function App(): React.JSX.Element {
   )
   const closeNav = useCallback(() => setState((s) => ({ ...s, navCollapsed: true })), [])
   const openNav = useCallback(() => setState((s) => ({ ...s, navCollapsed: false })), [])
+  // 목업 L5692. 첫 실행 안내를 벗어나면서 가져오기 화면으로 간다.
+  const goImport = useCallback(
+    () => setState((s) => ({ ...s, view: "import", firstRun: false })),
+    [],
+  )
   const toggleTheme = useCallback(
     () => setState((s) => ({ ...s, theme: s.theme === "dark" ? "light" : "dark" })),
     [],
   )
 
-  return <Template vals={shellVals(state, { go, toggleNav, closeNav, openNav, toggleTheme })} />
+  return <Template vals={shellVals(state, { go, toggleNav, closeNav, openNav, goImport, toggleTheme })} />
 }

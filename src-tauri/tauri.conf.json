@@ -14,7 +14,7 @@
       {
         "title": "FlowBase",
         "width": 1280,
-        "height": 860,
+        "height": 800,
         "minWidth": 880,
         "minHeight": 600,
         "resizable": true,

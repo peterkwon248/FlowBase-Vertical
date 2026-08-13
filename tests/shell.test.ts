@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest"
 import { NAV, TITLES, INITIAL_SHELL, shellStateFor, shellVals, type NavKey } from "../src/app/shell.js"
 
-const noop = { go: () => {}, toggleNav: () => {}, closeNav: () => {}, openNav: () => {}, toggleTheme: () => {} }
+const noop = { go: () => {}, toggleNav: () => {}, closeNav: () => {}, openNav: () => {}, goImport: () => {}, toggleTheme: () => {} }
 const at = (over: Partial<typeof INITIAL_SHELL> = {}) =>
   shellVals({ ...INITIAL_SHELL, ...over }, noop)
 
@@ -144,6 +144,13 @@ describe("셸 — 첫 실행", () => {
     const [first, second] = at().onboard as { bg: string; fg: string }[]
     expect(first?.bg).toBe("var(--accent)")
     expect(second?.bg).toBe("var(--bg-elevated-2)")
+  })
+
+  it("빈 상태의 '정산 파일 가져오기'가 배선돼 있다 (목업 L5692)", () => {
+    let called = false
+    const vals = shellVals(INITIAL_SHELL, { ...noop, goImport: () => { called = true } })
+    vals.goImport()
+    expect(called, "누르면 아무 일도 일어나지 않는다").toBe(true)
   })
 
   it("firstRun과 notFirstRun은 서로 반대다", () => {

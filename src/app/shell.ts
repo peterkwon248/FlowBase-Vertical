@@ -120,6 +120,11 @@ export interface ShellActions {
   closeNav: () => void
   /** 하단 탭바의 "더보기"가 사이드바를 연다. */
   openNav: () => void
+  /**
+   * 목업 L5692 `goImport` — 가져오기 화면으로 가고 첫 실행 상태를 벗어난다.
+   * 빈 상태 화면 3곳의 "정산 파일 가져오기"와 온보딩 드롭존이 전부 이걸 부른다.
+   */
+  goImport: () => void
   toggleTheme: () => void
 }
 
@@ -210,6 +215,7 @@ export function shellVals(state: ShellState, actions: ShellActions): TemplateVal
   vals.firstRun = firstRun
   vals.notFirstRun = !firstRun
   vals.onboard = ONBOARD
+  vals.goImport = actions.goImport
 
   return vals
 }

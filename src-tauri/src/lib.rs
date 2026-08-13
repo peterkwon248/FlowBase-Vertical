@@ -9,6 +9,38 @@
 
 mod db;
 
+use tauri::{LogicalSize, Manager, WebviewWindow};
+
+/// 창을 **현재 모니터의 작업영역 안**으로 들인다.
+///
+/// `tauri.conf.json`의 크기는 고정값이라 어느 화면에서도 안전할 수 없다.
+/// 실제로 이 기기(200% 배율 · 논리 1440x900 · 작업영역 1440x852)에서 기본
+/// 높이 860이 작업영역을 넘겼다. 1366x768 노트북이면 더 크게 넘친다.
+///
+/// 배율이 곧 논리 픽셀 수를 정하므로, "화면 배율에 상관없이 뜬다"는 것은
+/// 결국 **작업영역을 실제로 읽어서 맞추는 것**이다. 줄일 때만 손대고 키우지는
+/// 않는다 — 사용자가 원한 것보다 큰 창을 밀어붙일 이유는 없다.
+fn fit_to_work_area(win: &WebviewWindow) {
+    let Ok(Some(monitor)) = win.current_monitor() else { return };
+    let scale = monitor.scale_factor();
+    let work = monitor.work_area();
+    let avail_w = work.size.width as f64 / scale;
+    let avail_h = work.size.height as f64 / scale;
+
+    let Ok(outer) = win.outer_size() else { return };
+    let cur = outer.to_logical::<f64>(scale);
+
+    // 가장자리에 딱 붙지 않게 약간 남긴다.
+    let margin = 24.0;
+    let w = cur.width.min((avail_w - margin).max(320.0));
+    let h = cur.height.min((avail_h - margin).max(320.0));
+
+    if w < cur.width || h < cur.height {
+        let _ = win.set_size(LogicalSize::new(w, h));
+        let _ = win.center();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -23,6 +55,9 @@ pub fn run() {
             db::db_run_many,
         ])
         .setup(|app| {
+            if let Some(win) = app.get_webview_window("main") {
+                fit_to_work_area(&win);
+            }
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
