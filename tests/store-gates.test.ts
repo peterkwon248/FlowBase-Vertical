@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import { openNodeDriver } from "../src/core/store/driver-node.js"
 import type { Driver } from "../src/core/store/driver.js"
-import { migrate } from "../src/core/store/migrate.js"
+import { migrate } from "../src/core/store/migrate-node.js"
 import { Repository, type BatchOpen } from "../src/core/store/repository.js"
 
 const LIB = "lib-1"

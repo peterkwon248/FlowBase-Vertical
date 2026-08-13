@@ -32,7 +32,7 @@ import {
   type MappingProfile,
 } from "../../src/core/import/mapping/index.js"
 import { openNodeDriver } from "../../src/core/store/driver-node.js"
-import { migrate } from "../../src/core/store/migrate.js"
+import { migrate } from "../../src/core/store/migrate-node.js"
 import { Repository, type FactTable } from "../../src/core/store/repository.js"
 import { computePnl, prorateFixed, type Period } from "../../src/core/profit/index.js"
 import { FIXTURES, fixturePath, RAW_DIR, CLEAN_DIR } from "../../tests/fixtures.js"

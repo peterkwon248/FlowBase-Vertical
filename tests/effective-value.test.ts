@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { openNodeDriver } from "../src/core/store/driver-node.js"
-import { migrate } from "../src/core/store/migrate.js"
+import { migrate } from "../src/core/store/migrate-node.js"
 import {
   applyAdjustments,
   castToColumn,

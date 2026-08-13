@@ -1,7 +1,7 @@
 ﻿import { describe, it, expect } from "vitest"
 import { openNodeDriver } from "../src/core/store/driver-node.js"
 import type { Driver } from "../src/core/store/driver.js"
-import { migrate, loadMigrations } from "../src/core/store/migrate.js"
+import { migrate, loadMigrations } from "../src/core/store/migrate-node.js"
 
 /** 헌장 B-1 — Fact 행 공통 컬럼 6종. 소급 추가 불가 항목이다. */
 const REQUIRED_FACT_COLUMNS = [

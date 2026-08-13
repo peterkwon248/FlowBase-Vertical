@@ -10,7 +10,7 @@
  * 전부 갖추고, 내용만 얇다. 확장은 필드를 채우는 일이지 형태를 바꾸는 일이 아니다.
  */
 
-import { createHash } from "node:crypto"
+import { readUInt48BE, sha1 } from "./sha1.js"
 import type { NormalizedChunk, RawCell } from "../types.js"
 import { normalizeValue } from "../normalization/value.js"
 import { rowValuesInto } from "../normalization/chunk.js"
@@ -192,9 +192,13 @@ export interface MappingResult {
  */
 function contentKey(values: readonly RawCell[], seen: Map<number, number>): string {
   const canonical = values.map((v) => (v === null ? "~" : `${typeof v}:${v}`)).join("")
-  const digest = createHash("sha1").update(canonical).digest()
   // 앞 6바이트(48비트)를 정수로. 안전 정수 범위 안이라 부동소수 오차가 없다.
-  const numeric = digest.readUIntBE(0, 6)
+  //
+  // `node:crypto`가 아니라 순수 JS 구현을 쓴다 — 실제 앱은 웹뷰에서 돌고
+  // 거기엔 `node:crypto`가 없다. 표준 SHA-1이라 값은 한 비트도 다르지 않고,
+  // `tests/sha1.test.ts`가 그걸 대조로 증명한다 (source_key가 바뀌면 재가져오기
+  // 멱등성이 깨지므로 값 불변이 조건이었다).
+  const numeric = readUInt48BE(sha1(canonical))
   const n = seen.get(numeric) ?? 0
   seen.set(numeric, n + 1)
   // 저장되는 키는 문자열이다 — 사람이 보고 대조할 수 있어야 한다.

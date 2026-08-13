@@ -1,22 +1,31 @@
 /**
- * 마이그레이션 적용.
+ * 마이그레이션 적용 — **파일시스템을 모른다.**
  *
  * 헌장 B-1이 "첫 마이그레이션부터 존재해야 하며 소급 추가 불가"라고 못 박은
  * 공통 6컬럼이 `001-initial.sql`에 있다. 그 파일은 **수정하지 않는다** —
  * 스키마 변경은 새 번호의 파일로 쌓는다.
  *
- * DB 핸들 타입을 좁게 잡아 둔 이유: 세션 2의 테스트는 `node:sqlite`로 돌지만
- * 실제 앱은 Tauri 쪽 바인딩을 쓴다 (ADR-003). 두 곳이 만족할 수 있는 최소
- * 표면만 요구한다.
+ * ─────────────────────────────────────────────────────────────
+ * ★ 왜 갈라졌나 (2026-08-13) ★
+ *
+ * 예전에는 이 파일이 `node:fs`로 `migrations/`를 직접 읽었다. 테스트와 하네스가
+ * 전부 Node에서 도니 문제가 없어 보였는데, **실제 앱(Tauri 웹뷰)에서 처음
+ * 돌리자 모듈 로드 단계에서 죽었다.** 브라우저에는 파일시스템이 없다.
+ *
+ * 그래서 `driver.ts` / `driver-node.ts`와 **같은 모양**으로 갈랐다:
+ *
+ * ```
+ * migrate.ts       계약과 적용 로직   ← 어디서든 돈다
+ * migrate-node.ts  디스크에서 읽기    (테스트 · 하네스)
+ * migrate-web.ts   번들에서 읽기      (앱)
+ * ```
+ *
+ * 읽는 방법은 환경마다 다르지만 **적용 규칙은 하나**여야 한다 — 멱등 판정도
+ * 트랜잭션 경계도 번호 중복 검사도 여기 한 곳에 있다.
+ * ─────────────────────────────────────────────────────────────
  */
 
-import { readFileSync, readdirSync } from "node:fs"
-import { fileURLToPath } from "node:url"
-import { dirname, join } from "node:path"
 import type { Driver } from "./driver.js"
-
-const here = dirname(fileURLToPath(import.meta.url))
-export const MIGRATIONS_DIR = join(here, "migrations")
 
 /**
  * 마이그레이션에 필요한 DB 표면 = 드라이버 계약 그대로.
@@ -33,20 +42,30 @@ export interface Migration {
   readonly sql: string
 }
 
-export function loadMigrations(dir: string = MIGRATIONS_DIR): Migration[] {
-  const out = readdirSync(dir)
-    .filter((f) => f.endsWith(".sql"))
-    .sort()
+/** 읽어온 파일들. 어디서 읽었는지는 이 모듈의 관심사가 아니다. */
+export interface MigrationFile {
+  readonly name: string
+  readonly sql: string
+}
+
+/**
+ * 파일 목록 → 적용 순서가 정해진 마이그레이션.
+ *
+ * 번호가 겹치면 하나가 **조용히 건너뛰어진다** — 적용 여부를 번호로 판정하기
+ * 때문이다. 두 사람이 각자 003을 만드는 상황은 실제로 흔하므로 여기서 세운다.
+ */
+export function buildMigrations(files: readonly MigrationFile[]): Migration[] {
+  const out = [...files]
+    .filter((f) => f.name.endsWith(".sql"))
+    .sort((a, b) => a.name.localeCompare(b.name))
     .map((f) => {
-      const version = Number(f.slice(0, f.indexOf("-")))
+      const version = Number(f.name.slice(0, f.name.indexOf("-")))
       if (!Number.isInteger(version)) {
-        throw new Error(`마이그레이션 파일명이 번호로 시작하지 않는다: ${f}`)
+        throw new Error(`마이그레이션 파일명이 번호로 시작하지 않는다: ${f.name}`)
       }
-      return { version, name: f, sql: readFileSync(join(dir, f), "utf-8") }
+      return { version, name: f.name, sql: f.sql }
     })
 
-  // 번호가 겹치면 하나가 **조용히 건너뛰어진다** — 적용 여부를 번호로 판정하기
-  // 때문이다. 두 사람이 각자 003을 만드는 상황은 실제로 흔하다.
   const seen = new Map<number, string>()
   for (const m of out) {
     const dup = seen.get(m.version)
@@ -79,7 +98,7 @@ async function appliedVersions(db: MigratableDb): Promise<Set<number>> {
  * `IF NOT EXISTS`가 없고 003의 `ALTER TABLE`은 더 확실히 실패한다.
  *
  * 그 상태로 이식을 시작하면 "DB 지우고 다시" 리듬이 생기고, **그 리듬이
- * 영속성 버그를 가린다.** 그래서 앱이 생기기 전에 여기서 닫는다.
+ * 영속성 버그를 가린다.** 그래서 앱이 생기기 전에 여기서 닫았다.
  *
  * 각 파일은 하나의 트랜잭션으로 적용된다 — 중간에 실패하면 그 파일의 변경이
  * 통째로 롤백되므로 반쯤 적용된 스키마가 남지 않는다. 적용 기록(`INSERT INTO
@@ -87,13 +106,13 @@ async function appliedVersions(db: MigratableDb): Promise<Set<number>> {
  *
  * @returns **이번에 적용한** 것만. 이미 적용돼 있던 것은 포함하지 않는다.
  */
-export async function migrate(
+export async function applyMigrations(
   db: MigratableDb,
-  dir: string = MIGRATIONS_DIR,
+  migrations: readonly Migration[],
 ): Promise<Migration[]> {
   const done = await appliedVersions(db)
   const applied: Migration[] = []
-  for (const m of loadMigrations(dir)) {
+  for (const m of migrations) {
     if (done.has(m.version)) continue
     await db.transaction(async () => {
       await db.exec(m.sql)

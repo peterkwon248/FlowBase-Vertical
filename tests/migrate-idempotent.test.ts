@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { openNodeDriver } from "../src/core/store/driver-node.js"
-import { migrate, loadMigrations } from "../src/core/store/migrate.js"
+import { migrate, loadMigrations } from "../src/core/store/migrate-node.js"
 
 const dirs: string[] = []
 function tempDbPath(): string {

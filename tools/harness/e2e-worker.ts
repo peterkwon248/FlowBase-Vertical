@@ -18,7 +18,7 @@ import {
   type MappingProfile,
 } from "../../src/core/import/mapping/index.js"
 import { openNodeDriver } from "../../src/core/store/driver-node.js"
-import { migrate } from "../../src/core/store/migrate.js"
+import { migrate } from "../../src/core/store/migrate-node.js"
 import { Repository, type FactTable } from "../../src/core/store/repository.js"
 
 interface Input {
