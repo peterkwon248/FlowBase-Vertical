@@ -21,7 +21,7 @@
  */
 
 import { describe, expect, it } from "vitest"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { createElement } from "react"
 import { renderToString } from "react-dom/server"
 import { openNodeDriver } from "../src/core/store/driver-node.js"
@@ -189,6 +189,32 @@ describe("§17-3 금지어가 화면에 없다 (LOCK 10)", () => {
     const src = readFileSync("src/app/generated/Template.tsx", "utf8")
     for (const [word, why] of BANNED) {
       expect(src.includes(word), `Template.tsx에 "${word}"가 있다 — ${why}`).toBe(false)
+    }
+  })
+
+  /**
+   * ★ 배선 모듈도 카피를 만든다 — 여기가 비어 있었다 ★
+   *
+   * 금지어 검사가 `Template.tsx`만 보고 있었는데, 화면 문구의 **절반은 배선 모듈이
+   * 만든다**(`linkEmptyMsg` · `orderScope` · `foldLabel` …). 앞으로 지을 가져오기
+   * 위저드는 판정·오류·제외 사유를 전부 런타임 문자열로 만들 것이라 이 구멍이 곧
+   * 커진다.
+   *
+   * **주석은 뺀다.** 이 저장소가 이미 두 번 배운 것이다 (`node:` 가드 · core 마켓명
+   * 가드) — 금지어를 «왜 금지인지» 설명하는 주석까지 잡으면 가드가 시끄러워지고,
+   * 시끄러운 가드는 곧 꺼진다. 코드와 문자열만 본다.
+   */
+  it("배선 모듈이 만드는 문구에도 금지어가 없다", () => {
+    const files = readdirSync("src/app").filter((f) => f.endsWith(".ts") || f.endsWith(".tsx"))
+    expect(files.length, "배선 모듈을 하나도 못 찾았다 — 경로가 바뀌었나").toBeGreaterThan(5)
+
+    for (const f of files) {
+      const code = readFileSync(`src/app/${f}`, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/.*$/gm, "$1")
+      for (const [word, why] of BANNED) {
+        expect(code.includes(word), `src/app/${f}의 코드에 "${word}"가 있다 — ${why}`).toBe(false)
+      }
     }
   })
 

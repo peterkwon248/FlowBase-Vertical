@@ -2421,7 +2421,25 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
             {" "}
             {vals.v.diag && (
                 <section data-screen-label="진단" style={{ padding: "14px", maxWidth: "1180px" }}>
-                  {vals.firstRun && (
+                  {vals.diagUnbuilt && (
+                      <div data-s21="unbuilt-diag" style={{ padding: "56px 24px", display: "grid", justifyItems: "center", gap: "13px" }}>
+                        <span style={{ width: "40px", height: "40px", borderRadius: "var(--r-md)", background: "var(--bg-elevated-2)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--fg-4)" }}>
+                          <Lic name="target" size={19} />
+                        </span>
+                        {" "}
+                        <span style={{ display: "grid", gap: "5px", justifyItems: "center", textAlign: "center", maxWidth: "380px" }}>
+                          <span style={{ font: "var(--fw-semi) 14px var(--font-sans)", color: "var(--fg)" }}>
+                            진단은 원가 입력 후에 의미가 생깁니다
+                          </span>
+                          {" "}
+                          <span style={{ font: "var(--fw-regular) 12px/1.7 var(--font-sans)", color: "var(--fg-4)", textWrap: "pretty" }}>
+                            지금은 모든 상품이 원가 없음 상태입니다. 원가가 들어오면 어떤 상품을 밀고 어떤 상품을 손봐야 하는지 여기서 알려드립니다.
+                          </span>
+                        </span>
+                      </div>
+                  )}
+                  {" "}
+                  {vals.diagOnboard && (
                       <div style={{ padding: "56px 24px", display: "grid", justifyItems: "center", gap: "13px" }}>
                         <span style={{ width: "40px", height: "40px", borderRadius: "var(--r-md)", background: "var(--bg-elevated-2)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--fg-4)" }}>
                           <Lic name="target" size={19} />
@@ -2443,7 +2461,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                       </div>
                   )}
                   {" "}
-                  {vals.notFirstRun && (
+                  {vals.diagReady && (
                     <>
                       <div style={{ display: "flex", gap: "2px", marginBottom: "14px" }}>
                         {vals.diagTabs.map((t: any, $index: number) => (

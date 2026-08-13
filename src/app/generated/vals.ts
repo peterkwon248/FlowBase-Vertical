@@ -153,8 +153,11 @@ export interface TemplateVals {
     title: string
   }
   diagBadge: string
+  diagOnboard: boolean
+  diagReady: boolean
   diagTabs: readonly any[]
   diagToTable: (...args: any[]) => void
+  diagUnbuilt: boolean
   diffLabel: string
   diffOpen: boolean
   diffRows: readonly any[]
@@ -660,8 +663,11 @@ export function emptyVals(): TemplateVals {
       title: "",
     },
     diagBadge: "",
+    diagOnboard: false,
+    diagReady: false,
     diagTabs: [],
     diagToTable: () => {},
+    diagUnbuilt: true,
     diffLabel: "",
     diffOpen: false,
     diffRows: [],

@@ -12,7 +12,7 @@
  *   npx tsx tools/convert/convert.ts --stdout # 파일로 쓰지 않고 미리보기
  */
 
-import { mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 import { readTemplate } from "./source.js"
 import { parseTemplate } from "./parse.js"
@@ -202,9 +202,50 @@ export function emptyVals(): TemplateVals {
 }
 `
 
+/**
+ * ★ 이 변환기는 **한 번 쓰는 도구**다 — 이미 §21 패치가 올라간 출력을 덮으면 안 된다 ★
+ *
+ * 파이프라인은 3단으로 고정돼 있다: ① 변환(기계) → ② 보존 게이트 → ③ §21 패치(손).
+ * ③이 끝난 뒤 ①을 다시 돌리면 **손으로 얹은 것이 전부 사라진다** — 도넛→막대,
+ * 스파크라인 제거, §21-6 상품 연결, §21-7 미구현 안내, 결함 46·47·48·49·50 수정까지
+ * 통째로. 그리고 `vals.ts`는 «자동 생성 — 손으로 고치지 않는다»라고 적혀 있는데
+ * 새 홀은 반드시 그 파일을 고치게 만들므로, 그 주석을 곧이곧대로 믿은 사람이
+ * 「재생성하면 되겠지」 하고 이 명령을 돌리는 것이 가장 그럴듯한 사고 경로다.
+ *
+ * 되돌릴 수는 있다(git). 그러나 **되돌릴 수 있다는 것과 되돌린다는 것은 다르다** —
+ * 덮어쓴 사람이 무엇을 잃었는지 모르면 그대로 커밋된다. 그래서 세운다.
+ *
+ * 강제로 재생성해야 할 때(목업 자체가 바뀐 경우)는 `--force`다. 그때는 §21 패치를
+ * 손으로 다시 얹어야 하고, `tests/convert-gate.test.ts`의 선언 목록이 그 작업 지시서가 된다.
+ */
+const S21_MARK = "data-s21"
+
+function refuseIfPatched(): void {
+  if (process.argv.includes("--force")) return
+  let existing: string
+  try {
+    existing = readFileSync(OUT, "utf8")
+  } catch {
+    return // 첫 변환 — 덮어쓸 것이 없다
+  }
+  const marks = existing.split(S21_MARK).length - 1
+  if (marks === 0) return
+  console.error(
+    `\n✖ 덮어쓰기를 거부한다 — ${OUT}에 §21 패치가 ${marks}곳 올라가 있다.\n` +
+      `\n  이 변환기는 목업 → 출력 **1회 변환**용이고, 그 뒤의 §21 패치는 손으로 얹은 것이다.\n` +
+      `  지금 덮으면 그 패치가 전부 사라진다 (도넛→막대 · 스파크라인 제거 · §21-6 · §21-7 ·\n` +
+      `  결함 46~50 수정). vals.ts도 함께 되돌아가 타입이 어긋난다.\n` +
+      `\n  목업이 정말 바뀌어 재생성해야 한다면:  npm run convert -- --force\n` +
+      `  그다음 tests/convert-gate.test.ts의 DEVIATIONS·S21_REGIONS를 작업 지시서 삼아\n` +
+      `  패치를 다시 얹는다.\n`,
+  )
+  process.exit(1)
+}
+
 if (toStdout) {
   console.log(file)
 } else {
+  refuseIfPatched()
   mkdirSync(dirname(OUT), { recursive: true })
   writeFileSync(OUT, file, "utf8")
   writeFileSync(OUT_VALS, valsFile, "utf8")

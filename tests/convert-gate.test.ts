@@ -16,6 +16,7 @@ import { readTemplate } from "../tools/convert/source.js"
 import { parseTemplate } from "../tools/convert/parse.js"
 import { compareIr, irDiffCount, irFromTree, type IrField } from "../tools/convert/ir.js"
 import { irFromTsx } from "../tools/convert/jsx-ir.js"
+import { UNBUILT } from "../src/app/shell.js"
 
 const MOCKUP = "mockup/FlowBase.dc.html"
 const GENERATED = "src/app/generated/Template.tsx"
@@ -121,6 +122,20 @@ const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[
     from: ["k.value", "k.deltaColor"],
     to: ["k.value", "k.hasDelta", "k.deltaColor"],
     why: 'KPI 카드의 «전월 대비» 라벨 줄을 `k.hasDelta`로 감쌌다. 값은 비어 있는데 라벨만 남아 "계산 중"처럼 읽혔다',
+  },
+
+  // ── §21-7 «미구현 화면» 게이트 재지정 ─────────────────────────────────
+  // 안내 블록 자체는 `S21_REGIONS`가 빼지만 **기존 게이트를 갈아끼운 자국**은 남는다.
+  // 미구현 화면에서는 온보딩도 본문도 그리지 않으므로 두 조건이 함께 바뀐다.
+  {
+    field: "holes",
+    from: ["firstRun", "goImport", "notFirstRun", "diagTabs"],
+    to: ["diagUnbuilt", "diagOnboard", "goImport", "diagReady", "diagTabs"],
+    why:
+      "§21-7 — 진단 화면의 온보딩·본문 게이트를 **화면별 상태**로 갈아끼웠다. `firstRun`은 " +
+      "«앱에 데이터가 하나도 없다»인데 배선 안 된 화면의 «만들지 않았다»까지 그 하나로 " +
+      "판정되고 있었다. 앞의 `diagUnbuilt`는 신설 안내 블록을 감싼 조건이다. " +
+      "**배선 시 제거** — 진단이 배선되면 세 홀 모두 사라지고 `firstRun`/`notFirstRun`로 돌아간다",
   },
 
   // ── LOCK 10 «동기화» 전수 (결함 50) ───────────────────────────────────
@@ -328,6 +343,7 @@ function applyDeviations(ir: ReturnType<typeof irFromTree>): ReturnType<typeof i
 const S21_REGIONS = [
   {
     id: "cost-bars",
+    removeWhenWired: null,
     mockupStyle: "display: flex; align-items: center; gap: 14px; position: relative",
     why:
       "§21-4 «매출 구성 도넛 → 가로 막대». 도넛(112px 원 + clip 조각) · 범례 · 호버 " +
@@ -336,6 +352,7 @@ const S21_REGIONS = [
   },
   {
     id: "link-cluster",
+    removeWhenWired: null,
     mockupStyle: null,
     why:
       "§21-6 ① «군집 카드» — 신설. 목업 `linking`은 리스팅-평면이라 11번가 옵션 44개가 " +
@@ -344,13 +361,25 @@ const S21_REGIONS = [
   },
   {
     id: "link-newsku",
+    removeWhenWired: null,
     mockupStyle: null,
     why:
       "§21-6 ② «[새 SKU로 등록]» — 신설. 후보가 없을 때의 기본 액션이고, 이것이 없으면 " +
       "SKU 0개 상태에서 화면이 작동 자체를 못 한다. 일괄형의 선택 칩도 같은 자리에 붙는다",
   },
   {
+    id: "unbuilt-diag",
+    mockupStyle: null,
+    removeWhenWired: "diag",
+    why:
+      "§21-7 «아직 만들지 않은 화면은 그렇게 말한다» — 신설. 목업에는 화면 상태가 " +
+      "firstRun/notFirstRun 둘뿐이었다(시드가 전 화면을 채웠으니 그걸로 족했다). 실제로는 " +
+      "«데이터는 있는데 이 화면을 아직 만들지 않았다»라는 세 번째 상태가 있고, 그때 화면이 " +
+      "침묵하면 사용자는 «없다»가 아니라 «깨졌다»로 읽는다. 2d에서 실제로 그렇게 읽혔다",
+  },
+  {
     id: "link-bulk",
+    removeWhenWired: null,
     mockupStyle: null,
     why:
       "§21-6 ② 일괄형 «선택 N개를 각각 새 SKU로 등록» — 신설. 콜드스타트의 none 19건이 " +
@@ -429,6 +458,29 @@ describe("보존 게이트 — 변환 출력이 목업과 같은가", () => {
       generated.split("data-s21=").length - 1,
       "선언되지 않은 data-s21 표식이 있다 — 그 구간은 아무도 안 보고 있다",
     ).toBe(S21_REGIONS.length)
+  })
+
+  /**
+   * ★ «배선 시 제거» 표기는 장식이 아니다 ★
+   *
+   * §21-7 안내 문구는 **임시물**이다. 화면이 배선되는 날 지워야 하는데, 지우라고
+   * 적어두기만 하면 아무도 안 지운다 — 배선하는 사람은 자기 화면만 보지 이 배열을
+   * 보지 않는다. 그래서 `shell.ts`의 `UNBUILT`에서 그 화면이 빠지는 순간 **이 테스트가
+   * 먼저 깨지게** 한다. 그때가 안내 마크업을 지울 시점이다.
+   *
+   * 부재를 단언한 것(작업 리듬 9)의 사촌이다 — 이쪽은 **임시물의 수명**을 단언한다.
+   */
+  it("«배선 시 제거» 표기가 낡지 않았다 — 배선되면 안내를 지워야 한다", () => {
+    for (const r of S21_REGIONS) {
+      const wired = r.removeWhenWired
+      if (!wired) continue
+      expect(
+        UNBUILT.includes(wired),
+        `${r.id}는 «${wired} 배선 시 제거» 구간인데 shell.ts의 UNBUILT에 «${wired}»가 없다. ` +
+          `그 화면은 이제 배선됐다는 뜻이므로 Template.tsx의 data-s21="${r.id}" 안내 블록과 ` +
+          `이 선언, 그리고 관련 DEVIATIONS를 함께 지워야 한다`,
+      ).toBe(true)
+    }
   })
 
   it("문법이 깨진 출력은 IR을 만들기 전에 세운다", () => {

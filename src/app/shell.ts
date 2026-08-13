@@ -217,5 +217,43 @@ export function shellVals(state: ShellState, actions: ShellActions): TemplateVal
   vals.onboard = ONBOARD
   vals.goImport = actions.goImport
 
+  applyUnbuilt(vals, firstRun)
   return vals
+}
+
+/**
+ * ★ §21-7 — 아직 만들지 않은 화면은 그렇게 말한다 ★
+ *
+ * ─────────────────────────────────────────────────────────────
+ * 목업에는 화면 상태가 **둘뿐**이었다:
+ *
+ * ```
+ * firstRun     앱에 데이터가 하나도 없다   → 온보딩 안내
+ * notFirstRun  데이터가 있다               → 본문
+ * ```
+ *
+ * 시드가 전 화면을 채웠으니 목업에서는 그걸로 충분했다. 실제로는 **세 번째 상태**가
+ * 있다 — *«데이터는 있는데 이 화면을 아직 만들지 않았다»*. 대시보드가 데이터를 받는
+ * 순간 `firstRun`이 전역으로 꺼지고, 배선 안 된 화면은 온보딩 안내마저 잃고 **아무 말도
+ * 하지 않는 백지**가 된다. 실측: 진단 160바이트 · 설정 267 · 가져오기 366.
+ *
+ * 사용자가 2d에서 «가져오기»를 눌렀다가 이 백지를 만났고, 고장으로 읽었다.
+ * 빈 화면이 침묵하면 «없다»가 아니라 «깨졌다»로 읽힌다 (LOCK 6의 화면판).
+ * ─────────────────────────────────────────────────────────────
+ *
+ * ★ 이 함수는 **임시물**이다 ★
+ * 화면이 배선되는 날 그 키를 목록에서 지우고, 목록이 비면 함수째 지운다. 마크업 쪽
+ * 안내 블록도 함께 지운다 — `convert-gate`의 구간 선언에 «배선 시 제거»로 표기해
+ * §21 대장에서 추적한다. 남겨두면 배선이 끝난 화면이 계속 "준비 중"이라고 말한다.
+ */
+export const UNBUILT: readonly NavKey[] = ["diag"]
+
+function applyUnbuilt(vals: TemplateVals, firstRun: boolean): void {
+  const unbuilt = (key: NavKey): boolean => UNBUILT.includes(key)
+
+  // 미구현이면 온보딩도 본문도 그리지 않는다. 셋 중 하나만 뜬다 —
+  // 안내와 빈 껍데기가 함께 뜨면 "준비 중인데 왜 빈 탭바가 있지"가 된다.
+  vals.diagUnbuilt = unbuilt("diag")
+  vals.diagOnboard = firstRun && !vals.diagUnbuilt
+  vals.diagReady = !firstRun && !vals.diagUnbuilt
 }
