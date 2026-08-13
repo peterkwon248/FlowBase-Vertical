@@ -1,0 +1,103 @@
+/**
+ * 화면 하나를 실데이터로 렌더해 **자체 완결 HTML**로 남긴다.
+ *
+ *   npx tsx tools/harness/render-screen.ts [뷰키] [DB경로]
+ *   예: npx tsx tools/harness/render-screen.ts settlement
+ *
+ * ★ 왜 이게 저장소 안에 있나 ★
+ * 화면을 눈으로 확인하는 층은 원래 **네이티브 창**(사람이 앱을 띄워 누르는 것)이
+ * 담당한다. 그런데 클릭이 필요한 화면은 스크립트로 조작하면 창이 최소화되는
+ * 환경 문제가 있어(작업-상태 "막혀 있는 것 3" 참조) 에이전트가 직접 못 본다.
+ *
+ * 그 사이를 메우는 도구다 — **같은 Template · 같은 CSS · 같은 조회**로 렌더하므로
+ * 마크업과 데이터는 확인할 수 있다. 다만 **상호작용은 확인하지 못한다.**
+ * 클릭 동선은 여전히 사람이 실기기에서 본다.
+ *
+ * 출력은 `.tmp/<뷰키>.html`이고 외부 자원을 하나도 안 탄다 — CSS는 `@import`를
+ * 풀어 인라인하고 Pretendard는 data URI로 심는다. 파일 하나만 열면 앱과 같은 화면이다.
+ */
+
+import { readFileSync, writeFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { createElement } from "react"
+import { renderToString } from "react-dom/server"
+import { openNodeDriver } from "../../src/core/store/driver-node.js"
+import { loadPnlSnapshot } from "../../src/core/profit/snapshot.js"
+import { loadSettlementRows } from "../../src/core/settlement/rows.js"
+import { loadOrderRows } from "../../src/core/order/rows.js"
+import { dashboardVals } from "../../src/app/dashboard.js"
+import { settlementVals } from "../../src/app/settlement.js"
+import { orderVals } from "../../src/app/order.js"
+import { Template } from "../../src/app/generated/Template.js"
+import { shellVals, shellStateFor } from "../../src/app/shell.js"
+
+const VIEW = process.argv[2] ?? "dash"
+const DB = process.argv[3] ?? ".tmp/pnl.sqlite"
+const PERIOD = { from: "2026-07-01", to: "2026-07-31" }
+const STYLES = "src/app/styles"
+
+/** `@import url(...)`을 내용으로 바꾼다. npm 패키지 경로는 node_modules에서 찾는다. */
+function inlineCss(file: string, seen = new Set<string>()): string {
+  const abs = resolve(file)
+  if (seen.has(abs)) return ""
+  seen.add(abs)
+  return readFileSync(abs, "utf8").replace(
+    /@import\s+url\(\s*["']([^"']+)["']\s*\)\s*;/g,
+    (_m, href: string) => {
+      const target = href.startsWith(".") ? resolve(dirname(abs), href) : resolve("node_modules", href)
+      try {
+        return inlineCss(target, seen)
+      } catch {
+        return `/* 인라인 실패: ${href} */`
+      }
+    },
+  )
+}
+
+/** woff2를 data URI로. 인터넷 없이 열려야 한다 (로컬퍼스트). */
+function embedFonts(css: string, baseDir: string): string {
+  return css.replace(/url\(\s*["']?([^"')]+\.woff2)["']?\s*\)/g, (_m, p: string) => {
+    try {
+      return `url(data:font/woff2;base64,${readFileSync(resolve(baseDir, p)).toString("base64")})`
+    } catch {
+      return `url("${p}")`
+    }
+  })
+}
+
+const db = openNodeDriver(DB, { pragmas: false })
+const snap = await loadPnlSnapshot(db, "lib-1", PERIOD)
+const settlement = await loadSettlementRows(db, "lib-1", PERIOD)
+const orders = await loadOrderRows(db, "lib-1", PERIOD)
+await db.close()
+
+const noop = (): void => {}
+const vals = shellVals(shellStateFor(false), {
+  go: noop, toggleNav: noop, closeNav: noop, openNav: noop, goImport: noop, toggleTheme: noop,
+} as never)
+dashboardVals(vals, snap, PERIOD)
+settlementVals(vals, settlement, PERIOD)
+orderVals(vals, orders, PERIOD)
+vals.firstRun = false
+vals.notFirstRun = true
+;(vals.v as Record<string, boolean>)[VIEW] = true
+
+const body = renderToString(createElement(Template, { vals }))
+const css = embedFonts(
+  `${inlineCss(`${STYLES}/vector-base.css`)}\n${inlineCss(`${STYLES}/flowbase-theme.css`)}`,
+  "node_modules/pretendard/dist/web/variable",
+)
+
+const out = `.tmp/${VIEW}.html`
+writeFileSync(
+  out,
+  `<!doctype html>
+<html lang="ko" data-theme="dark">
+  <head><meta charset="UTF-8" /><title>FlowBase — ${VIEW}</title>
+  <style>${css}</style><style>html,body{margin:0;height:100%}</style></head>
+  <body><div id="root">${body}</div></body>
+</html>
+`,
+  "utf8",
+)
+console.log(`→ ${out}`)
