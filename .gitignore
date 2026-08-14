@@ -26,7 +26,10 @@ yarn-error.log*
 pnpm-debug.log*
 
 # 테스트 / 캐시
-coverage/
+# ★ 반드시 루트 기준이어야 한다 ★ `coverage/`라고만 쓰면 **모든 깊이**에 적용되어
+# `src/core/coverage/`(§22 판정 모듈)가 통째로 무시된다. 실제로 그렇게 돼 있었고,
+# 다른 기기에서 clone하면 import가 깨졌을 자리다. 도구 산출물은 루트에만 생긴다.
+/coverage/
 .cache/
 *.tsbuildinfo
 
