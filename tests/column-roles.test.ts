@@ -55,11 +55,22 @@ describe("columnRoles — 프로파일이 실제로 읽는 컬럼", () => {
     expect(c.required).toBe(true)
   })
 
-  it("ESM이 실제로 쓰는 컬럼은 3개가 아니라 6개다", () => {
+  /**
+   * ★ 6 → 7 (품목 적재, 2026-08-14) ★
+   * `수량`이 들어왔다. 이 컬럼은 **저장되는데 주문 표에는 안 보인다** —
+   * `fact_order_item`으로 가기 때문이다. 그래서 역할도 `field`가 아니라
+   * `item-field`이고, 확인 화면이 «품목 · quantity»라고 말한다. 결함 53이
+   * «쓰는 컬럼을 안 쓴다고 말하는» 사고였으므로 여기가 그 재발 지점이다.
+   */
+  it("ESM이 실제로 쓰는 컬럼은 3개가 아니라 7개다", () => {
     const u = columnRoles(byKey("esm"))
     expect([...u.byColumn.keys()].sort()).toEqual(
-      ["결제일", "구매금액", "상품명", "상품번호", "주문번호", "진행상태"].sort(),
+      ["결제일", "구매금액", "상품명", "상품번호", "수량", "주문번호", "진행상태"].sort(),
     )
+    expect(u.byColumn.get("수량")!.roles, "품목으로 간다는 사실이 역할에 남아야 한다").toEqual(
+      ["item-field"],
+    )
+    expect(u.byColumn.get("수량")!.target).toBe("quantity")
   })
 
   it("쿠팡은 content 전략 — 선언된 키 컬럼이 없고 행 전체가 식별에 참여한다", () => {
@@ -145,7 +156,15 @@ run("확인 화면 — ESM 실파일", () => {
     // 진짜로 안 쓰는 것은 여전히 그렇게 말한다 — 반대 방향도 지킨다
     expect(row("구매자명").field).toBe("저장 안 함")
     expect(row("구매자명").why).toBe("이 프로파일이 쓰지 않는 컬럼")
-    expect(row("수량").field, "fact_order_item이 비어 있다 — 진짜 미매핑이다").toBe("저장 안 함")
+
+    /**
+     * ★ 단언이 뒤집힌 자리 (품목 적재, 2026-08-14) ★
+     * 전에는 «fact_order_item이 비어 있다 — 진짜 미매핑이다»였다. 이제 수량은
+     * **저장된다.** 다만 주문 표에는 안 보이므로 그냥 «quantity»라고만 하면
+     * 사용자가 주문 화면을 뒤지게 된다 — 어느 표에 사는지까지 말한다.
+     */
+    expect(row("수량").field).toBe("품목 · quantity")
+    expect(row("수량").why).toContain("품목으로 저장된다")
   })
 
   it("«쓰는 컬럼» 카운터가 표와 같은 집합을 센다 — 화면이 자기모순을 말하지 않는다", async () => {

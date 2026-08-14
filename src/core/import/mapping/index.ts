@@ -38,7 +38,7 @@ export interface FieldMapping {
 }
 
 export type { ListingRule } from "./listing.js"
-import type { ListingRule } from "./listing.js"
+import { KEY_SEP, type ListingRule } from "./listing.js"
 
 export interface MappingProfile {
   readonly id: string
@@ -114,6 +114,35 @@ export interface MappingProfile {
    */
   readonly listing?: ListingRule
   /**
+   * **품목 적재 (2단계).** 주문 헤더와 함께 `fact_order_item`을 한 줄 더 낸다.
+   *
+   * ─────────────────────────────────────────────────────────────
+   * ★ 왜 «두 번째 테이블»이 아니라 별도 선언인가 ★
+   * `rowRouting`은 행을 **어느 하나의** 테이블로 보낸다(ESM의 주문 vs 클레임).
+   * 품목은 그것과 다르다 — 같은 행이 주문 헤더 **이면서** 품목이다. 라우팅으로
+   * 흉내 내면 한 행이 두 버킷에 들어가야 하는데, 그러면 «이 행은 어디로 갔나»의
+   * 답이 하나가 아니게 되고 라우팅의 뜻이 무너진다.
+   *
+   * ★ 식별자를 새로 선언하지 않는다 ★
+   * 품목의 식별자는 **리스팅 키 그대로**다(`listing.keyColumns`). 「이 리스팅이
+   * 이 주문에서 팔린 것」이 곧 품목이므로 다른 키를 둘 이유가 없고, 두면 두 선언이
+   * 언젠가 갈린다. 그래서 `orderItem`은 `listing` 없이는 성립하지 않는다.
+   *
+   * 품목의 `source_key` = **부모 주문의 source_key + 리스팅 키** (`KEY_SEP`).
+   * 부모가 이미 유일하므로 그 안에서 리스팅만 구분되면 되고, 재가져오기에서
+   * 두 값 모두 파일이 같으면 같으므로 **UPSERT 정체성이 보존된다** (ADR-006).
+   * ─────────────────────────────────────────────────────────────
+   *
+   * 클레임으로 라우팅된 행은 **품목을 만들지 않는다.** 매출에서 빠진 판매의
+   * 원가도 빠져야 하기 때문이다 — 취소된 주문의 매입원가를 계상하면 손실이
+   * 두 번 잡힌다.
+   */
+  readonly orderItem?: {
+    /** `quantity`·`gross_amount`·`discount_amount`. `target`은 컬럼명 그대로다. */
+    readonly fieldMappings: readonly FieldMapping[]
+    readonly note?: string
+  }
+  /**
    * 한 파일 안에서 행을 **여러 테이블로 나눠 보낸다.**
    *
    * ★ 왜 프로파일을 둘로 쪼개지 않는가 ★
@@ -175,6 +204,14 @@ export type ColumnRole =
   | "listing-title"
   /** `rowRouting.column` — 이 행이 어느 테이블로 갈지 정한다. */
   | "routing"
+  /**
+   * `orderItem.fieldMappings` — 품목(`fact_order_item`)으로 저장된다.
+   *
+   * `field`와 갈라 두는 이유는 결함 53과 같다: 수량 컬럼은 **저장되는데** 주문
+   * 헤더에는 안 보인다. 같은 `field`로 뭉치면 화면이 «주문에 저장된다»고 말하게
+   * 되고, 그건 어느 표를 봐도 그 값이 없는 이유를 설명하지 못한다.
+   */
+  | "item-field"
 
 export interface ColumnUse {
   readonly roles: readonly ColumnRole[]
@@ -227,6 +264,9 @@ export function columnRoles(profile: MappingProfile): ProfileColumnUse {
     for (const m of r.fieldMappings) {
       if (m.source) add(m.source, "field", asField(m))
     }
+  }
+  for (const m of profile.orderItem?.fieldMappings ?? []) {
+    if (m.source) add(m.source, "item-field", asField(m))
   }
   for (const c of profile.sourceKey.columns ?? []) add(c, "source-key")
   for (const c of profile.listing?.keyColumns ?? []) add(c, "listing-key")
@@ -348,6 +388,24 @@ export interface MappingError {
   readonly fatal: boolean
 }
 
+/**
+ * 품목 한 줄 — **`byTable`에 들어가지 않는다.**
+ *
+ * 두 값(`orderSourceKey`·`listingKey`)이 Canonical 컬럼이 아니라 «적재할 때 풀어야
+ * 할 참조»라서다. `fact_order_item.order_id`는 부모 행의 **id**를 요구하는데 그 id는
+ * 적재 시점에야 정해지고(재가져오기면 기존 id가 유지된다), `listing_id`는 리스팅이
+ * 먼저 들어가 있어야 FK가 선다. 그 해소를 `byTable`에 섞으면 `loadChunk`가
+ * 이 두 값을 컬럼으로 알고 INSERT를 만든다.
+ */
+export interface MappedItem {
+  readonly sourceKey: string
+  /** 부모 주문의 `source_key`. 적재 직전에 `fact_order.id`로 바뀐다. */
+  readonly orderSourceKey: string
+  /** `marketplace_listing.listing_key`. `listing_id`가 여기서 나온다. */
+  readonly listingKey: string
+  readonly fields: Readonly<Record<string, RawCell>>
+}
+
 export interface MappingResult {
   /** 기본 경로(`profile.targetTable`)의 행. 라우팅이 없으면 전부 여기 있다. */
   readonly rows: readonly MappedRow[]
@@ -356,6 +414,11 @@ export interface MappingResult {
    * 다른 경로로 간 행을 통째로 놓친다.
    */
   readonly byTable: ReadonlyMap<string, readonly MappedRow[]>
+  /**
+   * 품목 (`profile.orderItem`이 있을 때만). **클레임으로 간 행은 여기 없다** —
+   * 매출에서 빠진 판매의 원가도 빠져야 한다.
+   */
+  readonly items: readonly MappedItem[]
   readonly errors: readonly MappingError[]
   /** 매핑하지 않고 버린 컬럼 수. 조용히 빠뜨리지 않기 위해 센다 (헌장 A-5). */
   readonly unmappedColumnCount: number
@@ -369,7 +432,7 @@ export interface MappingResult {
  * 같은 파일의 재가져오기는 멱등이다. **행 순서에 기대지 않는다.**
  */
 function contentKey(values: readonly RawCell[], seen: Map<number, number>): string {
-  const canonical = values.map((v) => (v === null ? "~" : `${typeof v}:${v}`)).join("")
+  const canonical = values.map((v) => (v === null ? "~" : `${typeof v}:${v}`)).join(KEY_SEP)
   // 앞 6바이트(48비트)를 정수로. 안전 정수 범위 안이라 부동소수 오차가 없다.
   //
   // `node:crypto`가 아니라 순수 JS 구현을 쓴다 — 실제 앱은 웹뷰에서 돌고
@@ -476,7 +539,34 @@ export function mapRows(
 
   const out: MappedRow[] = bucket(profile.targetTable)
   const errors: MappingError[] = []
+  const items: MappedItem[] = []
   const seen = (ctx.keyState ?? newKeyState()).seen
+
+  /**
+   * 품목의 리스팅 키를 만드는 컬럼들 — `collectListings`와 **같은 규칙**이어야 한다.
+   * 여기서 따로 만들면 두 키가 어긋나 `listing_id`가 존재하지 않는 리스팅을 가리킨다.
+   */
+  const itemRule = profile.orderItem
+  const listingKeyCols =
+    itemRule === undefined
+      ? []
+      : (profile.listing?.keyColumns ?? []).map((c) => index.get(c.trim()))
+  // 선언만 있고 리스팅 규칙이 없으면 품목을 만들 수 없다 — 식별자가 없기 때문이다.
+  // 조용히 안 만들지 않고 **한 번** 알린다 (LOCK 6).
+  const itemsPossible =
+    itemRule !== undefined &&
+    listingKeyCols.length > 0 &&
+    listingKeyCols.every((c) => c !== undefined)
+  if (itemRule !== undefined && !itemsPossible && chunk.rowCount > 0) {
+    errors.push({
+      rowIndex: chunk.rowIndices[0] ?? startRowIndex,
+      field: "fact_order_item",
+      reason:
+        "품목을 만들 수 없다 — 리스팅 키 컬럼이 이 파일에 없다" +
+        `(선언: ${(profile.listing?.keyColumns ?? []).join("·") || "없음"})`,
+      fatal: false,
+    })
+  }
 
   // `content` 전략이 쓰는 행 값 버퍼. **청크당 하나**를 돌려 쓴다 — 행마다 뜨면
   // 평탄화로 없앤 할당이 그대로 되살아난다.
@@ -578,13 +668,52 @@ export function mapRows(
                 (c) => ctx.fileNameCaptures[c] ?? "",
               ),
             )
-            .join("")
+            .join(KEY_SEP)
         : (rowValuesInto(chunk, i, scratch), contentKey(scratch, seen))
 
     bucket(targetTable).push({ sourceKey, fields })
+
+    /**
+     * ★ 품목은 **기본 경로로 간 행에서만** 나온다 ★
+     *
+     * ESM은 취소·반품·환불이 같은 파일에 섞여 있고 그 행들은 `fact_claim`으로
+     * 간다. 그 행에서도 품목을 만들면 **팔리지 않은 물건의 매입원가가 계상되고**,
+     * 매출에는 없는 원가가 손익에 들어가 손실이 두 번 잡힌다.
+     */
+    if (itemsPossible && targetTable === profile.targetTable) {
+      const parts = listingKeyCols.map((c) =>
+        c === undefined || c >= chunk.width ? "" : String(chunk.values[base + c] ?? "").trim(),
+      )
+      // 키가 반쪽이면 리스팅도 안 만들어졌다 (`collectListings`가 같은 조건으로
+      // 거른다). 존재하지 않는 리스팅을 가리키는 품목을 만들지 않는다.
+      if (!parts.some((p) => p === "")) {
+        const listingKey = parts.join(KEY_SEP)
+        const itemFields: Record<string, RawCell> = {}
+        for (const m of itemRule!.fieldMappings) {
+          let value: RawCell = null
+          if (m.derive?.from === "constant") value = m.derive.value
+          else if (m.source !== undefined) {
+            const col = index.get(m.source)
+            if (col !== undefined && col < chunk.width) {
+              value = coerce(chunk.values[base + col] ?? null, chunk.raws[base + col] ?? null, m.kind)
+            }
+          }
+          if (value === null && m.default !== undefined) value = m.default
+          itemFields[m.target] = value
+        }
+        items.push({
+          // 부모 키 + 리스팅 키. 부모가 이미 유일하므로 그 안에서 리스팅만
+          // 구분되면 되고, 두 값 모두 파일이 같으면 같다 → 재가져오기 멱등.
+          sourceKey: `${sourceKey}${KEY_SEP}${listingKey}`,
+          orderSourceKey: sourceKey,
+          listingKey,
+          fields: itemFields,
+        })
+      }
+    }
   }
 
-  return { rows: out, errors, unmappedColumnCount, byTable }
+  return { rows: out, errors, items, unmappedColumnCount, byTable }
 }
 
 /**

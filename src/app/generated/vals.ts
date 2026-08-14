@@ -123,6 +123,19 @@ export interface TemplateVals {
   costChanges: string
   costDonut: string
   costDraft: string
+  /**
+   * §21 신설 (`data-s21="cost-gauge"`) — 원가 입력 진척. **분모는 SKU 수**다.
+   * `note`는 «게이지가 꽉 차도 손익은 아직 안 움직인다»를 말하는 자리이고,
+   * 품목 적재가 생기면 빈 문자열이 되어 스스로 사라진다.
+   */
+  costGauge: {
+    color: string
+    costed: number
+    note: string
+    pctWidth: string
+    text: string
+    total: number
+  }
   costMissColor: string
   costMissing: string
   costMix: readonly any[]
@@ -656,6 +669,7 @@ export function emptyVals(): TemplateVals {
     costChanges: "",
     costDonut: "",
     costDraft: "",
+    costGauge: { color: "", costed: 0, note: "", pctWidth: "0%", text: "", total: 0 },
     costMissColor: "",
     costMissing: "",
     costMix: [],

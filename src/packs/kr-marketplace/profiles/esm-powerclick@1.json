@@ -1,0 +1,95 @@
+{
+  "$schema": "flowbase/mapping-profile@1",
+  "id": "esm/ad/placement-daily",
+  "version": "1",
+  "packId": "kr-marketplace",
+  "marketplaceKey": "esm",
+  "docType": "ad",
+  "grain": "placement-daily",
+  "targetTable": "fact_ad_spend",
+  "label": "ESM 파워클릭 (일자별)",
+  "displayName": "ESM (G마켓·옥션)",
+
+  "_grainNote": "행은 «날짜 × 영역»이다. 실측(2026-07 파일 #11, 31행): 날짜 31종 유일 · 영역명은 «그 외 영역» 한 종. 31행 = 7월의 31일이라 날짜만으로도 유일하지만, 영역명 컬럼이 존재한다는 것은 **영역이 갈리는 달이 있다**는 뜻이다. 날짜 단독을 키로 쓰면 그 달에 영역 둘이 UPSERT로 합쳐져 광고비가 사라진다 — ESM 주문 프로파일이 «주문번호 단독이 유일해도 상품번호를 더한» 것과 같은 판단이다 (ADR-006 «서로 다른 행이 합쳐지지 않는다»).",
+
+  "_originNote": "★ 이 파일이 광고비의 원본이다 ★ 대행사 파워클릭 보고서(픽스처 #4 · 18시트)는 같은 광고비를 주차·상품·키워드로 다시 묶은 **요약본**이고, 이 파일이 마켓이 주는 가장 가는 grain이다. §22-5-a에 따라 «건별 원본이 존재하는 집계»는 원본이 아니므로 #4에는 프로파일을 만들지 않는다 — 넣으면 같은 광고비가 두 번 쌓인다. 처분 기록은 docs/§22-커버리지-부재의-일급-취급.md 5-a.",
+
+  "recognitionRules": {
+    "containerFormats": ["xlsx"],
+    "requiredHeaders": ["날짜", "노출수", "클릭수", "영역명", "총비용", "구매수", "구매금액"],
+    "headerMatch": "all",
+    "fileNamePattern": "^ESM_파워클릭_.+_report_daily_(?<from>\\d{8})(?<to>\\d{8})",
+    "fileNameExample": "ESM_파워클릭_murraymall_report_daily_2026070120260731.xlsx",
+    "minConfidence": 0.8,
+
+    "_collisionNote": "★ 11번가 기간별보고서(픽스처 #1·#2)와 헤더가 겹친다 ★ 그쪽도 «날짜·노출수·클릭수·클릭률·총비용»을 갖는다. 가르는 것은 셋이다 — ① containerFormats가 xlsx라 CSV인 #1·#2는 애초에 후보에 안 든다 ② «영역명»은 이 양식에만 있다 ③ 전환 컬럼 이름이 다르다(이쪽 «구매수·구매금액» / 11번가 «총 전환수·총 전환 금액»). 셋 중 하나만 믿지 않고 필수 헤더에 ②③을 함께 넣는다 — 언젠가 11번가 보고서가 xlsx로 나오는 날 ①이 사라지기 때문이다. 대행사 보고서(#4)의 데이터 시트들도 «노출수·클릭수·총비용»을 갖지만 날짜·영역명·구매금액이 없어 걸리지 않는다."
+  },
+
+  "extractionRules": {
+    "sheetSelector": { "kind": "firstData" },
+    "headerRowHint": 1,
+    "detectUnlabeledAggregates": true
+  },
+
+  "sourceKey": {
+    "strategy": "natural",
+    "columns": ["날짜", "영역명"],
+    "note": "★ 파일명 캡처를 키에 넣지 않는다 ★ 쿠팡 제트와 갈리는 자리다. 제트는 기간이 파일명에만 있어 8월 파일이 7월 행을 덮었지만, 이 양식은 **행마다 날짜가 있다**(2026-07-01 …). 그래서 fileNameCaptures가 필요 없고, 따라서 «파일명을 바꾸면 키가 깨진다»는 사고 벡터도 이 프로파일에는 없다 (ADR-006 증축의 가드 ①이 적용되지 않는다). 파일명 패턴은 판정 신뢰도에만 쓴다."
+  },
+
+  "fieldMappings": [
+    {
+      "target": "spent_on",
+      "source": "날짜",
+      "kind": "date",
+      "required": true,
+      "note": "행에 날짜가 있다 — 쿠팡 광고 보고서가 파일명의 기간 시작일을 쓴 것과 정반대다. 그래서 이 채널의 광고비는 일별 그래프에 그대로 나타난다."
+    },
+    {
+      "target": "campaign_key",
+      "source": "영역명",
+      "kind": "identifier",
+      "required": true,
+      "note": "★ 이 양식에는 캠페인이 없다 ★ 12열을 전수 실측했고 캠페인 ID·캠페인명에 해당하는 컬럼이 없다. 이 파일이 주는 유일한 묶음 차원은 «영역»(광고가 노출된 자리)이므로 그것을 campaign_key로 쓴다. 상수(«파워클릭») 하나로 뭉개면 영역이 갈리는 달에 구분이 사라지고, 비워두면 스키마가 NOT NULL이라 적재가 막힌다. 실측값은 «그 외 영역» 한 종이다. 알려진 취약점: 마켓이 영역 이름의 표기를 바꾸면(«그 외 영역» → «기타 영역») 키가 갈려 캠페인이 둘로 보인다 — 자연키의 일반적 위험이고, 광고비 **합계**는 어긋나지 않는다."
+    },
+    {
+      "target": "campaign_name",
+      "source": "영역명",
+      "kind": "text",
+      "note": "키와 같은 값이다. 코드가 아니라 이미 사람이 읽는 말이라 따로 옮길 이름이 없다 — 쿠팡이 «캠페인 ID»와 «캠페인명»을 둘 다 주는 것과 다른 자리다."
+    },
+    { "target": "impressions", "source": "노출수", "kind": "number", "default": 0 },
+    { "target": "clicks", "source": "클릭수", "kind": "number", "default": 0 },
+    {
+      "target": "spend_amount",
+      "source": "총비용",
+      "kind": "number",
+      "default": 0,
+      "note": "실측 합계 533,291원(31행 · 노출 236,612 · 클릭 843). «평균클릭비용»은 총비용÷클릭수의 파생값이라 쓰지 않는다."
+    },
+    { "target": "conversions", "source": "구매수", "kind": "number", "default": 0 },
+    {
+      "target": "conversion_amount",
+      "source": "구매금액",
+      "kind": "number",
+      "note": "실측 합계 1,909,000원(31행). default를 두지 않는다 — 이 양식은 전환이 없는 날 0을 **명시**하므로 0이 실제 값이다. 값이 아예 없는 날이 온다면 그건 «0원 팔았다»가 아니라 «모른다»이고, 스키마가 그 둘을 NULL로 가른다 (001의 «NEW면 NULL. 0이 아니다»)."
+    },
+    {
+      "target": "campaign_type",
+      "kind": "enum",
+      "derive": { "from": "constant", "value": "GROWTH" },
+      "note": "핸드오프 §6-9. 이 리포트는 전환매출(구매금액)을 담고 있으므로 GROWTH다 — 쿠팡 광고 보고서와 같은 판정이고, NEW에 ROAS를 계산하지 않는 LOCK이 여기서도 지켜진다."
+    }
+  ],
+
+  "validationRules": [
+    { "kind": "required", "fields": ["campaign_key", "spent_on"] },
+    { "kind": "nonNegative", "fields": ["impressions", "clicks", "spend_amount", "conversions"] },
+    { "kind": "parseRate", "min": 0.99 }
+  ],
+
+  "unmappedColumns": {
+    "policy": "keep-count",
+    "note": "12열 중 7개를 매핑했다. 안 쓰는 5개는 **전부 파생 비율**이다 — 클릭률(클릭÷노출) · 평균클릭비용(총비용÷클릭) · 전환율(구매수÷클릭) · 광고수익률(구매금액÷총비용) · 평균노출순위. 앞의 넷은 우리가 원자값에서 다시 계산할 수 있으므로 저장하면 같은 사실이 두 벌이 되고, 둘이 어긋나는 날 어느 쪽이 참인지 알 수 없다. 평균노출순위는 실측 31행 전부 «-»라 값 자체가 없다. 리스팅은 만들지 않는다 — 상품 식별자가 없는 문서다(쿠팡 광고 보고서와 같다)."
+  }
+}

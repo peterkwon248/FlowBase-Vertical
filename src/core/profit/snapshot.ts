@@ -19,12 +19,62 @@
 
 import type { Driver } from "../store/driver.js"
 import { Repository } from "../store/repository.js"
+import { costAtSql } from "../cost/index.js"
 import { computePnl, prorateFixed, type Period, type Pnl } from "./index.js"
 
-/** 사람이 넣는 기준 데이터. 아직 화면이 없으므로 기본은 0이다. */
+/**
+ * 품목 행의 «그 판매일에 유효한 매입원가» — 규칙은 `costAtSql`이 갖고 있다.
+ *
+ * `'COGS'`를 리터럴로 넣는 것은 이 자리가 손익 3층의 «매입원가»이기 때문이다.
+ * 포장비·물류비는 상품 층의 «운영비»라 다른 자리에서 더해진다(오늘은 `base.ops`).
+ */
+const COST = costAtSql({
+  libraryId: "oi.library_id",
+  skuId: "ml.sku_id",
+  kind: "'COGS'",
+  on: "o.ordered_at",
+})
+
+/**
+ * ★ SKU는 **품목이 아니라 리스팅**이 안다 ★
+ *
+ * `fact_order_item.sku_id`는 비워 둔다. 적재 시점에 박아 넣으면 그 값은 **그때의
+ * 연결 상태를 찍은 사진**이 되고, 사용자가 나중에 리스팅을 SKU에 연결해도 이미
+ * 들어온 품목은 영원히 NULL로 남는다 — 원가를 넣어도 손익이 안 움직이는 두 번째
+ * 함정이 될 자리다.
+ *
+ * 대신 `listing_id`(자연키에서 나오는 안정된 id)만 박고 SKU는 **조회 때 이어붙인다.**
+ * 그러면 연결하는 순간 과거 판매의 원가가 소급해서 붙고, 잘못 연결한 것을 고치면
+ * 그 정정도 소급된다. 연결은 «기준 데이터»이고 기준 데이터의 정정이 이력을
+ * 바로잡는 것은 정상 동작이다.
+ */
+const ITEM_JOIN =
+  `FROM active_order_item oi
+     JOIN active_order o ON o.id = oi.order_id
+     LEFT JOIN marketplace_listing ml ON ml.id = oi.listing_id AND ml.link_state = 'linked'`
+
+/**
+ * ★ 수량 0인 품목은 «원가 미상»의 모집단이 아니다 ★
+ *
+ * 쿠팡 제트는 안 팔린 옵션도 행으로 내보낸다 — 실측 147행 중 103행이 수량 0이다.
+ * 그 행들을 세면 «147품목 중 103건 원가 미상»이 되는데, 그건 거짓 경보다: 0개
+ * 팔린 물건의 원가를 몰라도 손익은 한 푼도 틀리지 않는다.
+ *
+ * 그렇다고 그 행을 **적재에서** 빼지는 않는다 (§22) — «이 옵션은 이 달에 안 팔렸다»는
+ * 사실이고, 사실을 지워 경보를 끄는 것이 이 프로젝트가 가장 경계하는 동작이다.
+ * 지우는 대신 **세는 자리에서 가른다.**
+ */
+const SOLD = "oi.quantity > 0"
+
+/**
+ * 사람이 넣는 기준 데이터 중 **아직 화면이 없는 것.**
+ *
+ * ★ `cogs`가 여기서 빠졌다 (③④, 2026-08-14) ★
+ * 매입원가는 이제 `cost_history`에 있고 이 함수가 **직접 조회한다.** 인자로도 받을 수
+ * 있게 두면 «인자로 온 원가»와 «DB의 원가»가 갈리고, 그때 화면과 CLI가 다른 순이익을
+ * 낸다 — 단일 계산기 원칙이 막으려는 바로 그 모양이다. 두 입구를 두지 않는다.
+ */
 export interface BaseCosts {
-  /** 매입원가 (COGS). */
-  readonly cogs?: number
   /** 운영비 (포장·물류). */
   readonly ops?: number
   /** **월** 고정비. 기간 안분은 `prorateFixed`가 한다 — 8/31 고정이 아니다. */
@@ -96,6 +146,56 @@ export interface PnlSnapshot {
    * 한다. 데이터에서 파생시키면 **8월 파일이 들어오는 날 스스로 살아난다.**
    */
   readonly hasPriorPeriod: boolean
+  /**
+   * **매입원가가 어디까지 계산됐나** (③④).
+   *
+   * ★ 왜 숫자 하나로 끝나지 않는가 ★
+   * `pnl.cogs === 0`에는 뜻이 셋이나 있다 — ① 원가를 안 넣었다 ② 넣었는데 곱할
+   * 품목 데이터가 없다 ③ 정말로 원가가 0원인 상품만 팔렸다. 셋을 한 문장으로 말하면
+   * 반드시 둘은 거짓이 되고, 오늘 화면이 하던 말(*"cost_history가 비어 있다"*)은
+   * 사용자가 원가를 넣는 순간 **거짓말이 된다.** 그래서 근거를 들고 나간다.
+   */
+  readonly cogsBasis: {
+    /**
+     * 기간 안에 **실제로 팔린** 품목 행 수 (`quantity > 0`).
+     *
+     * 0개 팔린 품목을 세지 않는 이유는 그 행의 원가를 몰라도 손익이 한 푼도 틀리지
+     * 않기 때문이다 — 쿠팡 제트는 안 팔린 옵션도 행으로 내보내고(실측 147행 중
+     * 103행이 수량 0) 그것을 세면 게이지가 거짓으로 빨개진다.
+     */
+    readonly items: number
+    /**
+     * 그중 **리스팅이 SKU에 연결되지 않은** 행 수.
+     *
+     * «원가 미입력»과 처방이 완전히 다르다 — 이쪽은 상품 연결 화면에서 연결해야
+     * 하고, 원가를 아무리 넣어도 해소되지 않는다. 뭉뚱그리면 사용자가 엉뚱한
+     * 화면에서 헤맨다.
+     */
+    readonly itemsWithoutLink: number
+    /** 연결은 됐는데 그날 유효한 원가를 **모르는** 행 수. `costAt`이 `null`을 낸 행이다. */
+    readonly itemsWithoutCost: number
+    /** 원가를 모르는 행의 수량 합 — 크기를 말할 수 있게 («N개가 빠졌다»). */
+    readonly qtyWithoutCost: number
+    /**
+     * ★ 기간 집계 행 중 **원가가 근사인** 행 수** (조건 2) ★
+     *
+     * `date_precision='period'`이면서 그 기간 **안에서** 원가가 바뀐 행이다.
+     * `costAt`이 기간 시작일로 단가를 고르므로 기간 후반 판매분이 옛 단가로 잡힌다.
+     * 0이면 근사가 실재하지 않는다는 뜻이고 화면은 아무 말도 하지 않는다.
+     */
+    readonly periodApproxItems: number
+    /**
+     * 라이브러리에 품목 행이 **하나라도** 있는가.
+     *
+     * ★ 오늘 이 값은 거짓이다 ★ 어느 프로파일도 2단계 적재(주문 헤더 + 품목)를 하지
+     * 않아 `fact_order_item`이 0행이다 — 주문 파일에는 상품번호와 수량이 있는데
+     * 적재에서 버려진다(각 프로파일의 `unmappedColumns` 주석이 그렇게 적고 있다).
+     * 그래서 원가를 아무리 넣어도 매입원가는 0으로 남는다. 기간으로 묻지 않고
+     * 테이블 자체를 보는 이유는, 기간으로 물으면 «7월엔 안 팔렸다»가 «품목 데이터가
+     * 없다»로 둔갑하기 때문이다.
+     */
+    readonly hasOrderItems: boolean
+  }
 }
 
 export async function loadPnlSnapshot(
@@ -218,6 +318,65 @@ export async function loadPnlSnapshot(
       libraryId, period.from, period.to,
     )
 
+  /**
+   * ★ ④ — 매입원가. 원가는 **판매일 기준**으로 붙는다 ★
+   *
+   * 규칙(«판매일 이전 중 가장 늦은 이력»)은 `costAtSql`이 한 번만 적고 있다. 여기서
+   * 다시 적으면 화면(`costAt`)과 손익이 갈리고, 그 차이는 아무도 모르게 쌓인다.
+   *
+   * ★ 원가를 모르는 행은 **0으로 세지 않는다** ★
+   * `SUM(quantity * NULL)`에서 그 행은 합에 아무것도 보태지 않는다 — 0원짜리로
+   * 취급되는 것이 아니라 **빠진다.** 대신 몇 행이 그렇게 빠졌는지를 함께 세어
+   * `pnlGaps`가 말한다. 여기서 0을 채워 넣으면 그 상품의 기여이익이 매출 전액이 되고
+   * 화면은 «원가 미입력»이 아니라 «엄청 남는 상품»이라고 말한다 (§22 계열).
+   *
+   * 날짜 상한에 `BETWEEN`을 쓰지 않는 이유는 다른 조회와 같다 — `ordered_at`이 시각을
+   * 달고 있으면 마지막 날이 통째로 빠진다.
+   */
+  const cogsRow = await db
+    .prepare(
+      `SELECT COALESCE(SUM(oi.quantity * ${COST}),0) AS cogs,
+              COUNT(*) AS items,
+              COALESCE(SUM(CASE WHEN ml.sku_id IS NULL THEN 1 ELSE 0 END),0) AS no_link,
+              COALESCE(SUM(CASE WHEN ml.sku_id IS NOT NULL AND ${COST} IS NULL THEN 1 ELSE 0 END),0) AS no_cost,
+              COALESCE(SUM(CASE WHEN ${COST} IS NULL THEN oi.quantity ELSE 0 END),0) AS no_cost_qty
+       ${ITEM_JOIN}
+        WHERE oi.library_id = ? AND ${SOLD}
+          AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')`,
+    )
+    .get(libraryId, period.from, period.to)
+
+  const anyItem = await db
+    .prepare(`SELECT EXISTS(SELECT 1 FROM active_order_item WHERE library_id = ?) AS n`)
+    .get(libraryId)
+
+  /**
+   * ★ 조건 2 — 기간 집계 매출의 원가는 **근사다** ★
+   *
+   * `date_precision='period'` 행은 `ordered_at`이 기간 **시작일**이다. `costAt`도
+   * 그 날짜로 원가를 고르므로, **기간 안에서 원가가 바뀌면 기간 전체가 시작일
+   * 단가로 계산된다.** 로켓그로스처럼 한 달치가 한 행으로 오는 채널에서 8/15부터
+   * 원가가 올랐다면 8월 후반 판매분이 옛 단가로 잡힌다.
+   *
+   * ★ 조용한 근사를 만들지 않는다 ★ 근사 자체는 피할 수 없다 — 파일이 일별
+   * 분해를 주지 않기 때문이다. 피할 수 있는 것은 **모르고 지나가는 것**이다.
+   * 그래서 «그 기간 안에 실제로 원가가 바뀐 행이 있는가»를 센다. 없으면 이 값은
+   * 0이고 화면은 아무 말도 하지 않는다 — **근사가 실재할 때만 말한다.**
+   */
+  const approxRow = await db
+    .prepare(
+      `SELECT COUNT(*) AS n
+       ${ITEM_JOIN}
+        WHERE oi.library_id = ? AND ${SOLD}
+          AND o.date_precision = 'period' AND o.period_end IS NOT NULL
+          AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')
+          AND EXISTS (
+            SELECT 1 FROM cost_history c
+             WHERE c.library_id = oi.library_id AND c.sku_id = ml.sku_id AND c.kind = 'COGS'
+               AND c.effective_from > o.ordered_at AND c.effective_from <= o.period_end)`,
+    )
+    .get(libraryId, period.from, period.to)
+
   /** 기간 시작 **이전**에 주문·광고비·정산이 하나라도 있나. 비교의 성립 근거다. */
   const prior = await db
     .prepare(
@@ -238,7 +397,7 @@ export async function loadPnlSnapshot(
     vat: num(joined, "vat"),
     shipping: num(joined, "ship"),
     claims,
-    cogs: base.cogs ?? 0,
+    cogs: num(cogsRow, "cogs"),
     adDirect: 0,
     adUnallocated: adSpend,
     ops: base.ops ?? 0,
@@ -272,5 +431,13 @@ export async function loadPnlSnapshot(
     },
     contributingConnections: num(conns, "n"),
     hasPriorPeriod: num(prior, "n") === 1,
+    cogsBasis: {
+      items: num(cogsRow, "items"),
+      itemsWithoutLink: num(cogsRow, "no_link"),
+      itemsWithoutCost: num(cogsRow, "no_cost"),
+      qtyWithoutCost: num(cogsRow, "no_cost_qty"),
+      periodApproxItems: num(approxRow, "n"),
+      hasOrderItems: num(anyItem, "n") === 1,
+    },
   }
 }

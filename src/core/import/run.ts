@@ -47,7 +47,15 @@ import {
 import { collectListings } from "./mapping/listing.js"
 import { sha1Bytes } from "./mapping/sha1.js"
 import type { ExcludedRow, HeaderDetection, SheetInfo } from "./types.js"
-import type { BatchOpen, FactTable, ListingUpsert, LoadStats, Repository } from "../store/repository.js"
+import {
+  listingIdFor,
+  type BatchOpen,
+  type FactRow,
+  type FactTable,
+  type ListingUpsert,
+  type LoadStats,
+  type Repository,
+} from "../store/repository.js"
 
 /** `analyze.ts`와 같은 표기 — 두 곳이 같은 문자열을 내야 대조가 성립한다. */
 const hex = (b: Uint8Array): string =>
@@ -170,6 +178,17 @@ export async function runImport(
     /** 이 파일이 만드는 리스팅 **종류**. 청크를 가로질러 모인다. */
     const listings = new Map<string, ListingUpsert>()
 
+    /**
+     * 리스팅 적재 누계. **청크마다 «처음 본 것만» 넣는다** (아래 이유).
+     * 종류마다 정확히 한 번 UPSERT되므로 총 호출 수는 «다 모은 뒤 한 번»과 같다.
+     */
+    let listingStats: LoadStats | null = null
+    const bumpListings = (s: LoadStats): void => {
+      listingStats = listingStats === null
+        ? s
+        : { inserted: listingStats.inserted + s.inserted, updated: listingStats.updated + s.updated }
+    }
+
     for await (const chunk of chunks) {
       if (headers.length === 0) headers = [...getSummary().header.columns]
 
@@ -180,7 +199,25 @@ export async function runImport(
         { fileName: o.fileName, fileNameCaptures: captures, keyState },
         offset,
       )
-      if (o.profile.listing) collectListings(o.profile.listing, headers, chunk, listings)
+
+      /**
+       * ★ 리스팅이 **Fact보다 먼저** 들어간다 (품목 적재가 시킨 순서 변경) ★
+       *
+       * 전에는 파일을 다 돌고 나서 한 번에 넣었다. 품목이 `listing_id`로 리스팅을
+       * 가리키고 `PRAGMA foreign_keys = ON`이므로, 리스팅이 나중에 들어가면
+       * **품목 적재가 FK로 통째로 실패한다.**
+       *
+       * 새로 본 것만 넘기므로 같은 리스팅에 UPSERT가 반복되지 않는다 — 옛 주석이
+       * 걱정하던 것이 그것이고, 그 걱정은 «전부 다시 넘기기»에만 해당한다.
+       */
+      if (o.profile.listing) {
+        const before = listings.size
+        collectListings(o.profile.listing, headers, chunk, listings)
+        if (listings.size > before) {
+          const fresh = [...listings.values()].slice(before)
+          bumpListings(await repo.upsertListings(o.libraryId, o.connectionId, fresh, o.now))
+        }
+      }
 
       const base = offset
       offset += chunk.rowCount
@@ -189,8 +226,17 @@ export async function runImport(
 
       // ★ `byTable`로 읽는다. `rows`만 보면 라우팅으로 다른 테이블에 간 행을
       // 통째로 놓친다 — `smoke.ts`가 정확히 그렇게 하고 있다.
-      for (const [table, rows] of mapped.byTable) {
-        if (rows.length === 0) continue
+      //
+      // 주문 헤더가 **가장 먼저** 나가야 한다 — 품목이 그 id를 가리킨다.
+      // `byTable`은 기본 경로 버킷을 먼저 만들지만(`mapRows`), 그 순서에 기대지
+      // 않고 여기서 명시한다. Map 순회 순서에 FK 무결성을 얹지 않는다.
+      const tables = [
+        o.profile.targetTable,
+        ...[...mapped.byTable.keys()].filter((t) => t !== o.profile.targetTable),
+      ]
+      for (const table of tables) {
+        const rows = mapped.byTable.get(table)
+        if (!rows || rows.length === 0) continue
         await repo.loadChunk(
           table as FactTable,
           batch,
@@ -204,15 +250,57 @@ export async function runImport(
         loaded += rows.length
       }
 
+      /**
+       * ★ 품목 — 부모의 **저장된 id**를 물어서 건다 ★
+       *
+       * 여기서 `${batch.id}-fact_order-${…}`를 다시 계산하면 안 된다. UPSERT의
+       * `DO UPDATE SET`에 `id`가 없어 **재가져오기에서 행은 처음 받은 id를 지키기**
+       * 때문이다 — 두 번째 가져오기부터 존재하지 않는 부모를 가리키게 되고,
+       * FK가 켜져 있으니 적재가 통째로 실패한다 (실측으로 확인한 함정이다).
+       *
+       * 부모를 못 찾은 품목은 **버리지 않고 오류로 남긴다.** 오늘 그런 일은
+       * 부모 행이 매핑 단계에서 fatal로 빠졌을 때뿐인데(ESM의 결제일 빈 행),
+       * 그때는 품목도 만들어지지 않으므로 여기 걸릴 것이 없어야 정상이다.
+       */
+      if (mapped.items.length > 0) {
+        const parentIds = await repo.idsBySourceKey(
+          o.profile.targetTable as FactTable,
+          o.connectionId,
+          mapped.items.map((it) => it.orderSourceKey),
+        )
+        const itemRows: FactRow[] = []
+        let orphan = 0
+        for (const [i, it] of mapped.items.entries()) {
+          const orderId = parentIds.get(it.orderSourceKey)
+          if (orderId === undefined) {
+            orphan++
+            continue
+          }
+          itemRows.push({
+            id: `${batch.id}-fact_order_item-${base + i}`,
+            source_key: it.sourceKey,
+            order_id: orderId,
+            listing_id: listingIdFor(o.connectionId, it.listingKey),
+            ...it.fields,
+          })
+        }
+        if (orphan > 0) {
+          errors.push({
+            rowIndex: base,
+            field: "order_id",
+            reason: `품목 ${orphan}건이 부모 주문을 찾지 못했다 — 이 청크의 주문 적재를 확인해야 한다`,
+            fatal: false,
+          })
+        }
+        if (itemRows.length > 0) {
+          await repo.loadChunk("fact_order_item", batch, itemRows)
+          perTable.set("fact_order_item", (perTable.get("fact_order_item") ?? 0) + itemRows.length)
+          loaded += itemRows.length
+        }
+      }
+
       o.onProgress?.({ rowsDone: offset, chunk: perTable.size })
     }
-
-    // 리스팅은 **다 모은 뒤 한 번** 넣는다. 종류의 목록이라 청크마다 넣으면
-    // 같은 리스팅에 UPSERT가 반복된다.
-    const listingStats =
-      o.profile.listing && listings.size > 0
-        ? await repo.upsertListings(o.libraryId, o.connectionId, [...listings.values()], o.now)
-        : null
 
     // ★ 요약은 청크를 다 돈 **뒤에** 읽는다 ★ 제외 목록은 스트림이 끝나야 완성된다.
     const sum = getSummary()

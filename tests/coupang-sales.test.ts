@@ -118,7 +118,13 @@ run("쿠팡 매출 2종", () => {
           now: NOW,
         })
 
-        expect(Object.fromEntries(r.perTable)).toEqual({ fact_order: c.rows })
+        // ★ 품목이 함께 들어온다 (2026-08-14) ★ 두 프로파일 다 «한 행 = 품목 하나»라
+        // 헤더와 품목이 1:1이다. 그 1:1이 깨지는 날(주문 단위 헤더로 바꾸면 그렇게
+        // 된다) 이 단언이 먼저 알려 준다.
+        expect(Object.fromEntries(r.perTable)).toEqual({
+          fact_order: c.rows,
+          fact_order_item: c.rows,
+        })
         expect(r.listings ? r.listings.inserted + r.listings.updated : 0).toBe(c.listings)
 
         const sum = await db.prepare(`SELECT SUM(total_amount) AS s FROM fact_order`).get()

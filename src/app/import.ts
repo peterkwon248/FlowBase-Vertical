@@ -159,10 +159,17 @@ export function roleField(roles: readonly ColumnRole[]): string {
   return "저장 안 함"
 }
 
+/** 품목 필드는 «어느 표에 저장되는지»까지 말한다 — 주문 표에서는 안 보이기 때문이다. */
+const itemLabel = (target: string | undefined): string =>
+  target === undefined ? "품목" : `품목 · ${target}`
+
 /** «왜» 칸 — 역할을 전부 말한다. 한 컬럼이 3역인 경우가 실재한다(ESM `진행상태`). */
 export function roleWhy(roles: readonly ColumnRole[], required: boolean): string {
   const parts: string[] = []
   if (roles.includes("field")) parts.push(required ? "프로파일이 선언 · 필수" : "프로파일이 선언")
+  // 품목은 «저장된다»인데 주문 표에는 안 보인다. 그 사실을 말하지 않으면 사용자가
+  // 확인 화면과 주문 화면을 대조하다 «사라졌다»고 읽는다 (결함 53의 계보).
+  if (roles.includes("item-field")) parts.push("품목으로 저장된다 — 수량·금액이 여기 산다")
   // `source_key`는 내부 키라 화면에 값을 내보내지 않지만(헌장 C-4), **이 컬럼이
   // 행 식별에 쓰인다는 사실**은 말해야 한다 — 빼면 사용자가 없어도 되는 열로 읽는다.
   if (roles.includes("source-key")) parts.push("행 식별에 쓰인다")
@@ -309,7 +316,16 @@ export function importVals(
       //
       // ★ 프로파일이 아예 없을 때는 «이 프로파일이 쓰지 않는다»가 할 말이 아니다 ★
       // 그런 프로파일이 없기 때문이다. 판정이 실패했다는 사실을 그대로 말한다.
-      field: use === null ? "—" : (u ? (u.target ?? roleField(roles)) : use.contentKeyed ? "행 식별에 참여" : "저장 안 함"),
+      field:
+        use === null
+          ? "—"
+          : u
+            ? roles.includes("item-field") && !roles.includes("field")
+              ? itemLabel(u.target)
+              : (u.target ?? roleField(roles))
+            : use.contentKeyed
+              ? "행 식별에 참여"
+              : "저장 안 함",
       fieldColor: u || use?.contentKeyed ? "var(--fg-2)" : DIM,
       why:
         use === null

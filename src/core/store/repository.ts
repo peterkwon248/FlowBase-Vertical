@@ -23,6 +23,35 @@ export const FACT_TABLES = [
 export type FactTable = (typeof FACT_TABLES)[number]
 
 /**
+ * **지울 때의 순서** — 자식이 먼저다 (`PRAGMA foreign_keys = ON`).
+ *
+ * ─────────────────────────────────────────────────────────────
+ * ★ 왜 목록이 둘인가 ★
+ * `fact_order_item.order_id`가 `fact_order(id)`를 가리킨다. `FACT_TABLES` 순서대로
+ * 지우면 **부모를 먼저 지우게 되고**, 품목이 존재하는 순간 되돌리기가
+ * `FOREIGN KEY constraint failed`로 통째로 실패한다.
+ *
+ * 품목 적재 전에는 `fact_order_item`이 늘 0행이라 **이 버그가 드러날 수 없었다.**
+ * 되돌리기는 이미 실기기에서 한 바퀴 돌았지만 그 회차가 증명한 것은 «품목이 없는
+ * 되돌리기»였다 — 게이트의 사각을 아는 것(작업 리듬 7)의 또 한 사례다.
+ *
+ * `FACT_TABLES`를 재정렬하지 않고 **따로 선언한다.** 그쪽은 «적재할 수 있는
+ * 테이블의 목록»이고 순서에 뜻이 없다. 뜻이 있는 순서를 이름 없는 배열 순서에
+ * 얹어 두면 다음 사람이 알파벳순으로 정렬하는 날 조용히 깨진다.
+ * ─────────────────────────────────────────────────────────────
+ *
+ * `tests/order-item.test.ts`가 이 목록이 `FACT_TABLES`와 **같은 집합**인지, 그리고
+ * 실파일 되돌리기가 FK에 걸리지 않는지 둘 다 지킨다.
+ */
+export const DELETE_ORDER = [
+  "fact_order_item", // ← fact_order를 참조한다. 반드시 먼저.
+  "fact_order",
+  "fact_settlement",
+  "fact_claim",
+  "fact_ad_spend",
+] as const satisfies readonly FactTable[]
+
+/**
  * **Dimension 테이블** — Fact와 다른 규칙으로 산다.
  *
  * 목록을 따로 두는 것은 성격이 **타입으로 읽히게** 하기 위해서다. 주석은 지나치면
@@ -39,6 +68,16 @@ export type FactTable = (typeof FACT_TABLES)[number]
 export const DIMENSION_TABLES = ["marketplace_listing"] as const
 
 export type DimensionTable = (typeof DIMENSION_TABLES)[number]
+
+/**
+ * 리스팅의 id — **자연키에서 만든다.** `upsertListings`가 쓰는 그 규칙이고,
+ * 품목이 `listing_id`를 **조회 없이** 계산할 수 있는 근거다.
+ *
+ * 규칙이 한 곳에만 있어야 한다: 여기서 만든 id와 `upsertListings`가 넣는 id가
+ * 어긋나면 품목이 존재하지 않는 리스팅을 가리키고 FK가 적재를 막는다.
+ */
+export const listingIdFor = (connectionId: string, listingKey: string): string =>
+  `lst-${connectionId}-${listingKey}`
 
 /** 리스팅 한 줄. 파일이 말해주는 것만 담는다 — 연결 상태는 사람이 정한다. */
 export interface ListingUpsert {
@@ -502,6 +541,109 @@ export class Repository {
     })
   }
 
+  // ── 원가 (기준 데이터) ──────────────────────────────────────────
+  //
+  // ★ Fact가 아니다 ★ batch에 묶이지 않고 되돌리기의 대상도 아니다 — 리스팅과 같은
+  // 자리다 (ADR-012). 그래서 `loadChunk`를 타지 않고 여기 자기 입구를 갖는다.
+  // 되돌리기 다이얼로그가 *"직접 입력한 원가와 상품 연결은 그대로 남습니다"*라고
+  // 약속하는 근거가 이 분리다.
+
+  /**
+   * 원가 이력 — 라이브러리 전체, 또는 SKU 하나.
+   *
+   * **행을 그대로 준다.** «지금 유효한 값»을 여기서 고르지 않는 이유는 그 판정이
+   * `costAt`의 것이기 때문이다 (`core/cost/index.ts`). 리포지토리가 «가장 늦은 것»을
+   * 골라 주기 시작하면 규칙이 두 벌이 된다.
+   */
+  async costHistory(libraryId: string, skuId?: string): Promise<readonly Row[]> {
+    const where = skuId === undefined ? "" : " AND sku_id = ?"
+    const args = skuId === undefined ? [libraryId] : [libraryId, skuId]
+    return this.db
+      .prepare(
+        `SELECT id, sku_id, kind, amount, effective_from, note, entered_at, entered_by
+           FROM cost_history WHERE library_id = ?${where}
+          ORDER BY sku_id, kind, effective_from DESC`,
+      )
+      .all(...args)
+  }
+
+  /**
+   * 원가 한 줄을 넣는다. **같은 날짜가 이미 있으면 거부한다** — `replace`를 켜야 덮는다.
+   *
+   * ★ 왜 조용히 덮지 않는가 ★
+   * `UNIQUE (library_id, sku_id, kind, effective_from)`가 있으니 UPSERT로 만들면
+   * 코드는 짧아진다. 그런데 그 순간 **오타 한 번이 이력 한 칸을 소리 없이 지운다** —
+   * 8/1자 원가 12,000원을 넣어 둔 SKU에 1,200원을 잘못 치면 8월 손익이 통째로
+   * 바뀌는데 화면에는 아무 일도 일어나지 않는다.
+   *
+   * 그래서 «새 날짜 등록»과 «같은 날짜 정정»을 **다른 행위로 가른다.** 후자는
+   * 화면이 먼저 묻고(§21-1 «되돌릴 수 없는 일은 묻는다») 답을 받아 `replace`로 온다.
+   * 정정은 되돌릴 수 없다 — 덮인 값은 `row_shadow`가 없다(Fact가 아니므로).
+   *
+   * 검증은 `parseCostDraft`가 화면 쪽에서 하지만 **여기서 한 번 더 본다.** 화면만이면
+   * 하네스·CLI가 우회한다 — 파일명 캡처 가드를 `runImport`에 둔 것과 같은 판단이다.
+   */
+  async addCost(c: {
+    libraryId: string
+    skuId: string
+    kind: string
+    amount: number
+    effectiveFrom: string
+    note?: string | null
+    now: string
+    enteredBy?: "user" | "import"
+    replace?: boolean
+  }): Promise<{ inserted: boolean; replaced: boolean; previous: number | null }> {
+    if (!Number.isInteger(c.amount)) throw new Error(`원가는 원 단위 정수여야 한다: ${c.amount}`)
+    if (c.amount < 0) throw new Error(`원가는 0보다 작을 수 없다: ${c.amount}`)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(c.effectiveFrom)) {
+      throw new Error(`적용 시작일은 YYYY-MM-DD여야 한다: ${c.effectiveFrom}`)
+    }
+
+    return this.db.transaction(async () => {
+      const prior = await this.db
+        .prepare(
+          `SELECT id, amount FROM cost_history
+            WHERE library_id = ? AND sku_id = ? AND kind = ? AND effective_from = ?`,
+        )
+        .get(c.libraryId, c.skuId, c.kind, c.effectiveFrom)
+
+      if (prior !== undefined) {
+        const previous = Number(prior["amount"] ?? 0)
+        if (c.replace !== true) {
+          // 조용히 지나가지 않는다 (LOCK 6). 부르는 쪽이 사람에게 물을 수 있도록
+          // «있다»는 사실과 **그 값**을 함께 돌려준다.
+          return { inserted: false, replaced: false, previous }
+        }
+        await this.db
+          .prepare(
+            `UPDATE cost_history SET amount = ?, note = ?, entered_at = ?, entered_by = ?
+              WHERE id = ?`,
+          )
+          .run(c.amount, c.note ?? null, c.now, c.enteredBy ?? "user", Number(prior["id"]))
+        return { inserted: false, replaced: true, previous }
+      }
+
+      await this.db
+        .prepare(
+          `INSERT INTO cost_history
+             (library_id, sku_id, kind, amount, effective_from, note, entered_at, entered_by)
+           VALUES (?,?,?,?,?,?,?,?)`,
+        )
+        .run(
+          c.libraryId,
+          c.skuId,
+          c.kind,
+          c.amount,
+          c.effectiveFrom,
+          c.note ?? null,
+          c.now,
+          c.enteredBy ?? "user",
+        )
+      return { inserted: true, replaced: false, previous: null }
+    })
+  }
+
   private async countListings(connectionId: string): Promise<number> {
     const r = await this.db
       .prepare(`SELECT COUNT(*) AS n FROM marketplace_listing WHERE connection_id = ?`)
@@ -545,8 +687,32 @@ export class Repository {
     // 1,000행치가 동시에 살아 있게 되고, 그건 평탄화(ADR-007)로 없앤 종류의
     // 할당이 적재 쪽에서 되살아나는 것이다. 로컬 드라이버는 한 행씩 소비한다.
     const width = bodyColumns.length + COMMON_COLUMNS.length
+    /**
+     * ★ 첫 행에만 있는 컬럼 목록이 나머지 행을 조용히 잘라낸다 ★
+     *
+     * `bodyColumns`는 **첫 행에서만** 뽑는다(위). 뒤 행에 첫 행에 없던 키가 있으면
+     * INSERT 문에 자리가 없어 그 값이 **아무 말 없이 사라진다.** 실측으로 확인된
+     * 동작이다 — 첫 행에 `total_amount`가 없고 둘째 행에 5,555가 있으면 둘 다 0으로
+     * 저장된다.
+     *
+     * 오늘 이 프로젝트의 호출부는 전부 균일한 키를 만들지만(매핑이 선언된 target을
+     * 행마다 빠짐없이 채운다), 그건 **지금 그렇다**일 뿐이다. 조건부로 필드를 넣는
+     * 호출부가 하나 생기는 날 이건 조용한 손실이 된다 (LOCK 6).
+     *
+     * 세는 것이 아니라 **세우는** 이유: 잘린 값은 «제외»가 아니라 «없던 일»이라
+     * 기록할 자리조차 없다. 값이 사라지느니 적재가 멈추는 편이 낫다.
+     */
+    const known = new Set(bodyColumns)
     function* paramRows(): Generator<SqlValue[]> {
       for (const row of rows) {
+        for (const k in row) {
+          if (!known.has(k)) {
+            throw new Error(
+              `${table}: 행마다 컬럼이 다르다 — "${k}"는 첫 행에 없어 조용히 버려진다 ` +
+                `(첫 행: ${bodyColumns.join(",")})`,
+            )
+          }
+        }
         const p: SqlValue[] = new Array(width)
         for (let c = 0; c < bodyColumns.length; c++) p[c] = row[bodyColumns[c]!] ?? null
         // 공통 6컬럼 — 순서가 `COMMON_COLUMNS`와 정확히 같아야 한다.
@@ -575,6 +741,47 @@ export class Repository {
       const inserted = (await this.countRows(table, batch.connectionId)) - before
       return { inserted, updated: rows.length - inserted }
     })
+  }
+
+  /**
+   * `source_key` → 그 행의 **실제 id**. 품목이 부모 주문을 가리키려면 필요하다.
+   *
+   * ─────────────────────────────────────────────────────────────
+   * ★ 왜 id를 계산할 수 없는가 ★
+   * `run.ts`는 적재하면서 id를 `${batch.id}-${table}-${순번}`으로 만든다. 그런데
+   * UPSERT의 `DO UPDATE SET`에 `id`가 **없다** — 재가져오기에서 행은 **처음 들어올 때
+   * 받은 id를 그대로 지킨다.** 그래서 두 번째 가져오기에서 방금 만든 id로 품목을
+   * 걸면 존재하지 않는 부모를 가리키게 되고, FK가 켜져 있으므로 적재가 통째로 실패한다.
+   *
+   * 되돌아보면 그 «id 보존»은 조정(`adjustment`)이 행을 가리킬 수 있게 하는 성질이라
+   * 바꿀 수 없다. 그러니 **묻는 쪽이 맞다.**
+   *
+   * ★ 바인딩 수를 나눠 묻는다 ★
+   * SQLite의 `SQLITE_MAX_VARIABLE_NUMBER`는 빌드마다 다르고 옛 빌드는 999다.
+   * 청크가 1,000행이면 한 번에 넣는 순간 그 빌드에서 터진다 — 우리 기기에서만
+   * 통과하는 코드를 두지 않는다.
+   * ─────────────────────────────────────────────────────────────
+   */
+  async idsBySourceKey(
+    table: FactTable,
+    connectionId: string,
+    sourceKeys: readonly string[],
+  ): Promise<Map<string, string>> {
+    if (!FACT_TABLES.includes(table)) throw new Error(`알 수 없는 테이블: ${table}`)
+    const out = new Map<string, string>()
+    const unique = [...new Set(sourceKeys)]
+    const CHUNK = 400
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const slice = unique.slice(i, i + CHUNK)
+      const rows = await this.db
+        .prepare(
+          `SELECT id, source_key FROM ${table}
+            WHERE connection_id = ? AND source_key IN (${slice.map(() => "?").join(",")})`,
+        )
+        .all(connectionId, ...slice)
+      for (const r of rows) out.set(String(r["source_key"]), String(r["id"]))
+    }
+    return out
   }
 
   async recordExclusions(batchId: string, exclusions: readonly ExclusionRecord[]): Promise<void> {
@@ -619,8 +826,10 @@ export class Repository {
     return this.db.transaction(async () => {
       await this.assertUndoable(batchId)
 
+      // ★ 순서가 `DELETE_ORDER`인 이유는 그 상수의 주석에 있다 — 자식(품목)을
+      //   부모(주문)보다 먼저 지우지 않으면 FK가 되돌리기를 통째로 막는다.
       let removed = 0
-      for (const table of FACT_TABLES) {
+      for (const table of DELETE_ORDER) {
         await this.restoreShadowed(table, batchId)
         removed += (await this.db.prepare(`DELETE FROM ${table} WHERE batch_id = ?`).run(batchId))
           .changes

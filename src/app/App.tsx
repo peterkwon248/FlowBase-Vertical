@@ -29,12 +29,22 @@ import { orderVals } from "./order.js"
 import { linkingVals, type LinkTab, type LinkingActions } from "./linking.js"
 import { channelVals } from "./channel.js"
 import { historyVals, undoConfirm, type ConfirmDialog } from "./history.js"
+import {
+  emptyDraft,
+  productVals,
+  replaceConfirmRows,
+  type CostDraftState,
+  type ProdTab,
+  type ProductActions,
+} from "./product.js"
+import { parseCostDraft } from "@core/cost/index.js"
+import type { ProductSkuRow, ProductView } from "@core/product/rows.js"
 import { marketDict } from "@packs/kr-marketplace/markets/index.js"
 import { importVals, BIG_FILE_BYTES, EMPTY_WIZARD, type ImportActions, type ImportWizardState } from "./import.js"
 import { analyzeImport } from "@core/import/analyze.js"
 import { runImport } from "@core/import/run.js"
 import { loadProfiles } from "@packs/kr-marketplace/profiles/index.js"
-import { DEV_LIBRARY, DEV_PERIOD, findPriorImports, loadDevSnapshot, nowStamp, readDigest, writeThenReload, type LoadResult } from "./data.js"
+import { DEV_LIBRARY, DEV_PERIOD, findPriorImports, loadDevSnapshot, nowStamp, readDigest, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import type { SettlementRow } from "@core/settlement/rows.js"
 import type { OrderRow } from "@core/order/rows.js"
@@ -84,7 +94,8 @@ export function App(): React.JSX.Element {
   const [linking, setLinking] = useState<LinkingView | null>(null)
   const [coverage, setCoverage] = useState<readonly ConnectionCoverage[]>([])
   const [history, setHistory] = useState<readonly HistoryRow[]>([])
-  /** 되돌리기 확인 다이얼로그. `null`이면 안 떠 있다. */
+  const [products, setProducts] = useState<ProductView | null>(null)
+  /** 되돌리기·원가 정정 확인 다이얼로그. `null`이면 안 떠 있다. */
   const [confirm, setConfirm] = useState<ConfirmDialog | null>(null)
 
   const take = useCallback((r: LoadResult) => {
@@ -95,6 +106,7 @@ export function App(): React.JSX.Element {
     setLinking(r.linking)
     setCoverage(r.coverage)
     setHistory(r.history)
+    setProducts(r.products)
   }, [])
 
   useEffect(() => {
@@ -169,6 +181,109 @@ export function App(): React.JSX.Element {
         for (const c of cards) await repo.createSkuForListings(DEV_LIBRARY, ids(c), c.title, nowStamp())
       })
     },
+  }
+
+  // ── 상품 · 원가 입력 (③) ─────────────────────────────────────────
+  //
+  // ★ 초안은 **SKU마다** 있다 ★ 목업은 `costDraft` 하나를 61행이 공유해서 한 칸에
+  // 치면 61칸에 같은 글자가 떴다. 여기서는 Map이고, 저장에 성공한 행만 지운다 —
+  // 실패한 행의 초안을 지우면 사용자가 친 값이 사유와 함께 사라진다.
+  const [prodTab, setProdTab] = useState<ProdTab>("list")
+  const [drafts, setDrafts] = useState<ReadonlyMap<string, CostDraftState>>(() => new Map())
+
+  const putDraft = useCallback(
+    (skuId: string, patch: Partial<CostDraftState>) =>
+      setDrafts((m) => {
+        const next = new Map(m)
+        next.set(skuId, { ...(m.get(skuId) ?? emptyDraft(today())), ...patch })
+        return next
+      }),
+    [],
+  )
+
+  const dropDraft = useCallback(
+    (skuId: string) =>
+      setDrafts((m) => {
+        const next = new Map(m)
+        next.delete(skuId)
+        return next
+      }),
+    [],
+  )
+
+  /**
+   * 원가 저장 — **한 번에 끝나지 않을 수 있다.**
+   *
+   * 같은 적용일이 이미 있으면 리포지토리가 넣지 않고 «있다 + 그 값»을 돌려준다.
+   * 그때 화면이 사람에게 묻고, 답을 받아 `replace`로 다시 부른다 (§21-1). 조용히
+   * 덮으면 오타 한 번이 이력 한 칸을 소리 없이 지운다 — 그 값은 Fact가 아니라
+   * `row_shadow`가 없어 되찾을 수 없다.
+   */
+  const saveCost = useCallback(
+    (row: ProductSkuRow, draft: CostDraftState, replace: boolean) => {
+      const parsed = parseCostDraft(draft)
+      if (!parsed.ok || busy.current) return
+      busy.current = true
+
+      // `writeThenReload`는 쓰기 결과를 돌려주지 않으므로 클로저로 받는다 —
+      // 「넣었나 / 이미 있나」를 알아야 물을지 말지를 정할 수 있다.
+      let outcome: { inserted: boolean; replaced: boolean; previous: number | null } | null = null
+
+      void writeThenReload(async (repo) => {
+        outcome = await repo.addCost({
+          libraryId: DEV_LIBRARY,
+          skuId: row.skuId,
+          kind: "COGS",
+          amount: parsed.amount,
+          effectiveFrom: parsed.effectiveFrom,
+          now: nowStamp(),
+          replace,
+        })
+      }).then((r) => {
+        busy.current = false
+        if (r.error) {
+          console.warn("[cost] 원가 저장에 실패했다:", r.error)
+          return
+        }
+        take(r)
+
+        const got = outcome as { inserted: boolean; replaced: boolean; previous: number | null } | null
+        if (got && !got.inserted && !got.replaced && got.previous !== null) {
+          // 같은 날짜가 이미 있다 → 묻는다. 초안은 **남겨 둔다** — 사용자가 아니오를
+          // 눌렀을 때 방금 친 값이 사라지면 다시 쳐야 한다.
+          setConfirm({
+            title: "이 날짜의 원가를 고칠까요",
+            body:
+              `${parsed.effectiveFrom}부터 적용되는 원가가 이미 있습니다. ` +
+              `새 줄로 쌓이지 않고 그 값을 **덮어씁니다** — 되돌릴 수 없습니다. ` +
+              `«이날부터 값이 바뀐다»를 남기려면 적용 시작일을 다른 날로 바꿔 저장하세요.`,
+            hasRows: true,
+            rows: replaceConfirmRows(row, got.previous, parsed.amount, parsed.effectiveFrom),
+            hasChoice: false,
+            choices: [],
+            hasType: false,
+            confirmLabel: "덮어쓰기",
+            btnFg: "var(--pnl-neg, #EB5757)",
+            btnBorder: "var(--pnl-neg, #EB5757)",
+            btnOp: "1",
+            run: () => {
+              setConfirm(null)
+              saveCost(row, draft, true)
+            },
+          })
+          return
+        }
+        // 저장됐다 — 초안을 비운다. 값은 이제 DB가 갖고 있고 목록이 그걸 다시 읽었다.
+        dropDraft(row.skuId)
+      })
+    },
+    [take, dropDraft],
+  )
+
+  const productActions: ProductActions = {
+    pickTab: setProdTab,
+    setDraft: putDraft,
+    save: (row) => saveCost(row, drafts.get(row.skuId) ?? emptyDraft(today()), false),
   }
 
   // ── 가져오기 위저드 ──────────────────────────────────────────────
@@ -363,6 +478,9 @@ export function App(): React.JSX.Element {
   // 잠긴 것을 말하는 화면이라 데이터가 적을수록 오히려 할 말이 많다 (§22).
   channelVals(vals, coverage, { goImport }, marketDict)
   historyVals(vals, history, { askUndo })
+  // 상품도 **0장이 사실**이다 — SKU가 없으면 «연결된 SKU가 아직 없습니다»가 게이지에
+  // 뜬다. 연결 화면과 같은 판단이고, 원가를 넣을 대상이 없다는 것 자체가 할 말이다.
+  if (products) productVals(vals, products, prodTab, drafts, today(), productActions, DEV_PERIOD)
   // 확인 다이얼로그는 화면이 아니라 앱 상태다 — 어느 화면에서 띄웠든 같은 모달이다.
   vals.confirm = confirm
   vals.closeConfirm = () => setConfirm(null)

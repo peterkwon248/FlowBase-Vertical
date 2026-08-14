@@ -29,6 +29,12 @@ export type PnlGapId =
   | "period-aggregated"
   | "period-spilling"
   | "cogs-missing"
+  /** 원가를 넣어도 곱할 품목이 없다 — «미입력»과 전혀 다른 처방을 요구한다 (③④). */
+  | "cogs-unappliable"
+  /** 품목은 있는데 리스팅이 SKU에 안 이어졌다 — 처방은 «연결»이지 «원가»가 아니다. */
+  | "cogs-unlinked"
+  /** 기간 집계 행의 원가가 기간 시작일 단가로 계산됐다 — 조용한 근사 금지 (조건 2). */
+  | "cogs-period-approx"
   | "overhead-missing"
   | "connections-mixed"
 
@@ -142,16 +148,110 @@ export function pnlGaps(snap: PnlSnapshot): PnlGap[] {
     })
   }
 
-  // ③④ 기준 데이터 — 파일이 아니라 사람이 넣는 값이라 "아직 없음"이 정상이다.
-  if (pnl.cogs === 0) {
+  /**
+   * ③④ 매입원가 — **«0원»의 뜻이 셋이라 한 문장으로 말할 수 없다.**
+   *
+   * ★ 여기 있던 한 줄은 곧 거짓말이 될 문장이었다 ★
+   * *"원가 0 — cost_history가 비어 있다"*. `pnl.cogs === 0`이면 무조건 그렇게 말했으니,
+   * 사용자가 상품 화면에서 원가를 넣는 **바로 그 순간** 이 문장은 거짓이 된다 —
+   * cost_history는 더 이상 비어 있지 않은데 화면은 계속 비었다고 말한다.
+   *
+   * 실기기가 이미 같은 계열을 두 번 잡았다(결함 47의 «2026년 8월», 결함 52의 시드 3·7):
+   * **화면이 데이터를 안 보고 하는 말은 데이터가 바뀌는 날 거짓이 된다.** 그래서
+   * `cogsBasis`를 근거로 갈라 말한다.
+   */
+  const cb = snap.cogsBasis
+
+  // ① 곱할 것이 없다 — **원가를 넣어도 이 숫자는 안 움직인다.**
+  //
+  // 매출은 주문 헤더(`fact_order`)로 들어오는데 원가는 SKU에 붙는다. 그 둘을 잇는
+  // 것이 `fact_order_item`이고, 오늘 어느 프로파일도 품목을 적재하지 않아 0행이다.
+  // 사용자가 할 수 있는 일이 없으므로 «미입력»이라 말하면 **못 지킬 숙제**가 된다.
+  //
+  // `warn`인 이유: 원가를 다 넣어도 순이익이 매입원가만큼 부풀어 있다. 사용자가
+  // 자기 몫을 다 했는데도 숫자가 틀린 상태이므로 «아직 안 넣었을 뿐»(info)이 아니다.
+  if (!cb.hasOrderItems && snap.orderCount > 0) {
     gaps.push({
-      id: "cogs-missing",
+      id: "cogs-unappliable",
       label: "매입원가",
-      state: "미입력",
+      state: "적용 불가",
       note: "0원",
-      tone: "info",
-      detail: "원가 0 — cost_history가 비어 있다. 기준 데이터라 파일이 아니라 사람이 넣는다",
+      tone: "warn",
+      detail:
+        `매입원가가 0이다 — 원가를 넣어도 **이 숫자는 움직이지 않는다.** 매출은 주문 ` +
+        `${snap.orderCount.toLocaleString("ko-KR")}건으로 들어와 있지만 «어느 SKU가 몇 개 팔렸나»가 ` +
+        `없어(품목 0행) 원가를 곱할 대상이 없다. 주문 파일에는 상품번호와 수량이 들어 있고 ` +
+        `적재에서 버려진다 — 프로파일이 주문 헤더만 적재하기 때문이다(2단계 적재 미구현). ` +
+        `상품 화면의 원가 입력은 저장되며, 품목 적재가 생기는 날 소급해서 계산된다`,
     })
+  } else {
+    /**
+     * ② 곱할 것은 있다. 그러면 «왜 빠졌나»가 **두 갈래**로 갈린다.
+     *
+     * ★ 처방이 다르면 다른 단서다 ★
+     * 연결이 없는 품목은 상품 **연결** 화면에서 SKU를 이어야 하고, 원가가 없는
+     * 품목은 상품 화면에서 **원가**를 넣어야 한다. 뭉뚱그려 «원가 미입력 N건»이라
+     * 말하면 사용자는 원가를 다 넣고도 숫자가 안 맞는 이유를 영영 모른다.
+     */
+    if (cb.itemsWithoutLink > 0) {
+      gaps.push({
+        id: "cogs-unlinked",
+        label: "SKU에 연결되지 않은 판매",
+        state: "원가 못 붙음",
+        note: `${cb.itemsWithoutLink.toLocaleString("ko-KR")}품목`,
+        tone: "warn",
+        detail:
+          `판매 품목 ${cb.items.toLocaleString("ko-KR")}건 중 ${cb.itemsWithoutLink.toLocaleString("ko-KR")}건이 ` +
+          `아직 SKU에 이어지지 않았다. 원가는 SKU에 붙으므로 **연결 전에는 원가를 넣어도 ` +
+          `이 판매에 닿지 않는다.** 상품 연결 화면에서 리스팅을 SKU에 이으면 ` +
+          `과거 판매까지 소급해서 붙는다 — 연결은 적재 시점에 박히지 않고 조회할 때 이어진다`,
+      })
+    }
+
+    if (cb.itemsWithoutCost > 0) {
+      // 전부인지 일부인지가 다르다 — 일부면 순이익이 «어중간하게» 틀려 있어서
+      // 오히려 알아채기 어렵다.
+      const linked = cb.items - cb.itemsWithoutLink
+      const all = cb.itemsWithoutCost === linked
+      gaps.push({
+        id: "cogs-missing",
+        label: "매입원가",
+        state: all ? "미입력" : "일부 미입력",
+        note: `${cb.itemsWithoutCost.toLocaleString("ko-KR")}품목`,
+        tone: all ? "info" : "warn",
+        detail:
+          `SKU에 이어진 판매 품목 ${linked.toLocaleString("ko-KR")}건 중 ` +
+          `${cb.itemsWithoutCost.toLocaleString("ko-KR")}건의 원가를 모른다` +
+          `(수량 ${cb.qtyWithoutCost.toLocaleString("ko-KR")}개). ` +
+          `모르는 것을 0으로 세지 않으므로 그 품목은 매입원가에서 **빠져 있고**, 그만큼 ` +
+          `기여이익이 부풀어 있다. 상품 화면에서 SKU별 원가를 넣으면 채워진다 — ` +
+          `원가는 마켓이 주지 않는 값이라 파일이 아니라 사람이 넣는다` +
+          (all ? "" : " · 절반만 넣은 원가가 «전부 넣은 것»처럼 보이는 자리라 일부러 갈라 적는다"),
+      })
+    }
+
+    /**
+     * ★ 조건 2 — 기간 집계의 원가는 근사다. **조용히 넘기지 않는다** ★
+     *
+     * 기간 안에서 원가가 바뀐 행이 있을 때만 뜬다. 근사가 실재하지 않으면
+     * 아무 말도 하지 않으므로, 이 줄이 보인다는 것 자체가 «지금 그 일이 일어나고
+     * 있다»는 뜻이다. `period-aggregated`(일별 분해 불가)와 다른 사실이라 따로 센다 —
+     * 그쪽은 표현의 한계고 이쪽은 **금액의 근사**다.
+     */
+    if (cb.periodApproxItems > 0) {
+      gaps.push({
+        id: "cogs-period-approx",
+        label: "기간 집계의 매입원가",
+        state: "근사",
+        note: `${cb.periodApproxItems.toLocaleString("ko-KR")}품목`,
+        tone: "warn",
+        detail:
+          `기간으로 들어온 판매 ${cb.periodApproxItems.toLocaleString("ko-KR")}건의 원가가 ` +
+          `**기간 시작일 단가로 계산됐다.** 그 기간 안에서 원가가 바뀌었으므로 후반 판매분은 ` +
+          `옛 단가로 잡혀 있다 — 파일이 일별 분해를 주지 않아 더 정확히 계산할 방법이 없다 ` +
+          `(ADR-009 ①-보완 2). 정확히 맞추려면 원가의 적용 시작일을 기간 경계에 맞추면 된다`,
+      })
+    }
   }
   if (pnl.fixed === 0 && pnl.ops === 0) {
     gaps.push({

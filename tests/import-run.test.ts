@@ -42,7 +42,11 @@ const CASES = [
   {
     fixture: 8, profile: "esm-order@1.json", conn: "conn-esm",
     // ★ 라우팅이 갈리는 자리 ★ `mapped.rows`만 읽으면 클레임 9건이 통째로 사라진다
-    expect: { fact_order: 146, fact_claim: 9 },
+    //
+    // ★ 품목 146 = 주문 146 (2026-08-14) ★ **클레임 9건은 품목을 만들지 않는다** —
+    // 매출에서 빠진 판매의 원가도 빠져야 하기 때문이다. 그 규율이 깨지면 이 숫자가
+    // 155가 되고, 취소된 물건의 매입원가가 손익에 들어간다.
+    expect: { fact_order: 146, fact_claim: 9, fact_order_item: 146 },
     pipelineExcluded: 0,
     // ★ 단언이 뒤집힌 자리 ★ 전에는 "5건이 DB에 남지 않는다"를 단언했다.
     // 이제 남는다 — 발생일 없는 클레임 5행이 `reason: "error"`로 기록된다.

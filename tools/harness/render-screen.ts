@@ -34,6 +34,8 @@ import { linkingVals, type LinkTab } from "../../src/app/linking.js"
 import { channelVals } from "../../src/app/channel.js"
 import { loadCoverage } from "../../src/core/coverage/load.js"
 import { historyVals } from "../../src/app/history.js"
+import { productVals } from "../../src/app/product.js"
+import { loadProductRows } from "../../src/core/product/rows.js"
 import { loadHistoryRows } from "../../src/core/history/rows.js"
 import type { DocType } from "../../src/core/coverage/index.js"
 import type { MarketDict } from "../../src/packs/kr-marketplace/markets/index.js"
@@ -120,6 +122,9 @@ const orders = await loadOrderRows(db, "lib-1", PERIOD)
 const linking = await loadLinkingView(db, "lib-1", krLinkingMatcher)
 const coverage = await loadCoverage(db, "lib-1", resolveDocType)
 const history = await loadHistoryRows(db, "lib-1", resolveDocType)
+// 원가 기준일은 **고정한다** — 오늘을 쓰면 같은 DB에서 날마다 다른 HTML이 나와
+// 렌더 대조가 성립하지 않는다. 초안도 비어 있다(상호작용은 이 층이 증명하지 못한다).
+const products = await loadProductRows(db, "lib-1", PERIOD, PERIOD.to)
 await db.close()
 
 const noop = (): void => {}
@@ -134,6 +139,7 @@ orderVals(vals, orders, PERIOD)
 linkingVals(vals, linking, TAB, new Set())
 channelVals(vals, coverage, { goImport: noop }, dictOf)
 historyVals(vals, history)
+productVals(vals, products, "list", new Map(), PERIOD.to, undefined, PERIOD)
 vals.firstRun = false
 vals.notFirstRun = true
 ;(vals.v as Record<string, boolean>)[VIEW] = true

@@ -59,10 +59,16 @@ describe("프로파일 레지스트리", () => {
  * 후보 3개를 전부 주고 파일을 넣었을 때 **맞는 것이 1등**이어야 한다. 이게 위저드
  * 판정 단계의 전부이고, 여기가 틀리면 사용자는 엉뚱한 매핑으로 적재하게 된다.
  */
+/**
+ * ★ 마켓 키만으로는 부족해졌다 ★ ESM은 이제 프로파일이 둘이다(주문 · 광고).
+ * «esm이 1등»은 광고 파일에 주문 프로파일이 붙어도 통과하므로, 이기는 **프로파일**을
+ * 못박는다. 쿠팡이 order 둘로 갈렸을 때 이미 예고된 방향이다.
+ */
 const CASES = [
-  { fixture: 6, want: "11st" },
-  { fixture: 8, want: "esm" },
-  { fixture: 13, want: "coupang" },
+  { fixture: 6, want: "11st", id: "11st/settlement/order-line" },
+  { fixture: 8, want: "esm", id: "esm/order/order-line" },
+  { fixture: 13, want: "coupang", id: "coupang/ad/campaign-breakdown" },
+  { fixture: 11, want: "esm", id: "esm/ad/placement-daily" },
 ] as const
 
 const ready = CASES.every((c) => {
@@ -97,7 +103,8 @@ run("판정 — 후보 셋을 주면 맞는 것이 1등이다", () => {
           fileName: f.file,
         })
         expect(m.length, "아무 프로파일도 맞지 않는다").toBeGreaterThan(0)
-        expect(m[0]!.profile.marketplaceKey, "1등이 틀렸다").toBe(c.want)
+        expect(m[0]!.profile.marketplaceKey, "1등의 마켓이 틀렸다").toBe(c.want)
+        expect(m[0]!.profile.id, "1등의 양식이 틀렸다").toBe(c.id)
         // 근거를 들고 온다 — 위저드가 "왜 이걸로 봤는지"를 보여줄 수 있어야 한다 (헌장 C-5)
         expect(m[0]!.evidence.length, "판정 근거가 비었다").toBeGreaterThan(0)
         expect(m[0]!.confidence).toBeGreaterThan(0)
@@ -106,6 +113,47 @@ run("판정 — 후보 셋을 주면 맞는 것이 1등이다", () => {
       }
     })
   }
+
+  /**
+   * ★ 프로파일을 «만들지 않기로 한» 결정도 시험한다 ★
+   *
+   * 대행사 파워클릭 보고서(#4 · 18시트)는 픽스처 #11과 **같은 광고비**를 주차·상품·
+   * 키워드로 다시 묶은 요약본이다. §22-5-a에 따라 건별에 가까운 원본(#11)이 있으므로
+   * 이 파일은 원본이 아니고, 넣으면 같은 광고비가 두 번 쌓여 광고비가 부풀려진다.
+   *
+   * 결정을 문서에만 적어두면 다음 사람이 «파워클릭 보고서인데 왜 안 되지»라며
+   * 프로파일을 만들 수 있다. 그래서 **부재를 단언한다** — 18시트 중 어느 하나라도
+   * 프로파일을 얻는 순간 이 테스트가 깨지고, 깨진 자리에서 이 주석을 읽게 된다.
+   *
+   * 시트 하나하나를 도는 이유: 「G_상품별」·「G_키워드별」이 «노출수·클릭수·총비용»을
+   * 갖고 있어 광고 프로파일에 걸릴 여지가 실제로 있다. 파일 단위로 한 번만 보면
+   * 그 위험을 안 본 채 통과한다.
+   */
+  it("★ 대행사 요약본(#4)에는 어떤 프로파일도 붙지 않는다 — 이중계상 방지 ★", async () => {
+    const f = FIXTURES.find((x) => x.id === 4)
+    if (f === undefined || !existsSync(fixturePath(f, CLEAN_DIR))) return
+
+    const bytes = new Uint8Array(readFileSync(fixturePath(f, CLEAN_DIR)))
+    const top = sniff(bytes, f.file).candidates[0]!
+    const src = await parserFor(top.format).open(bytes, { chunkSize: 200 })
+    try {
+      const hits: string[] = []
+      for (let s = 0; s < src.sheets.length; s++) {
+        const { chunks, getSummary } = streamSheet(src, s, { chunkSize: 200 })
+        for await (const _ of chunks) break
+        const m = matchProfiles(loadProfiles(), {
+          containerFormat: top.format,
+          headers: [...getSummary().header.columns],
+          fileName: f.file,
+        })
+        for (const x of m) hits.push(`시트 "${src.sheets[s]!.name}" → ${x.profile.id}`)
+      }
+      expect(hits, `요약본에 프로파일이 붙었다 — §22-5-a 재검토가 필요하다:\n${hits.join("\n")}`).toEqual([])
+      expect(src.sheets.length, "18시트 파일이 맞는지 — 픽스처가 바뀌었으면 판정을 다시 한다").toBe(18)
+    } finally {
+      src.close()
+    }
+  })
 
   it("엉뚱한 헤더에는 아무것도 맞지 않는다 — 억지로 1등을 만들지 않는다", () => {
     const m = matchProfiles(loadProfiles(), {

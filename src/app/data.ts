@@ -22,6 +22,7 @@ import { loadOrderRows, type OrderRow } from "@core/order/rows.js"
 import { loadLinkingView, type LinkingView } from "@core/linking/view.js"
 import { loadCoverage, type ConnectionCoverage } from "@core/coverage/load.js"
 import { loadHistoryRows, type HistoryRow } from "@core/history/rows.js"
+import { loadProductRows, type ProductView } from "@core/product/rows.js"
 import { Repository, type BatchDigest } from "@core/store/repository.js"
 import { krLinkingMatcher } from "@packs/kr-marketplace/linking-matcher.js"
 import { krDocTypeResolver } from "@packs/kr-marketplace/markets/index.js"
@@ -65,9 +66,20 @@ export interface LoadResult {
    * 있어도 답이 같고, 되돌리기는 기간과 무관한 행위다.
    */
   history: readonly HistoryRow[]
+  /**
+   * 상품 화면이 그리는 SKU 목록과 원가 (③).
+   *
+   * 기간을 **받기는 한다** — 판매 수량 칸 때문이다. 원가와 연결은 «기준»이라
+   * 기간과 무관하지만 «이 기간에 몇 개 팔렸나»는 기간의 값이라, 한 조회 안에
+   * 둘이 섞인다. 섞인 것을 숨기지 않으려고 `soldQty`만 기간을 타는 것으로 못박아 뒀다.
+   */
+  products: ProductView | null
   /** 못 읽은 이유. 숨기지 않고 화면이 말할 수 있게 들고 나간다 (헌장 6). */
   error: string | null
 }
+
+/** 오늘(`YYYY-MM-DD`). 원가 입력의 기본 적용일이자 «지금 유효한 원가»의 기준일이다. */
+export const today = (): string => new Date().toISOString().slice(0, 10)
 
 /**
  * 밀린 마이그레이션 따라잡기 — **세션당 한 번.**
@@ -104,7 +116,8 @@ export async function loadDevSnapshot(): Promise<LoadResult> {
       const resolveDocType = krDocTypeResolver()
       const coverage = await loadCoverage(db, DEV_LIBRARY, resolveDocType)
       const history = await loadHistoryRows(db, DEV_LIBRARY, resolveDocType)
-      return { snapshot, settlement, orders, linking, coverage, history, error: null }
+      const products = await loadProductRows(db, DEV_LIBRARY, DEV_PERIOD, today())
+      return { snapshot, settlement, orders, linking, coverage, history, products, error: null }
     } finally {
       await db.close()
     }
@@ -116,6 +129,7 @@ export async function loadDevSnapshot(): Promise<LoadResult> {
       linking: null,
       coverage: [],
       history: [],
+      products: null,
       error: e instanceof Error ? e.message : String(e),
     }
   }
@@ -151,6 +165,7 @@ export async function writeThenReload(
       linking: null,
       coverage: [],
       history: [],
+      products: null,
       error: e instanceof Error ? e.message : String(e),
     }
   }

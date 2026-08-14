@@ -246,7 +246,7 @@ export function shellVals(state: ShellState, actions: ShellActions): TemplateVal
  * 안내 블록도 함께 지운다 — `convert-gate`의 구간 선언에 «배선 시 제거»로 표기해
  * §21 대장에서 추적한다. 남겨두면 배선이 끝난 화면이 계속 "준비 중"이라고 말한다.
  */
-export const UNBUILT: readonly NavKey[] = ["diag", "products"]
+export const UNBUILT: readonly NavKey[] = ["diag"]
 
 function applyUnbuilt(vals: TemplateVals, firstRun: boolean): void {
   const unbuilt = (key: NavKey): boolean => UNBUILT.includes(key)
@@ -258,14 +258,15 @@ function applyUnbuilt(vals: TemplateVals, firstRun: boolean): void {
   vals.diagReady = !firstRun && !vals.diagUnbuilt
 
   /**
-   * ★ 상품은 «데이터가 없어서»가 아니라 «화면이 없어서» 비어 있다 ★
+   * ★ 상품 화면이 배선됐다 (③, 2026-08-14) ★
    *
-   * 사용자가 2d에서 [새 SKU로 등록]을 16번 눌렀는데 상품 화면이 백지라
-   * **등록이 안 된 줄 알았다.** 실제로는 `sku` 16행이 멀쩡히 들어가 있었다.
+   * 여기 있던 «아직 만들지 않았습니다» 안내가 지워진 자리다. 2d에서 사용자가
+   * [새 SKU로 등록]을 16번 눌렀는데 이 화면이 백지라 **등록이 안 된 줄 알았던**
+   * 그 화면이고, 이제 SKU가 목록으로 보이며 원가를 그 자리에서 넣는다.
    *
-   * 침묵의 대가가 여기서 드러났다 — 빈 화면이 «없다»가 아니라 «내 작업이
-   * 날아갔다»로 읽혔다. 진단(선행 조건 부재)과 문구가 다른 이유가 그것이다.
-   * 여기서 할 말은 **"당신 작업은 저장돼 있고, 지금은 저기서 볼 수 있다"**이다.
+   * 임시물의 수명은 설계대로 관리됐다 — `UNBUILT`에서 «products»를 빼자
+   * `convert-gate`의 «배선 시 제거» 단언이 먼저 깨졌고, 그것이 안내 마크업과
+   * 구간 선언을 함께 지우라는 신호였다.
    */
   vals.prodUnbuilt = unbuilt("products")
   vals.prodReady = !vals.prodUnbuilt

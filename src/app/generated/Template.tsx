@@ -2240,28 +2240,6 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
             {" "}
             {vals.v.products && (
                 <section data-screen-label="상품 SKU">
-                  {vals.prodUnbuilt && (
-                      <div data-s21="unbuilt-products" style={{ padding: "56px 24px", display: "grid", justifyItems: "center", gap: "13px" }}>
-                        <span style={{ width: "40px", height: "40px", borderRadius: "var(--r-md)", background: "var(--bg-elevated-2)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--fg-4)" }}>
-                          <Lic name="package" size={19} />
-                        </span>
-                        {" "}
-                        <span style={{ display: "grid", gap: "5px", justifyItems: "center", textAlign: "center", maxWidth: "420px" }}>
-                          <span style={{ font: "var(--fw-semi) 14px var(--font-sans)", color: "var(--fg)" }}>
-                            상품 화면은 아직 만들지 않았습니다
-                          </span>
-                          {" "}
-                          <span style={{ font: "var(--fw-regular) 12px/1.7 var(--font-sans)", color: "var(--fg-4)", textWrap: "pretty" }}>
-                            등록한 SKU는 저장돼 있습니다 — 이 화면이 아직 그걸 읽지 못할 뿐입니다. 지금은 상품 연결 화면의 «연결됨» 탭에서 확인할 수 있습니다.
-                          </span>
-                        </span>
-                        {" "}
-                        <button className="v-btn v-btn--primary" style={{ height: "30px" }} onClick={vals.go.linking}>
-                          상품 연결로 가기
-                        </button>
-                      </div>
-                  )}
-                  {" "}
                   {vals.prodReady && (
                   <>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
@@ -2277,6 +2255,23 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                     </div>
                     {" "}
                     <span style={{ flex: "1" }}></span>
+                    {" "}
+                    <span data-s21="cost-gauge" style={{ display: "grid", gap: "3px", justifyItems: "end", minWidth: "0" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "7px" }}>
+                        <span style={{ width: "104px", height: "5px", borderRadius: "999px", background: "var(--bg-elevated-2)", overflow: "hidden", display: "inline-block" }}>
+                          <span style={{ display: "block", height: "100%", width: vals.costGauge.pctWidth, background: vals.costGauge.color }}></span>
+                        </span>
+                        {" "}
+                        <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                          {vals.costGauge.text}
+                        </span>
+                      </span>
+                      {vals.costGauge.note !== "" && (
+                          <span style={{ font: "var(--fw-regular) 10px/1.5 var(--font-sans)", color: "var(--label-orange, #F2994A)", textWrap: "pretty" }}>
+                            {vals.costGauge.note}
+                          </span>
+                      )}
+                    </span>
                     {" "}
                     <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
                       {vals.prodHint}
@@ -2372,13 +2367,13 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
-                                  8월 판매
+                                  판매 수량
                                 </span>
                               </th>
                               {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
-                                  8월 기여이익
+                                  기여이익
                                 </span>
                               </th>
                             </tr>
@@ -2397,7 +2392,27 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   {" "}
                                   <td className="db-td fb-cell" style={{ padding: "4px 6px" }}>
                                     {s.costEmpty && (
-                                        <input className="v-input" style={{ height: "26px", fontSize: "12px", width: "96px", textAlign: "right", borderColor: "var(--pnl-warn)" }} value={vals.costDraft} onChange={vals.setCostDraft} onClick={vals.stopEvt} onBlur={s.saveCost} placeholder="원가 입력" />
+                                        <span data-s21="cost-input" style={{ display: "grid", gap: "3px", justifyItems: "end" }} onClick={vals.stopEvt}>
+                                          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                            <input className="v-input" style={{ height: "26px", fontSize: "12px", width: "84px", textAlign: "right" }} value={s.costDraft} onChange={s.setCost} placeholder="원가" inputMode="numeric" />
+                                            {" "}
+                                            <input className="v-input" type="date" style={{ height: "26px", fontSize: "11px", width: "126px" }} value={s.dateDraft} onChange={s.setDate} />
+                                            {" "}
+                                            <button className="v-btn" style={{ height: "26px", padding: "0 8px", fontSize: "11px", opacity: s.saveOpacity }} onClick={s.saveCost} disabled={!s.canSave}>
+                                              저장
+                                            </button>
+                                          </span>
+                                          {s.saveWhy !== "" && (
+                                              <span style={{ font: "var(--fw-regular) 10px/1.4 var(--font-sans)", color: "var(--pnl-neg, #EB5757)" }}>
+                                                {s.saveWhy}
+                                              </span>
+                                          )}
+                                          {s.histNote !== "" && (
+                                              <span style={{ font: "var(--fw-regular) 10px/1.4 var(--font-sans)", color: "var(--fg-4)" }}>
+                                                {s.histNote}
+                                              </span>
+                                          )}
+                                        </span>
                                     )}
                                     {" "}
                                     {s.costFilled && (
