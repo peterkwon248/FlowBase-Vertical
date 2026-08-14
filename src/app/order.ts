@@ -29,11 +29,21 @@ const CLAIM_LABEL: Record<string, string> = {
   REFUND: "환불",
 }
 
+/**
+ * ★ 조건 (d)의 어휘를 대시보드와 맞춘다 ★
+ *
+ * 이중 기록 이후 판매 건수에는 취소된 것도 들어 있다. 대시보드가 이미
+ * «판매 155건 · 취소 9건»으로 짝을 쓰므로(`dashboard.ts`) 주문 화면도 같은 말을
+ * 쓴다 — 두 화면이 다른 낱말로 같은 수를 부르면 사용자가 대조하다 옛 146을 찾는다.
+ *
+ * **취소는 `kind`가 아니라 `claimType`으로 센다.** 취소된 판매는 통합되어
+ * `kind === "order"`인 채로 취소를 달고 있다.
+ */
 export function orderScopeLine(rows: readonly OrderRow[], period: Period): string {
-  const orders = rows.filter((r) => r.kind === "order").length
-  const claims = rows.length - orders
+  const sales = rows.filter((r) => r.kind === "order").length
+  const claims = rows.filter((r) => r.claimType !== null).length
   if (rows.length === 0) return `${period.from} ~ ${period.to}`
-  return `${period.from} ~ ${period.to} · 주문 ${won(orders)}건 · 클레임 ${won(claims)}건`
+  return `${period.from} ~ ${period.to} · 판매 ${won(sales)}건 · 취소 ${won(claims)}건`
 }
 
 export function orderVals(
@@ -45,9 +55,35 @@ export function orderVals(
   vals.orderScope = orderScopeLine(rows, period)
 
   vals.orderRows = rows.map((r) => {
+    /** 홀로 선 클레임 행인가. **«취소가 있는가»와 다른 질문이다.** */
     const claim = r.kind === "claim"
+    /**
+     * 취소 칩의 문구. 통합 행이든 홀로 선 행이든 같은 말을 쓴다.
+     *
+     * ★ 추정 표기가 날짜에서 여기로 옮겨왔다 ★ 통합 행이 찍는 날짜는 **결제일**이라
+     * 추정이 아니다. 거기에 «(추정)»을 붙이면 파일이 준 사실을 추정이라 부르는
+     * 새 거짓말이 된다. 추정인 것은 클레임 **발생일**이므로 취소 쪽에 붙인다
+     * (ADR-009 ①-보완 — «화면은 이 표기를 반드시 노출한다»).
+     */
+    const claimLabel =
+      r.claimType === null
+        ? NONE
+        : [
+            CLAIM_LABEL[r.claimType] ?? r.claimType,
+            // ★ 부분 취소면 금액을 말한다 ★ 통합 행의 금액 열은 **판매액**을 찍는다.
+            // 전액 취소는 두 수가 같아 덧붙일 게 없지만, 부분 환불이면 통합하면서
+            // 클레임 행이 말하던 금액이 사라진다 — 조건은 데이터에서 판정한다
+            // (ADR-009 ①-보완 3의 3번: «표기는 있을 때만 말한다»).
+            r.claimAmount !== r.amount ? `${won(r.claimAmount)}원` : null,
+            // 이 행이 찍는 날짜가 **이미** 추정이라고 말했으면 되풀이하지 않는다.
+            // 홀로 선 클레임 행이 그렇다 — 거기서는 날짜가 곧 클레임 발생일이라
+            // «2026-07-13 (추정) · 반품 · 일자 추정»으로 한 행이 두 번 말하게 된다.
+            r.claimDateEstimated && !r.dateEstimated ? "일자 추정" : null,
+          ]
+            .filter((x) => x !== null)
+            .join(" · ")
     return {
-      // 결제일시 — 클레임은 발생일이다. 추정이면 그 사실을 옆에 붙인다
+      // 결제일시 — 홀로 선 클레임은 발생일이다. 추정이면 그 사실을 옆에 붙인다
       // (§20 계열 — 정확도를 숨기지 않는다).
       at: r.dateEstimated ? `${r.at} (추정)` : r.at,
       // 마켓 주문번호 — **아직 저장하지 않는다.**
@@ -61,6 +97,8 @@ export function orderVals(
       // 아직 품목 테이블로 매핑하지 않았다 (프로파일 스코프 밖).
       item: claim ? `클레임 · ${CLAIM_LABEL[r.claimType ?? ""] ?? r.claimType ?? ""}` : NONE,
       itemColor: claim ? WARN : DIM,
+      // ↑ 홀로 선 클레임만 여기서 자기 성격을 말한다. 통합 행의 취소는 **취소 열**이
+      // 말하므로(아래 `claim`), 상품 열까지 쓰면 한 행이 같은 말을 두 번 한다.
       // 연결하기 — 상품 연결은 쓰기 경로다. 어포던스를 그리지 않는다.
       unlinked: false,
       qty: NONE,
@@ -70,8 +108,8 @@ export function orderVals(
       // (단일 계산기 LOCK).
       net: NONE,
       netColor: DIM,
-      claim: claim ? (CLAIM_LABEL[r.claimType ?? ""] ?? r.claimType ?? "") : NONE,
-      claimColor: claim ? WARN : DIM,
+      claim: claimLabel,
+      claimColor: r.claimType === null ? DIM : WARN,
       // 출처 — 우리는 파일 가져오기뿐이다 (LOCK 10).
       src: "파일",
       click: () => {},
