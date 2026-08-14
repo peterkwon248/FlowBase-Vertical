@@ -266,8 +266,24 @@ export interface TemplateVals {
   heroLabel: string
   heroNet: string
   heroRev: string
+  impBig: boolean
+  impBusy: boolean
+  impCanRun: boolean
   impChannelName: string
+  impDigest: readonly any[]
+  impDigestTitle: string
+  impDone: boolean
+  impDupNote: string
+  impError: string
+  impExcludedLabel: string
+  impHasError: boolean
+  impManySheets: boolean
   importCounts: readonly any[]
+  impPick: (...args: any[]) => void
+  impReset: (...args: any[]) => void
+  impRun: (...args: any[]) => void
+  impRunLabel: string
+  impSheets: readonly any[]
   impSteps: readonly any[]
   isDraftTab: boolean
   isReport: boolean
@@ -778,8 +794,24 @@ export function emptyVals(): TemplateVals {
     heroLabel: "",
     heroNet: "",
     heroRev: "",
+    impBig: false,
+    impBusy: false,
+    impCanRun: false,
     impChannelName: "",
+    impDigest: [],
+    impDigestTitle: "",
+    impDone: false,
+    impDupNote: "",
+    impError: "",
+    impExcludedLabel: "",
+    impHasError: false,
+    impManySheets: false,
     importCounts: [],
+    impPick: () => {},
+    impReset: () => {},
+    impRun: () => {},
+    impRunLabel: "",
+    impSheets: [],
     impSteps: [],
     isDraftTab: false,
     isReport: false,

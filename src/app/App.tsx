@@ -27,7 +27,11 @@ import { dashboardVals } from "./dashboard.js"
 import { settlementVals } from "./settlement.js"
 import { orderVals } from "./order.js"
 import { linkingVals, type LinkTab, type LinkingActions } from "./linking.js"
-import { DEV_LIBRARY, DEV_PERIOD, loadDevSnapshot, nowStamp, writeThenReload, type LoadResult } from "./data.js"
+import { importVals, BIG_FILE_BYTES, EMPTY_WIZARD, type ImportActions, type ImportWizardState } from "./import.js"
+import { analyzeImport } from "@core/import/analyze.js"
+import { runImport } from "@core/import/run.js"
+import { loadProfiles } from "@packs/kr-marketplace/profiles/index.js"
+import { DEV_LIBRARY, DEV_PERIOD, loadDevSnapshot, nowStamp, readDigest, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import type { SettlementRow } from "@core/settlement/rows.js"
 import type { OrderRow } from "@core/order/rows.js"
@@ -155,6 +159,101 @@ export function App(): React.JSX.Element {
     },
   }
 
+  // ── 가져오기 위저드 ──────────────────────────────────────────────
+  // 파일은 **웹 표준 `<input type="file">`**로 받는다 (ADR-013 — IPC 표면 0).
+  const [wiz, setWiz] = useState<ImportWizardState>(EMPTY_WIZARD)
+  const wizBytes = useRef<Uint8Array | null>(null)
+
+  /** 분석은 DB를 건드리지 않는다. 몇 번을 불러도 같은 답이라 시트 바꾸기가 싸다. */
+  const analyze = useCallback(async (bytes: Uint8Array, name: string, sheetIndex: number) => {
+    try {
+      const analysis = await analyzeImport(bytes, name, loadProfiles(), { sheetIndex })
+      setWiz((w) => ({ ...w, analysis, profileIndex: 0, error: null, busy: false }))
+    } catch (e) {
+      setWiz((w) => ({
+        ...w,
+        analysis: null,
+        busy: false,
+        error: e instanceof Error ? e.message : String(e),
+      }))
+    }
+  }, [])
+
+  const importActions: ImportActions = {
+    pickFile: (ev: unknown) => {
+      const input = (ev as { target?: { files?: FileList | null } } | null)?.target
+      const file = input?.files?.[0]
+      if (!file) return
+      // ★ 열기 **전에** 판정한다 ★ 큰 파일이면 화면이 멈출 수 있다고 미리 말한다.
+      // 메인 스레드에서 도는 동안은 이 고지가 유일한 방어다 (ADR-001 조건 2 부채).
+      setWiz({ ...EMPTY_WIZARD, busy: true, bigFile: file.size >= BIG_FILE_BYTES })
+      void file.arrayBuffer().then((buf) => {
+        const bytes = new Uint8Array(buf)
+        wizBytes.current = bytes
+        void analyze(bytes, file.name, 0)
+      })
+    },
+    pickProfile: (i) => setWiz((w) => ({ ...w, profileIndex: i })),
+    pickSheet: (i) => {
+      const bytes = wizBytes.current
+      const name = wiz.analysis?.fileName
+      if (!bytes || name === undefined) return
+      void analyze(bytes, name, i)
+    },
+    confirm: () => {
+      const bytes = wizBytes.current
+      const a = wiz.analysis
+      const match = a?.profiles[wiz.profileIndex]
+      if (!bytes || !a || !match || wiz.busy) return
+
+      setWiz((w) => ({ ...w, busy: true, error: null }))
+      const stamp = nowStamp()
+      // batch id는 시각으로 만든다. 같은 파일을 다시 넣으면 **새 batch**이고,
+      // 행은 `source_key`로 UPSERT된다 — 덮어쓰기가 아니라 쌓기다 (LOCK 2).
+      const batchId = `batch-${stamp.replace(/[^0-9]/g, "")}`
+      const connId = `conn-${match.profile.marketplaceKey}`
+
+      void writeThenReload(async (repo) => {
+        await repo.ensureLibrary(DEV_LIBRARY, "기본", stamp)
+        await repo.ensureConnection(
+          {
+            id: connId,
+            libraryId: DEV_LIBRARY,
+            packId: match.profile.packId,
+            marketplaceKey: match.profile.marketplaceKey,
+            displayName: match.profile.displayName,
+          },
+          stamp,
+        )
+        await runImport(repo, {
+          bytes,
+          fileName: a.fileName,
+          profile: match.profile,
+          sheetIndex: a.sheetIndex,
+          libraryId: DEV_LIBRARY,
+          connectionId: connId,
+          batchId,
+          now: stamp,
+        })
+      }).then((r) => {
+        if (r.error) {
+          setWiz((w) => ({ ...w, busy: false, error: r.error }))
+          return
+        }
+        take(r)
+        // 다이제스트는 **적재 뒤에 다시 읽는다.** 넣으면서 센 것을 그대로 쓰지 않는
+        // 이유는 화면이 말하는 수가 DB가 아는 수여야 하기 때문이다.
+        void readDigest(batchId).then((digest) =>
+          setWiz((w) => ({ ...w, busy: false, digest, error: null })),
+        )
+      })
+    },
+    reset: () => {
+      wizBytes.current = null
+      setWiz(EMPTY_WIZARD)
+    },
+  }
+
   const go = useCallback((view: NavKey) => setState((s) => ({ ...s, view })), [])
   const toggleNav = useCallback(
     () => setState((s) => ({ ...s, navCollapsed: !s.navCollapsed })),
@@ -189,6 +288,7 @@ export function App(): React.JSX.Element {
   // 하나도 없으면 "연결할 것이 없습니다"가 떠야 하기 때문이다 — 목업의 빈 상태가
   // 그 자리에 이미 있다.
   if (linking) linkingVals(vals, linking, linkTab, picked, linkActions)
+  importVals(vals, wiz, importActions)
 
   return <Template vals={vals} />
 }

@@ -4217,6 +4217,39 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                       </div>
                   )}
                   {" "}
+                  {!vals.srcWizard && (
+                      <div data-s21="import-pick" style={{ border: "1px dashed var(--border-strong)", borderRadius: "var(--r-lg)", padding: "34px 24px", display: "grid", gap: "12px", justifyItems: "center", background: "var(--bg-subtle)" }}>
+                        <span style={{ width: "44px", height: "44px", borderRadius: "var(--r-md)", background: "var(--bg-elevated-2)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--fg-3)" }}>
+                          <Lic name="file-spreadsheet" size={20} />
+                        </span>
+                        {" "}
+                        <span style={{ display: "grid", gap: "4px", justifyItems: "center", textAlign: "center" }}>
+                          <span style={{ font: "var(--fw-semi) 14px var(--font-sans)", color: "var(--fg)" }}>
+                            정산 파일을 고르세요
+                          </span>
+                          {" "}
+                          <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                            CSV · XLSX · XLS — 넣기 전에 무엇이 들어갈지 먼저 보여드립니다
+                          </span>
+                        </span>
+                        {" "}
+                        <label className="v-btn v-btn--primary" style={{ height: "30px", marginTop: "2px", cursor: "pointer", display: "inline-flex", alignItems: "center", padding: "0 12px" }}>
+                          파일 선택
+                          <input type="file" style={{ display: "none" }} onChange={vals.impPick} />
+                        </label>
+                      </div>
+                  )}
+                  {" "}
+                  {vals.impHasError && (
+                      <div data-s21="import-error" style={{ marginTop: "12px", display: "flex", alignItems: "flex-start", gap: "8px", padding: "11px 12px", borderRadius: "var(--r-sm)", background: "rgba(235,87,87,0.1)", font: "var(--fw-regular) 12px/1.6 var(--font-sans)", color: "var(--fg-2)" }}>
+                        <Lic name="triangle-alert" size={14} color="var(--pnl-neg)" />
+                        {" "}
+                        <span>
+                          {vals.impError}
+                        </span>
+                      </div>
+                  )}
+                  {" "}
                   {vals.srcWizard && (
                     <>
                       <div style={{ display: "flex", alignItems: "center", gap: "11px", border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "13px 14px" }}>
@@ -4236,10 +4269,48 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                         {" "}
                         <span style={{ flex: "1" }}></span>
                         {" "}
-                        <button className="v-btn" style={{ height: "28px" }}>
+                        <button className="v-btn" style={{ height: "28px" }} onClick={vals.impReset}>
                           {vals.srcSwap}
                         </button>
                       </div>
+                      {" "}
+                      {vals.impBig && (
+                          <div data-s21="import-big" style={{ marginTop: "12px", display: "flex", alignItems: "flex-start", gap: "8px", padding: "11px 12px", borderRadius: "var(--r-sm)", background: "rgba(242,201,76,0.1)", font: "var(--fw-regular) 12px/1.6 var(--font-sans)", color: "var(--fg-2)" }}>
+                            <Lic name="triangle-alert" size={14} />
+                            {" "}
+                            <span>
+                              큰 파일입니다. 가져오는 동안 화면이 잠시 멈출 수 있습니다 — 앱이 멈춘 것이 아니라 파일을 읽고 있는 중입니다. 창을 닫지 말고 기다려 주세요.
+                            </span>
+                          </div>
+                      )}
+                      {" "}
+                      {vals.impManySheets && (
+                          <div data-s21="import-sheets" style={{ marginTop: "12px", border: "1px solid var(--border)", borderRadius: "var(--r-md)", overflow: "hidden" }}>
+                            <div style={{ display: "flex", alignItems: "baseline", gap: "8px", padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
+                              <span style={{ font: "var(--fw-semi) 13px var(--font-sans)", color: "var(--fg)" }}>
+                                시트 고르기
+                              </span>
+                              {" "}
+                              <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                                이 파일에는 시트가 여럿입니다. 수식으로 계산된 시트를 사실로 넣으면 숫자가 두 번 더해집니다.
+                              </span>
+                            </div>
+                            {" "}
+                            <div style={{ display: "grid" }}>
+                              {vals.impSheets.map((s: any, $index: number) => (
+                                  <span key={$index} className={`fb-row ${s.on}`} style={{ display: "flex", alignItems: "baseline", gap: "10px", padding: "9px 12px", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={s.pick}>
+                                    <span style={{ font: "var(--fw-semi) 12px var(--font-sans)", color: "var(--fg)", minWidth: "140px" }}>
+                                      {s.label}
+                                    </span>
+                                    {" "}
+                                    <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: s.color }}>
+                                      {s.note}
+                                    </span>
+                                  </span>
+                              ))}
+                            </div>
+                          </div>
+                      )}
                       {" "}
                       <div style={{ display: "flex", alignItems: "flex-start", gap: "8px", marginTop: "12px", padding: "11px 12px", borderRadius: "var(--r-sm)", background: "rgba(242,201,76,0.1)", font: "var(--fw-regular) 12px/1.6 var(--font-sans)", color: "var(--fg-2)" }}>
                         <Lic name="triangle-alert" size={14} />
@@ -4366,7 +4437,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                       <div style={{ marginTop: "12px", border: "1px solid var(--border)", borderRadius: "var(--r-md)", overflow: "hidden" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
                           <span style={{ font: "var(--fw-semi) 13px var(--font-sans)", color: "var(--fg)" }}>
-                            오류 3건 — 가져오기에서 제외
+                            {vals.impExcludedLabel}
                           </span>
                           {" "}
                           <span style={{ flex: "1" }}></span>
@@ -4397,7 +4468,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                       {" "}
                       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "14px" }}>
                         <span style={{ font: "var(--fw-regular) 12px var(--font-sans)", color: "var(--fg-4)" }}>
-                          source_key 기준 중복 7건은 UPSERT 처리됩니다.
+                          {vals.impDupNote}
                         </span>
                         {" "}
                         {vals.urlImported && (
@@ -4420,10 +4491,48 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                           매핑 수정
                         </button>
                         {" "}
-                        <button className="v-btn v-btn--primary" onClick={vals.go.settlement}>
-                          확인하고 가져오기
-                        </button>
+                        {vals.impCanRun && (
+                            <button className="v-btn v-btn--primary" onClick={vals.impRun}>
+                              {vals.impRunLabel}
+                            </button>
+                        )}
                       </div>
+                      {" "}
+                      {vals.impDone && (
+                          <div data-s21="import-digest" style={{ marginTop: "14px", border: "1px solid var(--pnl-pos)", borderRadius: "var(--r-md)", overflow: "hidden" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
+                              <Lic name="check" size={15} color="var(--pnl-pos)" />
+                              {" "}
+                              <span style={{ font: "var(--fw-semi) 13px var(--font-sans)", color: "var(--fg)" }}>
+                                {vals.impDigestTitle}
+                              </span>
+                              {" "}
+                              <span style={{ flex: "1" }}></span>
+                              {" "}
+                              <button className="v-btn" style={{ height: "26px" }} onClick={vals.impReset}>
+                                다른 파일 가져오기
+                              </button>
+                            </div>
+                            {" "}
+                            <div style={{ padding: "10px 14px", display: "grid", gap: "6px" }}>
+                              <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                                읽지 못해 뺀 행 — 사유별
+                              </span>
+                              {" "}
+                              {vals.impDigest.map((x: any, $index: number) => (
+                                  <span key={$index} style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
+                                    <span className="v-num" style={{ font: "var(--fw-semi) 12px var(--font-mono)", color: x.color, minWidth: "48px" }}>
+                                      {x.value}
+                                    </span>
+                                    {" "}
+                                    <span style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-2)" }}>
+                                      {x.label}
+                                    </span>
+                                  </span>
+                              ))}
+                            </div>
+                          </div>
+                      )}
                     </>
                   )}
                 </section>

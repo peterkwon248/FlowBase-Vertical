@@ -148,6 +148,87 @@ const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[
       "**배선 시 제거** — 진단이 배선되면 세 홀 모두 사라지고 `firstRun`/`notFirstRun`로 돌아간다",
   },
 
+  // ── 위저드의 시드 숫자 두 개 (결함 52) ────────────────────────────────
+  // 목업이 «오류 3건»과 «중복 7건»을 **숫자째 박아** 뒀다. 시드의 수를 사실인 척한
+  // 것이라 결함 47(헤더 부제의 «2026년 8월»)과 같은 계열이다. 데이터에서 뽑는다.
+  {
+    field: "texts",
+    from: ["오류 3건 — 가져오기에서 제외"],
+    to: [],
+    why:
+      "결함 52 — 시드의 «3»이 박혀 있었다. `{impExcludedLabel}`로 데이터에서 뽑는다. " +
+      "0건이면 «제외된 행이 없습니다»라고 말하고, 있으면 **«미리보기 범위에서»**라는 " +
+      "단서를 붙인다 — 전체 수인 척하면 사용자가 그 수를 믿는다",
+  },
+  {
+    field: "texts",
+    from: ["source_key 기준 중복 7건은 UPSERT 처리됩니다."],
+    to: [],
+    why:
+      "결함 52 — 시드의 «7»이 박혀 있었다. 게다가 **UPSERT 건수는 넣어봐야 안다** — " +
+      "넣기 전에 셀 수 없는 수다. 그래서 숫자를 빼고 동작만 설명하는 문장으로 바꿨다 " +
+      "(`{impDupNote}`). 모르는 것을 숫자로 말하지 않는다",
+  },
+  {
+    field: "holes",
+    from: ["errRows", "e.row"],
+    to: ["impExcludedLabel", "errRows", "e.row"],
+    why: "위 «오류 N건» 카피가 정적 텍스트에서 동적 자리로 바뀐 자국",
+  },
+  {
+    field: "holes",
+    from: ["urlImported"],
+    to: ["impDupNote", "urlImported"],
+    why: "위 «중복 N건» 카피가 동적 자리로 바뀐 자국",
+  },
+  {
+    field: "holes",
+    from: ["srcWizard", "srcName"],
+    to: ["!vals.srcWizard", "impHasError", "srcWizard", "srcName"],
+    why:
+      "위저드 앞에 **파일을 고르는 자리와 실패를 말하는 자리**가 붙었다. 목업은 " +
+      "`srcWizard`가 참인 상태부터 그려서 파일이 없을 때 아무것도 렌더되지 않았다 — " +
+      "구간 자체는 `S21_REGIONS`가 빼지만 그것을 감싼 조건은 부모에 남는다",
+  },
+  {
+    field: "holes",
+    from: ["srcSwap", "profileTabs"],
+    to: ["impReset", "srcSwap", "impBig", "impManySheets", "profileTabs"],
+    why:
+      "«다른 파일» 버튼이 목업에서는 **핸들러가 없었다** — 실제로 되돌아갈 수 있게 붙였다. " +
+      "그 뒤의 `impBig`·`impManySheets`는 큰 파일 고지와 §18 시트 선택 구간을 감싼 조건이다",
+  },
+  {
+    field: "holes",
+    from: ["go.settlement", "v.sync"],
+    to: ["impCanRun", "impRun", "impRunLabel", "impDone", "v.sync"],
+    why:
+      "실행 버튼이 조건 뒤로 들어가고(맞는 프로파일이 없으면 그리지 않는다) 라벨이 " +
+      "상태를 말한다. 뒤의 `impDone`은 다이제스트 구간을 감싼 조건이다 — 적재가 끝나야 뜬다",
+  },
+  {
+    field: "attrs",
+    from: ["name=triangle-alert", "size=14", "class=segmented"],
+    to: ["onClick={impReset}", "name=triangle-alert", "size=14", "class=segmented"],
+    why: "위 «다른 파일» 핸들러의 짝 — attrs는 속성 원문도 따로 세므로 함께 선언한다",
+  },
+  {
+    field: "attrs",
+    from: ["class=v-btn v-btn--primary", "onClick={go.settlement}"],
+    to: ["class=v-btn v-btn--primary", "onClick={impRun}"],
+    why: "실행 버튼이 **화면 이동이 아니라 적재**를 한다. 목업은 정산 화면으로 보내기만 했다",
+  },
+  {
+    field: "texts",
+    from: ["확인하고 가져오기"],
+    to: [],
+    why:
+      "실행 버튼의 라벨이 상태를 말한다 — 도는 동안 «가져오는 중…». 메인 스레드라 " +
+      "화면이 멈추므로(ADR-001 조건 2 부채) 버튼이 마지막으로 남긴 말이 «지금 뭘 하는 " +
+      "중인지»여야 한다. 그리고 맞는 프로파일이 없으면 **버튼 자체가 없다** — 누를 수 " +
+      "없는 것을 그려놓고 막지 않는다 (§21-1 계열)",
+  },
+
   // ── LOCK 10 «동기화» 전수 (결함 50) ───────────────────────────────────
   {
     field: "texts",
@@ -426,6 +507,53 @@ const S21_REGIONS = [
       "**등록이 안 된 줄 알았다.** 실제로는 sku 16행이 들어가 있었다. 침묵이 «없다»가 아니라 " +
       "«내 작업이 날아갔다»로 읽힌 사례이고, 그래서 문구가 진단과 다르다 — 여기서 할 말은 " +
       '"당신 작업은 저장돼 있고 지금은 상품 연결의 «연결됨» 탭에서 볼 수 있다"이다',
+  },
+  // ── 가져오기 위저드 — 목업에 없던 다섯 자리 ────────────────────────────
+  // 목업 위저드는 «파일이 이미 골라진 세계»를 그렸다. 고르는 자리도, 시트를 고르는
+  // 자리도, 넣은 뒤의 결과도 없다. §21-6 ②와 같은 «전제의 시차»다.
+  {
+    id: "import-pick",
+    mockupStyle: null,
+    removeWhenWired: null,
+    why:
+      "파일을 고르는 자리 — 신설. 목업 위저드는 `srcWizard`가 참인 상태부터 그려서 " +
+      "**파일이 없을 때 아무것도 렌더되지 않는다.** ADR-013대로 웹 표준 " +
+      '`<input type="file">`이고 IPC 표면이 0이다',
+  },
+  {
+    id: "import-error",
+    mockupStyle: null,
+    removeWhenWired: null,
+    why: "실패 사유를 말하는 자리 — 신설. 못 읽은 이유를 숨기지 않는다 (LOCK 6)",
+  },
+  {
+    id: "import-big",
+    mockupStyle: null,
+    removeWhenWired: null,
+    why:
+      "큰 파일 고지 — 신설. 위저드 v1은 파이프라인을 **메인 스레드**에서 돌린다 " +
+      "(ADR-001 조건 2 위반 · 인지된 부채). 8만 행이면 9.5~10.4초 화면이 멈추는데, " +
+      "**고지 없는 프리즈는 강제 종료를 부른다** — 사용자의 자연스러운 반응이 " +
+      '"죽었나?"이기 때문이다. 미리 말하면 같은 10초가 "크니까 그렇구나"가 된다. ' +
+      "Worker로 옮기면 이 구간을 지운다",
+  },
+  {
+    id: "import-sheets",
+    mockupStyle: null,
+    removeWhenWired: null,
+    why:
+      "§18 시트 선택 — 신설. 시트가 여럿일 때만 뜬다. 역할·행수·수식비율을 함께 보이는데, " +
+      "**수식으로 계산된 시트를 사실로 적재하면 숫자가 두 번 더해진다** — 그 판단 재료를 " +
+      "사람에게 넘기는 것이 §18-A/B의 요구다",
+  },
+  {
+    id: "import-digest",
+    mockupStyle: null,
+    removeWhenWired: null,
+    why:
+      "다이제스트 — 신설. **`batch_exclusion`을 사유별로 읽는 첫 화면이다.** 그 테이블은 " +
+      "지금까지 넣기만 하고 아무도 읽지 않았다 — 「128행 적재」만 말하고 제외 2건을 두고 " +
+      "오면 그게 곧 조용한 실패다 (LOCK 6)",
   },
   {
     id: "link-bulk",

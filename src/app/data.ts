@@ -19,7 +19,7 @@ import { loadPnlSnapshot, type PnlSnapshot } from "@core/profit/snapshot.js"
 import { loadSettlementRows, type SettlementRow } from "@core/settlement/rows.js"
 import { loadOrderRows, type OrderRow } from "@core/order/rows.js"
 import { loadLinkingView, type LinkingView } from "@core/linking/view.js"
-import { Repository } from "@core/store/repository.js"
+import { Repository, type BatchDigest } from "@core/store/repository.js"
 import { krLinkingMatcher } from "@packs/kr-marketplace/linking-matcher.js"
 import type { Period } from "@core/profit/index.js"
 
@@ -111,3 +111,22 @@ export async function writeThenReload(
 
 /** 쓰기 시각. 되돌리기·이력이 이 값을 본다 (ADR-004). */
 export const nowStamp = (): string => new Date().toISOString().slice(0, 19)
+
+/**
+ * 방금 넣은 batch가 무엇을 했는지 다시 읽는다.
+ *
+ * 적재하면서 센 수를 그대로 화면에 쓰지 않는 이유는 **화면이 말하는 수가 DB가
+ * 아는 수여야** 하기 때문이다 — 쓰기 뒤에 다시 조회하는 `writeThenReload`와 같은 규율이다.
+ */
+export async function readDigest(batchId: string): Promise<BatchDigest | null> {
+  try {
+    const db = await openTauriDriver(DEV_DB_PATH, { pragmas: false })
+    try {
+      return (await new Repository(db).batchDigest(batchId)) ?? null
+    } finally {
+      await db.close()
+    }
+  } catch {
+    return null
+  }
+}
