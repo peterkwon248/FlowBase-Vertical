@@ -129,6 +129,16 @@ const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[
   // 미구현 화면에서는 온보딩도 본문도 그리지 않으므로 두 조건이 함께 바뀐다.
   {
     field: "holes",
+    from: ["prodTabs"],
+    to: ["prodUnbuilt", "prodReady", "prodTabs"],
+    why:
+      "§21-7 — 상품 화면. `prodUnbuilt`는 신설 안내 블록을 감싼 조건이고, `prodReady`는 " +
+      "본문 전체를 감싼 조건이다. 이 화면은 진단과 달리 목업에 온보딩 빈 상태조차 없어서 " +
+      "(`firstRun` 분기가 없다) **아무 조건도 없이 빈 껍데기를 그리고 있었다.** " +
+      "**배선 시 제거** — 상품이 배선되면 두 홀이 사라진다",
+  },
+  {
+    field: "holes",
     from: ["firstRun", "goImport", "notFirstRun", "diagTabs"],
     to: ["diagUnbuilt", "diagOnboard", "goImport", "diagReady", "diagTabs"],
     why:
@@ -376,6 +386,16 @@ const S21_REGIONS = [
       "firstRun/notFirstRun 둘뿐이었다(시드가 전 화면을 채웠으니 그걸로 족했다). 실제로는 " +
       "«데이터는 있는데 이 화면을 아직 만들지 않았다»라는 세 번째 상태가 있고, 그때 화면이 " +
       "침묵하면 사용자는 «없다»가 아니라 «깨졌다»로 읽는다. 2d에서 실제로 그렇게 읽혔다",
+  },
+  {
+    id: "unbuilt-products",
+    mockupStyle: null,
+    removeWhenWired: "products",
+    why:
+      "§21-7 — 상품 화면. 2d에서 사용자가 [새 SKU로 등록]을 16번 눌렀는데 이 화면이 백지라 " +
+      "**등록이 안 된 줄 알았다.** 실제로는 sku 16행이 들어가 있었다. 침묵이 «없다»가 아니라 " +
+      "«내 작업이 날아갔다»로 읽힌 사례이고, 그래서 문구가 진단과 다르다 — 여기서 할 말은 " +
+      '"당신 작업은 저장돼 있고 지금은 상품 연결의 «연결됨» 탭에서 볼 수 있다"이다',
   },
   {
     id: "link-bulk",

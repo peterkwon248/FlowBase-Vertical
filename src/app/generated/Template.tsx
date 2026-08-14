@@ -2240,6 +2240,30 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
             {" "}
             {vals.v.products && (
                 <section data-screen-label="상품 SKU">
+                  {vals.prodUnbuilt && (
+                      <div data-s21="unbuilt-products" style={{ padding: "56px 24px", display: "grid", justifyItems: "center", gap: "13px" }}>
+                        <span style={{ width: "40px", height: "40px", borderRadius: "var(--r-md)", background: "var(--bg-elevated-2)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--fg-4)" }}>
+                          <Lic name="package" size={19} />
+                        </span>
+                        {" "}
+                        <span style={{ display: "grid", gap: "5px", justifyItems: "center", textAlign: "center", maxWidth: "420px" }}>
+                          <span style={{ font: "var(--fw-semi) 14px var(--font-sans)", color: "var(--fg)" }}>
+                            상품 화면은 아직 만들지 않았습니다
+                          </span>
+                          {" "}
+                          <span style={{ font: "var(--fw-regular) 12px/1.7 var(--font-sans)", color: "var(--fg-4)", textWrap: "pretty" }}>
+                            등록한 SKU는 저장돼 있습니다 — 이 화면이 아직 그걸 읽지 못할 뿐입니다. 지금은 상품 연결 화면의 «연결됨» 탭에서 확인할 수 있습니다.
+                          </span>
+                        </span>
+                        {" "}
+                        <button className="v-btn v-btn--primary" style={{ height: "30px" }} onClick={vals.go.linking}>
+                          상품 연결로 가기
+                        </button>
+                      </div>
+                  )}
+                  {" "}
+                  {vals.prodReady && (
+                  <>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
                     <div className="segmented">
                       {vals.prodTabs.map((t: any, $index: number) => (
@@ -2413,6 +2437,8 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                           </tbody>
                         </table>
                       </div>
+                  )}
+                  </>
                   )}
                 </section>
             )}

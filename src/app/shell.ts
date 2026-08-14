@@ -246,7 +246,7 @@ export function shellVals(state: ShellState, actions: ShellActions): TemplateVal
  * 안내 블록도 함께 지운다 — `convert-gate`의 구간 선언에 «배선 시 제거»로 표기해
  * §21 대장에서 추적한다. 남겨두면 배선이 끝난 화면이 계속 "준비 중"이라고 말한다.
  */
-export const UNBUILT: readonly NavKey[] = ["diag"]
+export const UNBUILT: readonly NavKey[] = ["diag", "products"]
 
 function applyUnbuilt(vals: TemplateVals, firstRun: boolean): void {
   const unbuilt = (key: NavKey): boolean => UNBUILT.includes(key)
@@ -256,4 +256,17 @@ function applyUnbuilt(vals: TemplateVals, firstRun: boolean): void {
   vals.diagUnbuilt = unbuilt("diag")
   vals.diagOnboard = firstRun && !vals.diagUnbuilt
   vals.diagReady = !firstRun && !vals.diagUnbuilt
+
+  /**
+   * ★ 상품은 «데이터가 없어서»가 아니라 «화면이 없어서» 비어 있다 ★
+   *
+   * 사용자가 2d에서 [새 SKU로 등록]을 16번 눌렀는데 상품 화면이 백지라
+   * **등록이 안 된 줄 알았다.** 실제로는 `sku` 16행이 멀쩡히 들어가 있었다.
+   *
+   * 침묵의 대가가 여기서 드러났다 — 빈 화면이 «없다»가 아니라 «내 작업이
+   * 날아갔다»로 읽혔다. 진단(선행 조건 부재)과 문구가 다른 이유가 그것이다.
+   * 여기서 할 말은 **"당신 작업은 저장돼 있고, 지금은 저기서 볼 수 있다"**이다.
+   */
+  vals.prodUnbuilt = unbuilt("products")
+  vals.prodReady = !vals.prodUnbuilt
 }

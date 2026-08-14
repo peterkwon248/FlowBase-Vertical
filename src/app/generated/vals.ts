@@ -393,7 +393,9 @@ export interface TemplateVals {
   printReport: (...args: any[]) => void
   prodHint: string
   prodListTab: boolean
+  prodReady: boolean
   prodTabs: readonly any[]
+  prodUnbuilt: boolean
   profileMeta: string
   profileTabs: readonly any[]
   quadDots: readonly any[]
@@ -889,7 +891,9 @@ export function emptyVals(): TemplateVals {
     printReport: () => {},
     prodHint: "",
     prodListTab: false,
+    prodReady: false,
     prodTabs: [],
+    prodUnbuilt: true,
     profileMeta: "",
     profileTabs: [],
     quadDots: [],
