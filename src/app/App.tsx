@@ -21,7 +21,7 @@
  * **시드를 넣어 채워 보이지 않는다.** 화면이 비어 보이는 것이 지금의 사실이다.
  */
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Template } from "./generated/Template.js"
 import { dashboardVals } from "./dashboard.js"
 import { settlementVals } from "./settlement.js"
@@ -91,9 +91,25 @@ export function App(): React.JSX.Element {
   const [linkTab, setLinkTab] = useState<LinkTab>("todo")
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set())
 
+  /**
+   * ★ 쓰기가 도는 동안 다음 쓰기를 받지 않는다 ★
+   *
+   * 2d에서 사용자가 [새 SKU로 등록]을 두 번 눌러 고아 SKU가 남았다. 근본 방어는
+   * **리포지토리의 멱등성**이고(같은 리스팅이 두 번 와도 SKU가 둘이 되지 않는다),
+   * 이건 그 위에 얹는 UX층이다 — 두 번째 클릭이 아무 일도 안 하고 조용히 지나가면
+   * 사용자는 «눌렸나?»를 알 수 없으므로, 애초에 받지 않는 편이 낫다.
+   *
+   * `useRef`인 이유는 상태 갱신을 기다리지 않기 때문이다. `useState`로 하면
+   * 리렌더 전에 도착한 두 번째 클릭이 옛 값을 본다 — 막으려는 그 경우를 못 막는다.
+   */
+  const busy = useRef(false)
+
   const write = useCallback(
     (fn: Parameters<typeof writeThenReload>[0]) => {
+      if (busy.current) return
+      busy.current = true
       void writeThenReload(fn).then((r) => {
+        busy.current = false
         if (r.error) console.warn("[linking] 쓰기에 실패했다:", r.error)
         // 쓰기가 끝난 카드는 선택에 남아 있을 이유가 없다 — 다음 탭으로 갔다
         setPicked(new Set())

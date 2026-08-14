@@ -121,7 +121,7 @@ describe("연결 조회 — 카드가 행이다 (§21-6)", () => {
   it("이어진 것은 목적지(SKU)로 묶인다 — 채널이 섞여 한 카드가 된다", async () => {
     const v0 = await loadLinkingView(db, LIB, M)
     const fan = v0.todo.find((c) => c.title.startsWith("미니팬"))!
-    const skuId = await repo.createSkuForListings(LIB, fan.listings.map((l) => l.id), fan.title, NOW)
+    const { skuId: skuId } = await repo.createSkuForListings(LIB, fan.listings.map((l) => l.id), fan.title, NOW)
 
     const v = await loadLinkingView(db, LIB, M)
     expect(v.counts.todo, "미니팬 카드가 todo에서 빠진다").toBe(1)

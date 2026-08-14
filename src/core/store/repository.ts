@@ -78,6 +78,19 @@ export interface ExclusionRecord {
   readonly detail: string
 }
 
+/**
+ * `createSkuForListings`의 결과.
+ *
+ * `skuId`가 `null`이면 **아무것도 만들지 않았다** — 받은 리스팅이 전부 이미
+ * 이어져 있었다는 뜻이고, 같은 요청이 두 번 온 것이다. 화면은 이걸 오류로
+ * 다루지 않는다 (사용자는 같은 일을 두 번 시켰을 뿐 잘못한 게 없다).
+ */
+export interface CreateSkuResult {
+  readonly skuId: string | null
+  readonly linked: number
+  readonly alreadyLinked: number
+}
+
 /** 연결 하나. `displayName`은 프로파일이 선언한 **채널 통칭**이다 (문서 이름이 아니다). */
 export interface ConnectionUpsert {
   readonly id: string
@@ -281,10 +294,37 @@ export class Repository {
     listingIds: readonly string[],
     name: string,
     now: string,
-  ): Promise<string> {
+  ): Promise<CreateSkuResult> {
     if (listingIds.length === 0) throw new Error("연결할 리스팅이 없다")
 
     return this.db.transaction(async () => {
+      /**
+       * ★ 멱등 — 같은 요청이 두 번 와도 SKU가 둘이 되지 않는다 ★
+       *
+       * 2d에서 사용자가 한 카드의 [새 SKU로 등록]을 두 번 눌렀다. 두 번째 호출이
+       * **새 SKU를 하나 더 만들고 리스팅을 그리로 옮겨**, 첫 번째가 리스팅 0개짜리
+       * 고아로 남았다 (실측: sku 62 · 리스팅 붙은 SKU 61).
+       *
+       * 처음엔 "쓰기 도는 동안 버튼을 안 막았다"고 진단했는데 **반쪽이었다.**
+       * 잠금은 UX이고 이건 정확성이다 — 더블클릭 말고도 같은 요청이 두 번 갈
+       * 경로는 코드가 늘면 또 생긴다. 방어는 쓰기 함수 자신이 해야 한다.
+       *
+       * 이미 이어진 리스팅은 **건너뛰고 그 사실을 돌려준다.** 남는 것이 없으면
+       * SKU를 아예 만들지 않는다 — 그 «만들지 않음»이 고아를 막는 자리다.
+       */
+      const rows = await this.db
+        .prepare(
+          `SELECT id FROM marketplace_listing
+            WHERE link_state = 'linked' AND id IN (${listingIds.map(() => "?").join(",")})`,
+        )
+        .all(...listingIds)
+      const already = new Set(rows.map((r) => String(r["id"])))
+      const fresh = listingIds.filter((id) => !already.has(id))
+
+      if (fresh.length === 0) {
+        return { skuId: null, linked: 0, alreadyLinked: already.size }
+      }
+
       // 코드는 순번으로 뽑는다. 사람이 읽는 이름은 `name`이고, 코드는 나중에
       // 상품 화면에서 바꾼다 (기준 데이터는 편집 가능 · §14-2).
       const r = await this.db
@@ -307,8 +347,55 @@ export class Repository {
         )
         .run(skuId, libraryId, productId, code, name, "ACTIVE", now, now)
 
-      await this.linkListingsInternal(listingIds, skuId, now)
-      return skuId
+      await this.linkListingsInternal(fresh, skuId, now)
+      return { skuId, linked: fresh.length, alreadyLinked: already.size }
+    })
+  }
+
+  /**
+   * 리스팅이 하나도 붙지 않은 SKU를 치운다 — **고아 정리.**
+   *
+   * ★ 일회성 스크립트가 아니라 함수 + 테스트인 이유 ★
+   * 고아는 «한 번 있었던 사고»가 아니라 **연결을 옮기면 언제든 생기는 상태**다.
+   * 리스팅을 다른 SKU로 재연결하면 원래 SKU가 비고, 그건 정상 동작의 부산물이다.
+   * 일회성으로 치우면 다음에 같은 일이 났을 때 아무도 모른다.
+   *
+   * ★ 원가가 붙은 SKU는 남긴다 ★
+   * 리스팅이 없어도 사람이 원가를 넣었다면 그건 **사람의 판단**이고, 판단을 자동으로
+   * 지우지 않는다 (헌장 3 — 원본 불변의 정신). 어차피 `cost_history.sku_id`가
+   * NOT NULL이라 지우면 FK가 끊긴다.
+   *
+   * 상품도 함께 본다 — SKU를 지워 남은 상품이 비면 그 상품도 치운다. 콜드스타트에서
+   * 상품과 SKU는 1:1로 태어나므로(`createSkuForListings`), 껍데기 상품이 남는다.
+   */
+  async purgeOrphanSkus(libraryId: string): Promise<{ skus: number; products: number }> {
+    return this.db.transaction(async () => {
+      const orphans = await this.db
+        .prepare(
+          `SELECT s.id, s.product_id FROM sku s
+            WHERE s.library_id = ?
+              AND NOT EXISTS (SELECT 1 FROM marketplace_listing l
+                               WHERE l.sku_id = s.id AND l.link_state = 'linked')
+              AND NOT EXISTS (SELECT 1 FROM cost_history c WHERE c.sku_id = s.id)`,
+        )
+        .all(libraryId)
+      if (orphans.length === 0) return { skus: 0, products: 0 }
+
+      for (const o of orphans) {
+        await this.db.prepare(`DELETE FROM sku WHERE id = ?`).run(String(o["id"]))
+      }
+      // SKU가 하나도 안 남은 상품만 치운다 — 여러 SKU를 한 상품에 묶은 경우를 지키기 위해서다
+      let products = 0
+      for (const pid of new Set(orphans.map((o) => String(o["product_id"])))) {
+        const r = await this.db
+          .prepare(`SELECT COUNT(*) AS n FROM sku WHERE product_id = ?`)
+          .get(pid)
+        if (Number(r?.["n"] ?? 0) === 0) {
+          await this.db.prepare(`DELETE FROM product WHERE id = ?`).run(pid)
+          products++
+        }
+      }
+      return { skus: orphans.length, products }
     })
   }
 

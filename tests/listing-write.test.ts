@@ -61,7 +61,7 @@ describe("연결 쓰기 (§21-6)", () => {
 
   /** ★ 완료 기준 b의 본체 — 군집 하나가 SKU 하나로 간다 ★ */
   it("새 SKU로 등록 — 옵션 여럿이 한 SKU가 되고 4필드가 기록된다", async () => {
-    const skuId = await repo.createSkuForListings(
+    const { skuId } = await repo.createSkuForListings(
       LIB,
       [idOf("P1|블랙"), idOf("P1|화이트")],
       "미니팬 NS-19",
@@ -90,20 +90,20 @@ describe("연결 쓰기 (§21-6)", () => {
 
   it("연속 등록은 코드가 이어진다", async () => {
     await repo.createSkuForListings(LIB, [idOf("P1|블랙")], "미니팬", NOW)
-    const second = await repo.createSkuForListings(LIB, [idOf("P2")], "거리측정기", NOW)
+    const { skuId: second } = await repo.createSkuForListings(LIB, [idOf("P2")], "거리측정기", NOW)
     const sku = await db.prepare(`SELECT code FROM sku WHERE id = ?`).get(second)
     expect(sku?.["code"]).toBe("SKU-0002")
   })
 
   it("기존 SKU에 잇는다 — ESM 상품이 11번가 군집과 한 SKU로 (N:1)", async () => {
-    const skuId = await repo.createSkuForListings(
+    const { skuId } = await repo.createSkuForListings(
       LIB,
       [idOf("P1|블랙"), idOf("P1|화이트")],
       "미니팬 NS-19",
       NOW,
     )
     await repo.upsertListings(LIB, CONN, [L("E1", "미니팬 NS-19", "product")], "t2")
-    const n = await repo.linkListings([idOf("E1")], skuId, NOW)
+    const n = await repo.linkListings([idOf("E1")], skuId!, NOW)
 
     expect(n).toBe(1)
     const linked = await db
@@ -114,7 +114,7 @@ describe("연결 쓰기 (§21-6)", () => {
 
   /** ★ 연결 해제는 사람의 명시 행위만 (ADR-012 결정 3) ★ */
   it("연결 해제는 4필드를 되돌린다 — 리스팅 자체는 남는다", async () => {
-    const skuId = await repo.createSkuForListings(LIB, [idOf("P2")], "거리측정기", NOW)
+    const { skuId } = await repo.createSkuForListings(LIB, [idOf("P2")], "거리측정기", NOW)
     await repo.unlinkListings([idOf("P2")], "t3")
 
     const r = await row("P2")
@@ -137,7 +137,7 @@ describe("연결 쓰기 (§21-6)", () => {
 
   /** ★ 완료 기준 c — 되돌리기는 연결을 건드리지 않는다 (ADR-012) ★ */
   it("연결한 뒤 배치를 되돌려도 연결이 산다", async () => {
-    const skuId = await repo.createSkuForListings(LIB, [idOf("P1|블랙")], "미니팬", NOW)
+    const { skuId } = await repo.createSkuForListings(LIB, [idOf("P1|블랙")], "미니팬", NOW)
 
     const b: BatchOpen = {
       id: "batch-1",
@@ -170,5 +170,83 @@ describe("연결 쓰기 (§21-6)", () => {
     expect(repo.createSkuForListings.length).toBe(4)
     // (listingIds, skuId, now)
     expect(repo.linkListings.length).toBe(3)
+  })
+
+  /**
+   * ★ 멱등 — 2d에서 실제로 난 사고다 ★
+   *
+   * 사용자가 한 카드의 [새 SKU로 등록]을 두 번 눌렀고, 두 번째 호출이 새 SKU를
+   * 하나 더 만들고 리스팅을 옮겨 첫 번째를 고아로 남겼다 (실측: sku 62 · 리스팅
+   * 붙은 SKU 61).
+   *
+   * 처음 진단은 "쓰기 도는 동안 버튼을 안 막았다"였는데 **반쪽이었다.**
+   * 잠금은 UX이고 이건 정확성이다 — 같은 요청이 두 번 갈 경로는 더블클릭 말고도
+   * 코드가 늘면 또 생긴다. 방어는 쓰기 함수 자신이 한다.
+   */
+  it("같은 리스팅으로 두 번 등록해도 SKU가 둘이 되지 않는다", async () => {
+    const first = await repo.createSkuForListings(LIB, [idOf("P1|블랙")], "미니팬", NOW)
+    expect(first.skuId, "첫 호출은 만든다").toBeTruthy()
+    expect(first.linked).toBe(1)
+    expect(first.alreadyLinked).toBe(0)
+
+    const second = await repo.createSkuForListings(LIB, [idOf("P1|블랙")], "미니팬", NOW)
+    // 오류가 아니다 — 사용자는 같은 일을 두 번 시켰을 뿐이다
+    expect(second.skuId, "두 번째는 아무것도 만들지 않는다").toBeNull()
+    expect(second.linked).toBe(0)
+    expect(second.alreadyLinked).toBe(1)
+
+    const n = await db.prepare(`SELECT COUNT(*) AS n FROM sku`).get()
+    expect(Number(n?.["n"]), "SKU는 하나뿐이다").toBe(1)
+    // 리스팅은 첫 SKU에 그대로 붙어 있다 — 옮겨지지 않았다
+    expect((await row("P1|블랙"))?.["sku_id"]).toBe(first.skuId)
+  })
+
+  it("일부만 이미 연결됐으면 나머지로 만든다 — 전부 거부하지 않는다", async () => {
+    const first = await repo.createSkuForListings(LIB, [idOf("P1|블랙")], "미니팬", NOW)
+    const second = await repo.createSkuForListings(
+      LIB,
+      [idOf("P1|블랙"), idOf("P1|화이트")],
+      "미니팬 묶음",
+      NOW,
+    )
+    expect(second.skuId, "새 리스팅이 있으니 만든다").toBeTruthy()
+    expect(second.linked, "화이트만 이어진다").toBe(1)
+    expect(second.alreadyLinked, "블랙은 건너뛴다").toBe(1)
+    // 블랙은 **원래 SKU에 그대로** — 조용히 옮기지 않는다
+    expect((await row("P1|블랙"))?.["sku_id"]).toBe(first.skuId)
+    expect((await row("P1|화이트"))?.["sku_id"]).toBe(second.skuId)
+  })
+
+  /** 고아는 «한 번 있었던 사고»가 아니라 연결을 옮기면 언제든 생기는 상태다. */
+  it("고아 SKU를 치운다 — 원가가 붙은 것은 남긴다", async () => {
+    const a = await repo.createSkuForListings(LIB, [idOf("P1|블랙")], "미니팬", NOW)
+    const b = await repo.createSkuForListings(LIB, [idOf("P2")], "거리측정기", NOW)
+    // b의 리스팅을 a로 옮긴다 → b가 고아가 된다 (정상 동작의 부산물이다)
+    await repo.linkListings([idOf("P2")], a.skuId!, NOW)
+
+    const purged = await repo.purgeOrphanSkus(LIB)
+    expect(purged.skus, "고아 하나를 치운다").toBe(1)
+    expect(purged.products, "껍데기 상품도 함께").toBe(1)
+
+    const left = await db.prepare(`SELECT id FROM sku`).all()
+    expect(left.map((r) => String(r["id"]))).toEqual([a.skuId])
+
+    // 두 번 돌려도 안전하다 — 치울 것이 없으면 0이다
+    expect((await repo.purgeOrphanSkus(LIB)).skus).toBe(0)
+    expect(b.skuId, "b는 만들어졌다가 치워진 것이다").toBeTruthy()
+  })
+
+  it("리스팅이 없어도 원가가 있으면 치우지 않는다 — 사람의 판단을 지운다", async () => {
+    const a = await repo.createSkuForListings(LIB, [idOf("P1|블랙")], "미니팬", NOW)
+    await repo.unlinkListings([idOf("P1|블랙")], NOW)
+    await db
+      .prepare(
+        `INSERT INTO cost_history (library_id, sku_id, kind, amount, effective_from, entered_at, entered_by)
+         VALUES (?,?,?,?,?,?,?)`,
+      )
+      .run(LIB, a.skuId, "COGS", 1000, "2026-07-01", NOW, "user")
+
+    const purged = await repo.purgeOrphanSkus(LIB)
+    expect(purged.skus, "원가가 붙은 SKU는 고아가 아니다").toBe(0)
   })
 })

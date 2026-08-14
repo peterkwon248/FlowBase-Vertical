@@ -20,11 +20,16 @@
  * ─────────────────────────────────────────────────────────────
  */
 
-import { describe, expect, it } from "vitest"
-import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { beforeAll, describe, expect, it } from "vitest"
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs"
 import { createElement } from "react"
 import { renderToString } from "react-dom/server"
 import { openNodeDriver } from "../src/core/store/driver-node.js"
+import { migrate } from "../src/core/store/migrate-node.js"
+import { Repository } from "../src/core/store/repository.js"
+import { runImport } from "../src/core/import/run.js"
+import type { MappingProfile } from "../src/core/import/mapping/index.js"
+import { FIXTURES, fixturePath, CLEAN_DIR } from "./fixtures.js"
 import { loadOrderRows } from "../src/core/order/rows.js"
 import { loadSettlementRows } from "../src/core/settlement/rows.js"
 import { loadLinkingView } from "../src/core/linking/view.js"
@@ -38,15 +43,62 @@ import { Template } from "../src/app/generated/Template.js"
 import { emptyVals } from "../src/app/generated/vals.js"
 import { shellVals, shellStateFor } from "../src/app/shell.js"
 
-const DB = ".tmp/pnl.sqlite"
+const DB = ".tmp/screen-safety.sqlite"
 const PERIOD: Period = { from: "2026-07-01", to: "2026-07-31" }
 const LIB = "lib-1"
+const NOW = "2026-08-14T00:00:00.000Z"
 
-const ready = existsSync(DB)
+/**
+ * ★ 자기 세계를 짓는다 — 개발용 DB를 빌리지 않는다 ★
+ *
+ * 처음엔 `.tmp/pnl.sqlite`를 읽었다. 사용자가 2d에서 리스팅 86개를 **전부** 연결하자
+ * `todo`가 비어 이 파일이 빨개졌다 — `linking-screen`이 먼저 겪은 것과 **같은 결함**인데
+ * 그때 한 곳만 고쳤다.
+ *
+ * 교훈은 하나다: **개발용 DB는 사람이 제품을 쓰면 변한다.** 그걸 고정된 세계로 읽는
+ * 테스트는 사용자를 벌준다. 픽스처에서 `runImport`로 지으면 앱을 얼마나 쓰든 안 깨진다.
+ */
+const SEED = [
+  { fixture: 6, profile: "11st-settlement@1.json", conn: "conn-11st" },
+  { fixture: 8, profile: "esm-order@1.json", conn: "conn-esm" },
+] as const
+
+const ready = SEED.every((c) => {
+  const f = FIXTURES.find((x) => x.id === c.fixture)
+  return f !== undefined && existsSync(fixturePath(f, CLEAN_DIR))
+})
 const run = ready ? describe : describe.skip
 
-if (!ready) {
-  console.warn(`[screen-safety] ${DB}가 없어 건너뛴다 — npx tsx tools/harness/pnl.ts 로 만든다`)
+if (!ready) console.warn("[screen-safety] fixtures/clean이 없어 건너뛴다")
+
+async function buildWorld(): Promise<void> {
+  rmSync(DB, { force: true })
+  const db = openNodeDriver(DB)
+  try {
+    await migrate(db)
+    const repo = new Repository(db)
+    await repo.ensureLibrary(LIB, "기본", NOW)
+    for (const c of SEED) {
+      const f = FIXTURES.find((x) => x.id === c.fixture)!
+      const profile = JSON.parse(
+        readFileSync(`src/packs/kr-marketplace/profiles/${c.profile}`, "utf-8"),
+      ) as MappingProfile
+      await repo.ensureConnection(
+        {
+          id: c.conn, libraryId: LIB, packId: profile.packId,
+          marketplaceKey: profile.marketplaceKey, displayName: profile.displayName,
+        },
+        NOW,
+      )
+      await runImport(repo, {
+        bytes: new Uint8Array(readFileSync(fixturePath(f, CLEAN_DIR))),
+        fileName: f.file, profile, sheetIndex: 0,
+        libraryId: LIB, connectionId: c.conn, batchId: `batch-${c.conn}`, now: NOW,
+      })
+    }
+  } finally {
+    await db.close()
+  }
 }
 
 function emptyActions() {
@@ -82,6 +134,8 @@ if (KEY_SEP.length !== 1 || KEY_SEP.codePointAt(0) !== 1) {
 }
 
 run("내부 키가 화면에 새지 않는다 (헌장 C-4)", () => {
+  beforeAll(buildWorld)
+
   it("배선된 전 화면 어디에도 내부 키가 없다", async () => {
     const db = openNodeDriver(DB, { pragmas: false })
     const settlement = await loadSettlementRows(db, LIB, PERIOD)
