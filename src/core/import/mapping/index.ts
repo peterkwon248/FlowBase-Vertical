@@ -194,6 +194,17 @@ export interface MappingError {
   readonly rowIndex: number
   readonly field: string
   readonly reason: string
+  /**
+   * ★ 이 오류가 **행을 버렸는가** ★
+   *
+   * 이 목록은 두 가지를 섞어 담는다 — 행이 통째로 빠진 것(필수 필드 없음 · 사전에
+   * 없는 값)과 **행은 적재됐지만 알려야 하는 것**(모르는 라우팅 값 · 없는 컬럼).
+   * 섞인 채로 세면 «오류 5건»이 몇 행을 잃은 것인지 아무도 모른다.
+   *
+   * 특히 이 값을 보지 않고 전부 `batch_exclusion`에 넣으면 **적재된 행을 제외됐다고
+   * 기록**하게 된다 — 조용한 실패를 고치려다 조용한 거짓을 만드는 꼴이다 (LOCK 6).
+   */
+  readonly fatal: boolean
 }
 
 export interface MappingResult {
@@ -335,7 +346,11 @@ export function mapRows(
     profile.sourceKey.strategy === "natural" ? [] : new Array(chunk.width).fill(null)
 
   for (let i = 0; i < chunk.rowCount; i++) {
-    const rowIndex = startRowIndex + i
+    // ★ 물리 행을 쓴다 ★ 청크가 들고 온 시트 행 번호다. `startRowIndex + i`는
+    // **데이터 행 순번**이라 합계·빈 행이 빠진 만큼 물리 행과 어긋나고, 그 숫자를
+    // 사용자에게 보이면 엉뚱한 행으로 보내게 된다 (좌표계는 하나여야 한다).
+    // 청크가 못 알려주는 합성 입력에서만 옛 계산으로 물러난다.
+    const rowIndex = chunk.rowIndices[i] ?? startRowIndex + i
     const base = i * chunk.width
     const fields: Record<string, RawCell> = {}
     let fatal = false
@@ -355,6 +370,8 @@ export function mapRows(
           rowIndex,
           field: routing.column,
           reason: `알 수 없는 ${routing.column}: "${routeValue}" — 새 상태가 생겼는지 확인해야 한다`,
+          // 행은 **기본 경로로 적재된다.** 버린 것이 아니라 알리는 것이다
+          fatal: false,
         })
       }
     }
@@ -374,7 +391,7 @@ export function mapRows(
         if (col === undefined) {
           // 헤더 자체가 없다 — 행마다 보고하면 8만 건이 되므로 첫 행에서만.
           if (i === 0) {
-            errors.push({ rowIndex, field: m.target, reason: `컬럼 "${m.source}"가 없다` })
+            errors.push({ rowIndex, field: m.target, reason: `컬럼 "${m.source}"가 없다`, fatal: false })
           }
         } else if (col < chunk.width) {
           value = coerce(chunk.values[base + col] ?? null, chunk.raws[base + col] ?? null, m.kind)
@@ -387,6 +404,7 @@ export function mapRows(
                 rowIndex,
                 field: m.target,
                 reason: `사전에 없는 값: "${String(value)}"`,
+                fatal: true,
               })
               fatal = true
             }
@@ -398,7 +416,7 @@ export function mapRows(
       if (value === null && m.default !== undefined) value = m.default
 
       if (value === null && m.required) {
-        errors.push({ rowIndex, field: m.target, reason: "필수 필드가 비었다" })
+        errors.push({ rowIndex, field: m.target, reason: "필수 필드가 비었다", fatal: true })
         fatal = true
       }
       fields[m.target] = value

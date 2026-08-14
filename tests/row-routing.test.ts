@@ -29,7 +29,9 @@ function chunkOf(rows: readonly (readonly (string | number | null)[])[]): Normal
       kinds[i] = v === null ? KIND_NULL : typeof v === "number" ? KIND_NUMBER : KIND_TEXT
     }
   }
-  return { sheetIndex: 0, startRow: 0, isLast: true, width, rowCount, kinds, values, raws }
+  // 합성 청크라 합계·빈 행이 없다 — 물리 행과 데이터 행이 1:1이다
+  const rowIndices = Int32Array.from({ length: rowCount }, (_, i) => i)
+  return { sheetIndex: 0, startRow: 0, rowIndices, isLast: true, width, rowCount, kinds, values, raws }
 }
 
 const HEADERS = ["진행상태", "주문번호", "결제일", "구매금액"]

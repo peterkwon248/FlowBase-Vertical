@@ -93,6 +93,8 @@ export function streamSheet(
     let kindCodes: Uint8Array | null = null
     let values: (string | number | null)[] = []
     let raws: RawCell[] = []
+    /** 청크 각 행의 **물리 행 번호**. 합계·빈 행이 빠져 startRow+i로는 못 구한다. */
+    let rowIndices: Int32Array = new Int32Array(0)
     let rowsInChunk = 0
     let bufWidth = 0
     let outStart = 0
@@ -103,6 +105,7 @@ export function streamSheet(
       // `fill`은 배열을 PACKED로 만든다. 구멍 난 배열은 V8이 느린 경로로 다룬다.
       values = new Array<string | number | null>(cap * w).fill(null)
       raws = new Array<RawCell>(cap * w).fill(null)
+      rowIndices = new Int32Array(cap)
       rowsInChunk = 0
     }
 
@@ -112,6 +115,7 @@ export function streamSheet(
         return {
           sheetIndex,
           startRow: outStart,
+          rowIndices: new Int32Array(0),
           isLast,
           width: bufWidth,
           rowCount: 0,
@@ -125,6 +129,7 @@ export function streamSheet(
       const chunk: NormalizedChunk = {
         sheetIndex,
         startRow: outStart,
+        rowIndices: rowIndices.slice(0, rowsInChunk),
         isLast,
         width: bufWidth,
         rowCount: rowsInChunk,
@@ -192,6 +197,7 @@ export function streamSheet(
 
       if (kindCodes === null) alloc(width)
       if (rowsInChunk === 0) outStart = index
+      rowIndices[rowsInChunk] = index
 
       const base = rowsInChunk * bufWidth
       for (let c = 0; c < bufWidth; c++) {

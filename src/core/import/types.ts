@@ -247,6 +247,21 @@ export interface NormalizedChunk {
   readonly sheetIndex: number
   /** 시트 안에서 이 청크 첫 행의 0-기준 인덱스. */
   readonly startRow: number
+  /**
+   * 청크의 각 행이 **시트에서 몇 번째 물리 행이었는지** (0-기준).
+   *
+   * ★ `startRow + i`로 계산할 수 없다 ★
+   * 합계 행과 빈 행은 청크에 실리지 않고 건너뛰므로, 청크 안의 i번째 행이
+   * 물리적으로 `startRow + i`라는 보장이 없다. 중간에 합계 행이 하나만 있어도
+   * 그 뒤가 전부 한 칸씩 밀린다.
+   *
+   * ★ 왜 필요한가 — 좌표계가 둘이면 «22행»이 두 가지 뜻이 된다 ★
+   * 파이프라인이 내는 제외(`ExcludedRow.rowIndex`)는 **물리 행**이고, 매핑이 내는
+   * 오류는 데이터 행 순번이었다. 둘을 같은 `batch_exclusion.row_index` 컬럼에 넣으면
+   * 사유에 따라 뜻이 달라지는 열이 된다 — 사용자를 엉뚱한 행으로 보내는 표다.
+   * 여기서 물리 행을 들고 다녀서 **한 좌표계로 통일**한다 (작업 리듬 8).
+   */
+  readonly rowIndices: Int32Array
   readonly isLast: boolean
   /** 이 청크의 컬럼 수. 시트 전체가 아니라 **청크**의 폭이다. */
   readonly width: number

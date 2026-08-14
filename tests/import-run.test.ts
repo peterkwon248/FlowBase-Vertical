@@ -35,15 +35,19 @@ const NOW = "2026-08-14T00:00:00.000Z"
 const CASES = [
   {
     fixture: 6, profile: "11st-settlement@1.json", conn: "conn-11st",
-    expect: { fact_settlement: 128 }, excluded: 2, mappingErrors: 0, listings: 44,
+    expect: { fact_settlement: 128 },
+    pipelineExcluded: 2, lostRows: 0, listings: 44,
+    reasons: { subtitle: 1, "trailing-blank": 1 },
   },
   {
     fixture: 8, profile: "esm-order@1.json", conn: "conn-esm",
     // ★ 라우팅이 갈리는 자리 ★ `mapped.rows`만 읽으면 클레임 9건이 통째로 사라진다
-    expect: { fact_order: 146, fact_claim: 9 }, excluded: 0,
-    // ⚠ 매핑 오류 5건은 **DB에 남지 않는다** — LOCK 6의 살아 있는 구멍이고,
-    // 이 단언이 그 사실을 붙들어 둔다. 기록되기 시작하면 여기가 깨진다
-    mappingErrors: 5, listings: 42,
+    expect: { fact_order: 146, fact_claim: 9 },
+    pipelineExcluded: 0,
+    // ★ 단언이 뒤집힌 자리 ★ 전에는 "5건이 DB에 남지 않는다"를 단언했다.
+    // 이제 남는다 — 발생일 없는 클레임 5행이 `reason: "error"`로 기록된다.
+    lostRows: 5, listings: 42,
+    reasons: { error: 5 },
   },
 ] as const
 
@@ -104,12 +108,20 @@ run("runImport — 파일 하나를 끝까지 넣는다", () => {
         expect(r.loaded, "적재 합계는 테이블별 합과 같다").toBe(
           Object.values(c.expect).reduce((a, b) => a + b, 0),
         )
-        expect(r.excluded.length, "제외 건수").toBe(c.excluded)
-        expect(r.mappingErrors.length, "매핑 오류 건수").toBe(c.mappingErrors)
+        expect(r.excluded.length, "파이프라인이 거른 행").toBe(c.pipelineExcluded)
+        expect(r.lostRows, "매핑이 버린 행").toBe(c.lostRows)
         expect(
           r.listings ? r.listings.inserted + r.listings.updated : 0,
           "리스팅 종류 수 — 상품 연결 화면이 세는 그 수다",
         ).toBe(c.listings)
+
+        // ★ 잃은 것이 DB에 남는다 (LOCK 6) ★
+        const d = (await repo.batchDigest(`batch-${c.conn}`))!
+        expect(d.excludedCount, "제외 합계").toBe(c.pipelineExcluded + c.lostRows)
+        expect(
+          Object.fromEntries(d.exclusionsByReason.map((x) => [x.reason, x.count])),
+          "사유별 제외",
+        ).toEqual(c.reasons)
 
         // 적재 수가 **DB에 실제로 있는 행 수**와 같다. 통계만 맞고 행이 없으면
         // 「센 것」과 「넣은 것」이 갈린 것이다.

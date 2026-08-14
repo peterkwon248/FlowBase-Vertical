@@ -69,9 +69,14 @@ export interface ImportRunResult {
   /** 테이블별 적재 통계. 라우팅이 있으면 둘 이상이 된다 (ESM = 주문 + 클레임). */
   readonly perTable: ReadonlyMap<string, number>
   readonly loaded: number
-  /** 읽었으나 제외한 행. **숨기지 않는다** (LOCK 6). */
+  /** 파이프라인이 거른 행(합계·빈 행). **숨기지 않는다** (LOCK 6). */
   readonly excluded: readonly ExcludedRow[]
-  /** 매핑이 실패한 행의 사유. 오늘은 DB에 남지 않는다 — 아래 ⚠ 참조. */
+  /**
+   * 매핑이 **버린 행 수**. `mappingErrors.length`와 다르다 — 한 행이 여러 오류를
+   * 내므로 오류 수는 잃은 행 수보다 클 수 있다. 이 값이 사람에게 말할 숫자다.
+   */
+  readonly lostRows: number
+  /** 매핑 오류 전부 (치명 + 비치명). 치명인 것만 제외로 기록된다. */
   readonly mappingErrors: readonly MappingError[]
   readonly unmappedColumnCount: number
   readonly listings: LoadStats | null
@@ -183,19 +188,44 @@ export async function runImport(
 
     // ★ 요약은 청크를 다 돈 **뒤에** 읽는다 ★ 제외 목록은 스트림이 끝나야 완성된다.
     const sum = getSummary()
-    await repo.recordExclusions(
-      batch.id,
-      sum.excluded.map((e) => ({ rowIndex: e.rowIndex, reason: e.reason, detail: e.detail })),
-    )
+
+    /**
+     * ★ 매핑이 버린 행도 제외로 남긴다 (LOCK 6) ★
+     *
+     * 여기가 오래 비어 있던 자리다. 파이프라인이 거른 행(합계·빈 행)은 기록됐지만
+     * **매핑이 버린 행은 메모리에만 있다가 사라졌다.** ESM 파일에서 발생일 없는
+     * 클레임 5건이 정확히 그렇게 없어지고 있었다 — 적재 155행은 맞는데 파일에
+     * 있던 160행 중 5행이 어디로 갔는지 아무 데도 안 적혀 있었다.
+     *
+     * 두 가지를 지킨다:
+     *  · `fatal`만 넣는다. 비치명 오류(모르는 라우팅 값 · 없는 컬럼)는 **행이
+     *    적재됐으므로** 제외가 아니다. 넣으면 조용한 실패를 고치려다 조용한 거짓이 된다
+     *  · **행 단위로 합친다.** 한 행에서 필드 셋이 실패해도 잃은 행은 하나다
+     */
+    const lost = new Map<number, string[]>()
+    for (const e of errors) {
+      if (!e.fatal) continue
+      const at = lost.get(e.rowIndex)
+      if (at) at.push(`${e.field}: ${e.reason}`)
+      else lost.set(e.rowIndex, [`${e.field}: ${e.reason}`])
+    }
+
+    await repo.recordExclusions(batch.id, [
+      ...sum.excluded.map((e) => ({ rowIndex: e.rowIndex, reason: e.reason, detail: e.detail })),
+      ...[...lost].map(([rowIndex, why]) => ({
+        rowIndex,
+        reason: "error" as const,
+        detail: why.join(" · "),
+      })),
+    ])
     await repo.commitBatch(batch.id, o.now)
 
     return {
       perTable,
       loaded,
       excluded: sum.excluded,
-      // ⚠ **매핑 오류는 아직 DB에 남지 않는다.** `ExclusionRecord`에 "error" 사유가
-      // 있고 SQL CHECK도 허용하는데 쓰는 곳이 없다 — 읽지 못한 것을 표시해야 한다는
-      // LOCK 6의 살아 있는 구멍이다. 지금은 호출자에게 들고 나가 화면이라도 말하게 한다.
+      /** 매핑이 **버린** 행 수. `mappingErrors.length`와 다르다 — 한 행이 여러 오류를 낸다. */
+      lostRows: lost.size,
       mappingErrors: errors,
       unmappedColumnCount,
       listings: listingStats,
