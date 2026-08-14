@@ -22,6 +22,7 @@
  */
 
 import type { ImportAnalysis } from "@core/import/analyze.js"
+import { columnRoles, type ColumnRole } from "@core/import/mapping/index.js"
 import type { BatchDigest } from "@core/store/repository.js"
 import type { TemplateVals } from "./generated/vals.js"
 import { won } from "./format.js"
@@ -60,6 +61,22 @@ export interface ImportWizardState {
   readonly error: string | null
   /** 고른 파일이 큰가 — 열기 전에 판정한다. */
   readonly bigFile: boolean
+  /**
+   * **같은 바이트가 이미 들어온 적이 있나** — 파일명이 달라도 잡힌다.
+   *
+   * ★ 왜 이름이 아니라 지문인가 ★
+   * 파일명이 키에 들어가는 양식(기간 집계)은 이름만 바꿔 다시 넣으면 `source_key`가
+   * 갈라져 **같은 매출이 두 번 쌓인다.** 다이제스트의 «신규 147»은 넣고 나서야
+   * 보이는 사후 단서라 방어가 못 된다.
+   *
+   * **막지 않는다.** 되돌린 뒤 재적재처럼 정당한 재가져오기가 있으므로 고지만 한다
+   * (§22 «안내지 검문이 아니다»).
+   */
+  readonly priorSame: readonly {
+    readonly sourceName: string
+    readonly at: string
+    readonly undone: boolean
+  }[]
 }
 
 export const EMPTY_WIZARD: ImportWizardState = {
@@ -69,6 +86,7 @@ export const EMPTY_WIZARD: ImportWizardState = {
   busy: false,
   error: null,
   bigFile: false,
+  priorSame: [],
 }
 
 export interface ImportActions {
@@ -127,10 +145,43 @@ function steps(state: ImportWizardState) {
   })
 }
 
+/**
+ * Canonical 필드가 없는 컬럼의 «저장되는 자리» 칸 — **하는 일**을 이름 대신 쓴다.
+ *
+ * 이 컬럼들은 Canonical 필드로 저장되지는 않지만 **읽히고 쓰인다.** 둘을 같은
+ * «저장 안 함»으로 뭉뚱그린 것이 결함 53이었다.
+ */
+export function roleField(roles: readonly ColumnRole[]): string {
+  if (roles.includes("source-key")) return "행 식별 키"
+  if (roles.includes("listing-title")) return "리스팅 제목"
+  if (roles.includes("listing-key")) return "리스팅 키"
+  if (roles.includes("routing")) return "행 분류"
+  return "저장 안 함"
+}
+
+/** «왜» 칸 — 역할을 전부 말한다. 한 컬럼이 3역인 경우가 실재한다(ESM `진행상태`). */
+export function roleWhy(roles: readonly ColumnRole[], required: boolean): string {
+  const parts: string[] = []
+  if (roles.includes("field")) parts.push(required ? "프로파일이 선언 · 필수" : "프로파일이 선언")
+  // `source_key`는 내부 키라 화면에 값을 내보내지 않지만(헌장 C-4), **이 컬럼이
+  // 행 식별에 쓰인다는 사실**은 말해야 한다 — 빼면 사용자가 없어도 되는 열로 읽는다.
+  if (roles.includes("source-key")) parts.push("행 식별에 쓰인다")
+  if (roles.includes("listing-key")) parts.push("리스팅을 식별한다")
+  if (roles.includes("listing-title")) parts.push("상품 연결에 뜨는 제목")
+  if (roles.includes("routing")) parts.push("행이 갈 표를 정한다")
+  return parts.join(" · ")
+}
+
 export function importVals(
   vals: TemplateVals,
   state: ImportWizardState,
   act: ImportActions = NOOP_IMPORT_ACTIONS,
+  /**
+   * 이 파일이 연 지표 이름들 (§22-4). 커버리지는 **적재 뒤 다시 조회한** 값에서
+   * 나오므로 여기서 계산하지 않고 받아만 온다 — 다이제스트를 다시 읽는 것과
+   * 같은 규율이다(화면이 말하는 것은 DB가 아는 것이어야 한다).
+   */
+  opened: readonly string[] = [],
 ): void {
   const a = state.analysis
   vals.impSteps = steps(state)
@@ -196,9 +247,19 @@ export function importVals(
     on: i === state.profileIndex ? "active" : "",
     pick: () => act.pickProfile(i),
   }))
-  vals.profileMeta = match
-    ? `일치도 ${Math.round(match.confidence * 100)}% · ${match.evidence.join(" · ")}`
-    : "맞는 매핑 프로파일이 없습니다 — 이 파일은 넣을 수 없습니다"
+  // ★ 캡처 실패는 «프로파일이 없다»와 전혀 다른 말이다 ★
+  // 양식은 알아봤고 **파일명이 모자란 것**이라, 사용자가 할 일은 다른 파일을 찾는
+  // 것이 아니라 원래 이름을 되돌리는 것이다. 조용한 폴백은 하지 않는다 —
+  // 키가 갈라져 재가져오기가 중복을 쌓는다 (ADR-006 증축).
+  const blocked = match?.blockedBy
+  vals.profileMeta = blocked
+    ? `파일명에서 이 양식이 필요로 하는 값을 읽지 못했습니다 — 마켓에서 받은 원래 파일명이 필요합니다` +
+      (match.profile.recognitionRules.fileNameExample === undefined
+        ? ""
+        : ` (예: ${match.profile.recognitionRules.fileNameExample})`)
+    : match
+      ? `일치도 ${Math.round(match.confidence * 100)}% · ${match.evidence.join(" · ")}`
+      : "맞는 매핑 프로파일이 없습니다 — 이 파일은 넣을 수 없습니다"
 
   // ── §18 시트 선택 ────────────────────────────────────────────────
   // 시트가 여럿이면 사람이 고른다. 역할·사유·수식비율을 함께 보인다 —
@@ -221,30 +282,47 @@ export function importVals(
   }))
 
   // ── 확인: 무엇이 들어가나 ────────────────────────────────────────
-  const mapped = match ? match.profile.fieldMappings.filter((m) => m.source !== undefined) : []
+  //
+  // ★ 결함 53 ★ 여기는 `fieldMappings`만 읽었다. 그래서 `주문번호`·`상품번호`·
+  // `상품명`·`주문순번`이 «이 프로파일이 쓰지 않는 컬럼»으로 표시됐다 — 각각
+  // **행 식별 키의 절반**, **리스팅의 키**, **상품 연결 화면에 뜨는 제목**인데도.
+  //
+  // 사용자가 리허설에서 화면을 보고 물어서 드러났다: *"진행상태·구매금액·결제일만
+  // 데이터로 받겠다는 거냐?"* 실제로는 6개를 쓰고 있었다. 판정은 core의
+  // `columnRoles` 하나로 모았고 **여기서는 문구만 만든다** (§22에서 배운 분업).
+  const use = match ? columnRoles(match.profile) : null
   const present = new Set(a.header.columns.map((h) => h.trim()))
-  const hit = mapped.filter((m) => present.has((m.source ?? "").trim()))
+  const declared = use ? [...use.byColumn.keys()] : []
+  const hit = declared.filter((c) => present.has(c))
 
   // 표본 값은 첫 데이터 행에서 뽑는다 — 「이 컬럼이 뭔지」는 이름보다 값이 말한다.
   const first = a.sample[0]
   vals.colRows = a.header.columns.map((h, col) => {
-    const m = mapped.find((x) => (x.source ?? "").trim() === h.trim())
+    const u = use?.byColumn.get(h.trim())
     const raw = first?.[col]
+    const roles = u?.roles ?? []
     return {
       header: h,
       sample: raw === null || raw === undefined ? "—" : String(raw).slice(0, 24),
-      // 매핑되지 않은 컬럼은 **저장되지 않는다.** 조용히 빠뜨리지 않는다 (헌장 A-5)
-      field: m ? m.target : "저장 안 함",
-      fieldColor: m ? "var(--fg-2)" : DIM,
-      why: m
-        ? m.required
-          ? "프로파일이 선언 · 필수"
-          : "프로파일이 선언"
-        : "이 프로파일이 쓰지 않는 컬럼",
+      // 저장되는 자리 — Canonical 필드가 있으면 그 이름, 없으면 **하는 일**을 말한다.
+      // 매핑되지 않은 컬럼은 저장되지 않지만 **쓰이지 않는 것과는 다르다** (헌장 A-5)
+      //
+      // ★ 프로파일이 아예 없을 때는 «이 프로파일이 쓰지 않는다»가 할 말이 아니다 ★
+      // 그런 프로파일이 없기 때문이다. 판정이 실패했다는 사실을 그대로 말한다.
+      field: use === null ? "—" : (u ? (u.target ?? roleField(roles)) : use.contentKeyed ? "행 식별에 참여" : "저장 안 함"),
+      fieldColor: u || use?.contentKeyed ? "var(--fg-2)" : DIM,
+      why:
+        use === null
+          ? "맞는 프로파일이 없어 판정하지 못했다"
+          : u
+            ? roleWhy(roles, u.required === true)
+            : use.contentKeyed
+              ? "이 양식은 행 전체로 source_key를 만든다"
+              : "이 프로파일이 쓰지 않는 컬럼",
       // ★ 추정이 아니라 선언이다 ★ 컬럼 매핑은 프로파일 JSON이 정해둔 것이라
       // 확신도라는 개념이 없다. %를 지어내면 «추론했다»는 거짓이 된다.
-      conf: m ? "선언" : "—",
-      color: m ? G : DIM,
+      conf: u ? "선언" : "—",
+      color: u ? G : DIM,
     }
   })
 
@@ -258,7 +336,13 @@ export function importVals(
     : [
         { label: "시트 행", value: sheet ? won(sheet.physicalRowCount) : "—", color: "var(--fg)" },
         { label: "컬럼", value: won(a.header.columns.length), color: "var(--fg)" },
-        { label: "매핑되는 컬럼", value: `${won(hit.length)}/${won(mapped.length)}`, color: hit.length === mapped.length ? G : WARN },
+        // 분모는 «프로파일이 선언한 컬럼 전부»다. 표와 같은 집합이어야 한다 —
+        // 표는 6개를 쓴다고 말하는데 이 칸이 3/3이면 화면이 자기모순이다 (결함 53).
+        // ★ 프로파일이 없으면 «0/0 초록»이 된다 — 넣을 수 없는 파일에 «다 좋다» 신호다 ★
+        // 실기기에서 쿠팡 매출 파일로 드러났다. 판정이 없으면 숫자도 없다.
+        use === null
+          ? { label: "쓰는 컬럼", value: "—", color: DIM }
+          : { label: "쓰는 컬럼", value: `${won(hit.length)}/${won(declared.length)}`, color: hit.length === declared.length ? G : WARN },
         { label: "미리보기 제외", value: won(a.sampleExcluded.length), color: a.sampleExcluded.length > 0 ? WARN : DIM },
       ]
 
@@ -275,9 +359,22 @@ export function importVals(
       ? "미리보기 범위에서 제외된 행이 없습니다"
       : `미리보기 범위에서 ${won(a.sampleExcluded.length)}건 제외 — 전체 수는 가져온 뒤에 나옵니다`
   // UPSERT 건수는 넣어봐야 안다. 모르는 것을 숫자로 말하지 않는다.
-  vals.impDupNote = "같은 source_key가 이미 있으면 덮어쓰지 않고 갱신됩니다 (UPSERT)."
+  //
+  // ★ 같은 바이트가 이미 들어왔으면 그걸 먼저 말한다 ★
+  // 이름만 다른 재가져오기는 UPSERT로 합쳐지지 않는다 — 파일명이 키에 들어가는
+  // 양식에서는 **키가 갈라져 두 번 쌓인다.** 막지는 않되 알고 넣게 한다.
+  const prior = state.priorSame
+  vals.impDupNote =
+    prior.length === 0
+      ? "같은 source_key가 이미 있으면 덮어쓰지 않고 갱신됩니다 (UPSERT)."
+      : `이 파일은 ${prior[0]!.at}에 「${prior[0]!.sourceName}」으로 이미 들어왔습니다` +
+        (prior[0]!.sourceName === a.fileName ? "" : " — 내용은 같고 파일명만 다릅니다") +
+        (prior[0]!.undone ? " (되돌려진 배치입니다)" : "") +
+        ". 그래도 넣으면 새 batch로 쌓입니다."
 
-  vals.impCanRun = match !== undefined && !state.busy && state.digest === null
+  // 막힌 후보로는 넣을 수 없다. 버튼을 비활성으로 두고 이유는 위 판정 줄이 말한다.
+  vals.impCanRun =
+    match !== undefined && blocked === undefined && !state.busy && state.digest === null
   vals.impRunLabel = state.busy ? "가져오는 중…" : "확인하고 가져오기"
   vals.impRun = act.confirm
 
@@ -290,13 +387,33 @@ export function importVals(
   vals.impDigestTitle = d
     ? `${d.sourceName} — ${won(d.rowCount)}행 적재${d.excludedCount > 0 ? ` · ${won(d.excludedCount)}행 제외` : ""}`
     : ""
-  vals.impDigest = d
-    ? d.exclusionsByReason.map((x) => ({
-        label: EXCLUSION_LABEL[x.reason] ?? x.reason,
-        value: `${won(x.count)}건`,
-        color: x.reason === "error" ? NEG : WARN,
-      }))
-    : []
+  vals.impDigest = d === null ? [] : digestRows(d, opened)
+}
+
+/**
+ * 다이제스트 목록 — 제외 사유들 + **이 파일로 열린 것** 한 줄 (§22-4).
+ *
+ * `importVals` 밖으로 뺀 이유는 시험 때문이다. `importVals`는 분석이 없으면 조기
+ * 반환하는데(앱에서는 다이제스트가 늘 분석 뒤에 오므로 맞다), 그 탓에 이 조립만
+ * 따로 확인할 길이 없었다. `settlementSummary`를 뺀 것과 같은 이유다.
+ */
+export function digestRows(
+  d: BatchDigest,
+  opened: readonly string[],
+): { label: string; value: string; color: string }[] {
+  return [
+    ...d.exclusionsByReason.map((x) => ({
+      label: EXCLUSION_LABEL[x.reason] ?? x.reason,
+      value: `${won(x.count)}건`,
+      color: x.reason === "error" ? NEG : WARN,
+    })),
+    // ★ 가져오기가 곧 게이지 상승임을 그 자리에서 보여준다 (§22-4 · §20) ★
+    // 제외 목록과 같은 모양의 줄 하나다 — 마크업을 새로 그리지 않았다.
+    // 여는 것이 없으면 줄도 없다. 할 말이 없으면 안 한다.
+    ...(opened.length > 0
+      ? [{ label: "이 파일로 열린 것", value: opened.join(" · "), color: G }]
+      : []),
+  ]
 }
 
 /** 제외 사유 → 사람이 읽는 말. 코드값을 그대로 보이면 사용자가 알 수 없다. */

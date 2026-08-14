@@ -70,6 +70,14 @@ export interface MappingProfile {
     readonly requiredHeaders: readonly string[]
     readonly headerMatch: "all" | "any"
     readonly fileNamePattern?: string
+    /**
+     * 사람에게 보여줄 **원본 파일명 예시.** 파일명 캡처가 실패했을 때 화면이
+     * *"예: 쿠팡 제트 매출_20260701~20260731.xlsx"*라고 말할 수 있어야 한다 —
+     * 정규식을 사용자에게 내밀 수는 없기 때문이다.
+     *
+     * 마켓 어휘라 팩에 산다 (LOCK 4). core는 문자열을 옮길 뿐이다.
+     */
+    readonly fileNameExample?: string
     readonly minConfidence: number
   }
   readonly extractionRules: {
@@ -80,6 +88,22 @@ export interface MappingProfile {
   readonly sourceKey: {
     readonly strategy: SourceKeyStrategy
     readonly columns?: readonly string[]
+    /**
+     * 파일명 캡처를 키에 **더한다** — `recognitionRules.fileNamePattern`의 이름 있는
+     * 그룹을 쓴다.
+     *
+     * ★ 왜 필요한가 (2026-08-14, 쿠팡 제트 매출) ★
+     * 기간 집계 파일은 행이 «옵션 × 기간»이고 **기간이 파일 안에 없다** —
+     * 파일명에만 있다. 컬럼만으로 키를 만들면 옵션ID가 키가 되고, 8월 파일이
+     * 7월 행을 **UPSERT로 덮어** 7월 매출이 통째로 사라진다.
+     *
+     * `content` 전략도 답이 아니다. 행 내용만 해시하므로 두 달의 숫자가 같으면
+     * (전량 0인 옵션이 흔하다) 같은 키가 되어 똑같이 덮인다.
+     *
+     * **선언하지 않으면 아무것도 달라지지 않는다** — 기존 프로파일의 키는 한 글자도
+     * 바뀌지 않고, 따라서 재가져오기 멱등성도 그대로다 (ADR-006).
+     */
+    readonly fileNameCaptures?: readonly string[]
   }
   readonly fieldMappings: readonly FieldMapping[]
   /**
@@ -131,6 +155,88 @@ export function profileVersion(p: MappingProfile): string {
 }
 
 // ─────────────────────────────────────────────────────────────
+// 컬럼의 역할 — «이 프로파일이 이 컬럼을 쓰는가»의 유일한 답
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 한 컬럼이 맡는 일. **`field` 하나만 있는 게 아니다** — 결함 53이 정확히 그
+ * 착각이었다: 확인 화면이 `fieldMappings`만 보고 `주문번호`·`상품명`을
+ * «이 프로파일이 쓰지 않는 컬럼»이라고 말했다. 실제로는 행 식별 키와 리스팅
+ * 제목의 출처였다.
+ */
+export type ColumnRole =
+  /** `fieldMappings` — Canonical 필드로 저장된다. */
+  | "field"
+  /** `sourceKey.columns` — 행 식별 키를 구성한다. UPSERT 멱등이 여기 걸린다. */
+  | "source-key"
+  /** `listing.keyColumns` — 마켓 리스팅의 식별자. */
+  | "listing-key"
+  /** `listing.titleColumns` — 상품 연결 화면에 뜨는 제목. */
+  | "listing-title"
+  /** `rowRouting.column` — 이 행이 어느 테이블로 갈지 정한다. */
+  | "routing"
+
+export interface ColumnUse {
+  readonly roles: readonly ColumnRole[]
+  /** `field` 역할일 때의 Canonical 필드명. */
+  readonly target?: string
+  readonly required?: boolean
+}
+
+export interface ProfileColumnUse {
+  /** 키는 **trim된** 헤더명. 헤더 쪽도 trim해서 맞춘다. */
+  readonly byColumn: ReadonlyMap<string, ColumnUse>
+  /**
+   * `sourceKey.strategy === "content"` — 선언된 키 컬럼이 없고 **행 전체**가
+   * 식별에 참여한다 (ADR-006). 이때는 «이 컬럼을 쓰지 않는다»가 **어떤 컬럼에
+   * 대해서도 참이 아니다.**
+   */
+  readonly contentKeyed: boolean
+}
+
+/**
+ * 프로파일이 실제로 읽는 컬럼과 그 역할 — **판정만 한다. 문구는 만들지 않는다.**
+ *
+ * 표시 문자열을 여기서 만들지 않는 이유는 §22에서 배운 것과 같다: 같은 사실을
+ * 화면은 표의 한 칸으로, 매핑 카운터는 숫자로 쓴다. 구조를 주고 문장은 각자 만든다.
+ *
+ * `rowRouting.routes[].fieldMappings`도 센다 — 클레임 경로에서만 쓰는 컬럼을
+ * «버렸다»고 세면 숫자가 거짓말을 한다.
+ */
+export function columnRoles(profile: MappingProfile): ProfileColumnUse {
+  const byColumn = new Map<string, ColumnUse>()
+
+  const add = (raw: string | undefined, role: ColumnRole, extra?: Omit<ColumnUse, "roles">): void => {
+    const key = (raw ?? "").trim()
+    if (key === "") return
+    const prev = byColumn.get(key)
+    const roles = prev ? (prev.roles.includes(role) ? prev.roles : [...prev.roles, role]) : [role]
+    byColumn.set(key, { ...prev, ...extra, roles })
+  }
+
+  // `required`는 **참일 때만** 싣는다. `exactOptionalPropertyTypes`가 켜져 있어
+  // `undefined`를 명시적으로 넣을 수 없고, 애초에 «필수가 아님»과 «선언 안 함»을
+  // 구분할 필요가 없다.
+  const asField = (m: FieldMapping): Omit<ColumnUse, "roles"> =>
+    m.required === true ? { target: m.target, required: true } : { target: m.target }
+
+  for (const m of profile.fieldMappings) {
+    if (m.source) add(m.source, "field", asField(m))
+  }
+  for (const r of profile.rowRouting?.routes ?? []) {
+    for (const m of r.fieldMappings) {
+      if (m.source) add(m.source, "field", asField(m))
+    }
+  }
+  for (const c of profile.sourceKey.columns ?? []) add(c, "source-key")
+  for (const c of profile.listing?.keyColumns ?? []) add(c, "listing-key")
+  for (const c of profile.listing?.titleColumns ?? []) add(c, "listing-title")
+  if (profile.rowRouting) add(profile.rowRouting.column, "routing")
+
+  return { byColumn, contentKeyed: profile.sourceKey.strategy === "content" }
+}
+
+// ─────────────────────────────────────────────────────────────
 // 프로파일 판정
 // ─────────────────────────────────────────────────────────────
 
@@ -138,6 +244,20 @@ export interface ProfileMatch {
   readonly profile: MappingProfile
   readonly confidence: number
   readonly evidence: readonly string[]
+  /**
+   * **이 후보로는 넣을 수 없다** — 이유와 함께. `undefined`면 넣을 수 있다.
+   *
+   * ★ 왜 «후보에서 빼기»가 아니라 «막힌 후보»인가 ★
+   * 빼버리면 화면이 «맞는 프로파일이 없습니다»라고 말하는데, 그건 거짓이다 —
+   * 양식은 알아봤고 **파일명이 모자란 것**이다. 사용자가 할 일이 완전히 다르므로
+   * (다른 파일을 찾는 게 아니라 이름을 되돌리는 것) 이유를 들고 남는다.
+   *
+   * 값을 만드는 것은 core, 문장을 만드는 것은 화면이다 (§22 분업).
+   */
+  readonly blockedBy?: {
+    /** 파일명에서 읽지 못한 캡처 이름들. */
+    readonly missingCaptures: readonly string[]
+  }
 }
 
 /**
@@ -165,9 +285,11 @@ export function matchProfiles(
     evidence.push(`필수 헤더 ${hit.length}/${r.requiredHeaders.length} 일치`)
 
     let confidence = ratio
+    let captures: Record<string, string> = {}
     if (r.fileNamePattern) {
       const m = new RegExp(r.fileNamePattern).exec(ctx.fileName)
       if (m) {
+        captures = { ...m.groups }
         confidence = Math.min(1, confidence + 0.1)
         evidence.push("파일명 패턴 일치")
       } else {
@@ -175,7 +297,26 @@ export function matchProfiles(
       }
     }
 
-    if (confidence >= r.minConfidence) out.push({ profile: p, confidence, evidence })
+    // ★ 캡처 실패는 정지다. 조용한 폴백이 없다 ★
+    //
+    // 키의 일부가 파일명에 있는 양식(기간 집계)에서 캡처가 비면 그 자리가 빈
+    // 문자열로 들어가고, **키가 갈라져 재가져오기가 중복을 쌓는다.** `content`
+    // 전략으로 몰래 물러나는 것도 답이 아니다 — 같은 파일의 두 이름이 서로 다른
+    // 키를 얻는 것은 마찬가지다.
+    //
+    // 그래서 후보에서 빼지 않고 **막힌 채로** 남긴다. 사용자가 할 일은 «다른 파일
+    // 찾기»가 아니라 «원래 이름 되돌리기»이고, 그건 «맞는 프로파일이 없습니다»로는
+    // 전달되지 않는다.
+    const need = p.sourceKey.fileNameCaptures ?? []
+    const missingCaptures = need.filter((c) => (captures[c] ?? "") === "")
+
+    if (confidence >= r.minConfidence) {
+      out.push(
+        missingCaptures.length === 0
+          ? { profile: p, confidence, evidence }
+          : { profile: p, confidence, evidence, blockedBy: { missingCaptures } },
+      )
+    }
   }
 
   return out.sort((a, b) => b.confidence - a.confidence)
@@ -311,19 +452,16 @@ export function mapRows(
   const routing = profile.rowRouting
   const routeCol = routing ? index.get(routing.column.trim()) : undefined
 
-  // 미매핑 컬럼은 **모든 경로가 쓰는 컬럼의 합집합**으로 센다 — 클레임 경로에서만
-  // 쓰는 컬럼을 "버렸다"고 세면 숫자가 거짓말을 한다.
-  const usedColumns = new Set<string>()
-  for (const m of profile.fieldMappings) if (m.source) usedColumns.add(m.source)
-  // 리스팅 컬럼도 **읽는 컬럼**이다. 세지 않으면 "미매핑 52개"가 실제보다 부풀어
-  // 보이고, 그 숫자는 §18-3(0행·미매핑 표시)이 사용자에게 보여줄 값이다.
-  for (const c of profile.listing?.keyColumns ?? []) usedColumns.add(c)
-  for (const c of profile.listing?.titleColumns ?? []) usedColumns.add(c)
-  for (const r of routing?.routes ?? []) {
-    for (const m of r.fieldMappings) if (m.source) usedColumns.add(m.source)
-  }
-  if (routing) usedColumns.add(routing.column)
-  const unmappedColumnCount = headers.filter((h) => !usedColumns.has(h.trim())).length
+  // 미매핑 컬럼은 **모든 역할의 합집합**으로 센다 — 클레임 경로에서만 쓰는 컬럼을
+  // "버렸다"고 세면 숫자가 거짓말을 한다.
+  //
+  // ★ 판정을 `columnRoles`로 모았다 (결함 53) ★
+  // 여기 있던 인라인 집합은 **`sourceKey.columns`를 빠뜨리고 있었다.** 그래서
+  // `unmappedColumnCount`가 과다 계상됐고(11번가 `주문순번`이 «미매핑»에 들어갔다),
+  // 확인 화면은 같은 누락을 «이 프로파일이 쓰지 않는 컬럼»이라는 **거짓 문구**로
+  // 내보냈다. 두 곳이 각자 세던 것을 한 함수로 합친다.
+  const { byColumn: columnUse } = columnRoles(profile)
+  const unmappedColumnCount = headers.filter((h) => !columnUse.has(h.trim())).length
 
   /** 테이블별 버킷. 기본 경로는 `profile.targetTable`이다. */
   const byTable = new Map<string, MappedRow[]>()
@@ -433,6 +571,13 @@ export function mapRows(
                 ? ""
                 : String(chunk.values[base + col] ?? "")
             })
+            .concat(
+              // 파일명 캡처는 **뒤에** 붙인다. 선언이 없으면 빈 배열이라 기존
+              // 프로파일의 키가 한 글자도 달라지지 않는다 — 재가져오기 멱등성 보존.
+              (profile.sourceKey.fileNameCaptures ?? []).map(
+                (c) => ctx.fileNameCaptures[c] ?? "",
+              ),
+            )
             .join("")
         : (rowValuesInto(chunk, i, scratch), contentKey(scratch, seen))
 

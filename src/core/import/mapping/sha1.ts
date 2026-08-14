@@ -29,7 +29,18 @@ function rotl(n: number, b: number): number {
  * 라운드별 상수 네 개.
  */
 export function sha1(input: string): Uint8Array {
-  const msg = new TextEncoder().encode(input)
+  return sha1Bytes(new TextEncoder().encode(input))
+}
+
+/**
+ * 바이트 열의 SHA-1. `sha1()`이 이걸 부른다 — 문자열 판은 UTF-8 인코딩만 얹은
+ * 껍데기라 **두 함수의 답은 정의상 같다.**
+ *
+ * 파일 전체의 지문에 쓴다 (같은 바이트·다른 이름 판정). `TextDecoder`로 문자열을
+ * 만들어 넘기면 10MB짜리 사본이 하나 더 생기고, 유효하지 않은 UTF-8 바이트가
+ * 치환문자로 뭉개져 **다른 파일이 같은 해시를 얻는다.**
+ */
+export function sha1Bytes(msg: Uint8Array): Uint8Array {
   const bitLen = msg.length * 8
 
   // 패딩: 메시지 + 0x80 + 0…0 + 길이(64비트 빅엔디언)

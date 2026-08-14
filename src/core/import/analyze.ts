@@ -33,6 +33,11 @@ import { sniff } from "./recognition/sniff.js"
 import { parserFor } from "./parsers/index.js"
 import { streamSheet } from "./pipeline.js"
 import { matchProfiles, type MappingProfile, type ProfileMatch } from "./mapping/index.js"
+import { sha1Bytes } from "./mapping/sha1.js"
+
+/** 지문은 사람이 보고 대조할 수 있어야 한다 — 16진 문자열로 남긴다. */
+const hex = (b: Uint8Array): string =>
+  Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")
 import type {
   ContainerFormat,
   ExcludedRow,
@@ -64,6 +69,16 @@ export interface ImportAnalysis {
   readonly sampleExcluded: readonly ExcludedRow[]
   /** 파서가 남긴 말. 오늘까지 아무 호출부도 이걸 보지 않았다. */
   readonly warnings: readonly string[]
+  /**
+   * 파일 바이트의 지문 (SHA-1 hex).
+   *
+   * **같은 바이트·다른 이름**을 잡는다. 파일명이 키에 들어가는 양식(기간 집계)은
+   * 이름만 바꿔 다시 넣으면 `source_key`가 갈라져 **같은 매출이 두 번 쌓인다.**
+   * 다이제스트의 «신규 147»은 사후 단서일 뿐 방어가 아니므로, 넣기 전에 말한다.
+   *
+   * 실측: 10.1MB에 158~168ms. 판정 단계에 붙여도 되는 비용이다.
+   */
+  readonly contentHash: string
 }
 
 export interface AnalyzeOptions {
@@ -137,6 +152,7 @@ export async function analyzeImport(
       sample,
       sampleExcluded: sum.excluded,
       warnings: [...src.warnings],
+      contentHash: hex(sha1Bytes(bytes)),
     }
   } finally {
     src.close()

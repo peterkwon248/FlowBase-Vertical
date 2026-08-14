@@ -1,0 +1,11 @@
+{
+  "marketplaceKey": "esm",
+  "displayName": "ESM (G마켓·옥션)",
+  "abbr": "ES",
+  "color": "#4C8DFF",
+  "docTypes": {
+    "order": { "label": "주문", "gives": ["매출", "수량"] },
+    "settlement": { "label": "정산", "gives": ["수수료", "정산액"] },
+    "ad": { "label": "광고", "gives": ["광고비"] }
+  }
+}

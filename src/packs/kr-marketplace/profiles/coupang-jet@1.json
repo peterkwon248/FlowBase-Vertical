@@ -1,0 +1,101 @@
+{
+  "$schema": "flowbase/mapping-profile@1",
+  "id": "coupang/order/option-period",
+  "version": "1",
+  "packId": "kr-marketplace",
+  "marketplaceKey": "coupang",
+  "docType": "order",
+  "grain": "option-period",
+  "targetTable": "fact_order",
+  "label": "쿠팡 제트 매출 (로켓그로스 판매통계)",
+  "displayName": "쿠팡",
+
+  "_docTypeNote": "★ 집계형인데 손익 입력이다 (§22-5 개정, 2026-08-14) ★ 22-5는 «집계형 문서는 손익 입력이 아니라 대사 상대»라고 했지만, 그 규칙의 목적은 **같은 사실의 요약본**이 이중으로 들어오는 것을 막는 데 있었다(11st 기간별보고서처럼 건별 정산이 이미 있는데 일별 합계가 또 오는 경우). 로켓그로스는 다르다 — 쿠팡이 이 채널의 **건별 데이터를 주지 않는다.** 그래서 이 집계가 요약본이 아니라 **그 사실의 유일한 원본이자 가장 가는 가용 grain**이다. 개정된 원칙: «집계형 문서는 같은 사실의 건별 원본이 존재할 때만 대사 상대다. 건별이 존재하지 않는 사실의 집계는 그 사실의 원본이다.»",
+
+  "_scaleNote": "실측(2026-07): 순 판매 금액 73,740,340원. 같은 달 판매자 배송(#14)이 5,272,380원이므로 **로켓그로스가 14배**이고 쿠팡 매출의 93%가 이 파일에만 있다. 이 프로파일이 없으면 쿠팡 «매출 열림»이 7%짜리 진실이 된다.",
+
+  "_overlapNote": "일반 매출(#14)과 겹치지 않는다 — 실측 옵션ID 겹침 0(일반 28 · 제트 147). 노출상품ID는 13개 겹치지만 옵션이 달라 이중계상이 구조적으로 불가능하다. 배송유형이 «판매자 배송» 전량 vs 상품타입이 «로켓그로스» 전량으로 물류 경로가 완전히 갈리기 때문이다.",
+
+  "listing": {
+    "grain": "option",
+    "keyColumns": ["옵션ID"],
+    "titleColumns": ["옵션명"]
+  },
+
+  "recognitionRules": {
+    "containerFormats": ["xlsx"],
+    "requiredHeaders": [
+      "노출상품ID",
+      "옵션ID",
+      "옵션명",
+      "상품타입",
+      "순 판매 금액(전체 거래 금액 - 취소 금액)",
+      "전체 거래 금액"
+    ],
+    "headerMatch": "all",
+    "fileNamePattern": "제트\\s*매출_(?<from>\\d{8})~(?<to>\\d{8})",
+    "fileNameExample": "쿠팡 제트 매출_20260701~20260731.xlsx",
+    "minConfidence": 0.8
+  },
+
+  "extractionRules": {
+    "sheetSelector": { "kind": "firstData" },
+    "headerRowHint": 1,
+    "detectUnlabeledAggregates": true
+  },
+
+  "sourceKey": {
+    "strategy": "natural",
+    "columns": ["옵션ID"],
+    "fileNameCaptures": ["from"],
+    "note": "★ 옵션ID만으로는 안 된다 ★ 이 파일의 행은 «옵션 × 기간»이고 기간은 파일 안에 없다 — 파일명에만 있다. 옵션ID만 키로 쓰면 8월 파일이 7월 행을 UPSERT로 덮어 **7월 매출이 통째로 사라진다.** `content` 전략도 답이 아니다: 행 내용만 해시하므로 두 달의 숫자가 같으면(전량 0인 옵션이 흔하다) 똑같이 덮인다. 그래서 파일명 캡처를 키에 더한다. 실측(2026-07): 옵션ID 148/148 유일(TOTAL 행의 빈값 1 포함, 그 행은 추출에서 제외된다)."
+  },
+
+  "fieldMappings": [
+    {
+      "target": "ordered_at",
+      "kind": "date",
+      "required": true,
+      "derive": { "from": "fileName", "capture": "from" },
+      "note": "★ 기간 시작일이다. 실제 주문일이 아니다 ★ 이 양식에는 날짜 컬럼이 하나도 없다(13열 전수 실측). ADR-009 ①이 매출을 ordered_at 달에 귀속시키므로 날짜를 하나 골라야 하고, 기간 시작일을 고른 뒤 date_precision='period'로 그 사실을 남긴다 (마이그레이션 005). 월 단위 파일을 월 단위로 보는 한 기간이 달 안에 온전히 들어가 **왜곡이 0이다.**"
+    },
+    {
+      "target": "period_end",
+      "kind": "date",
+      "derive": { "from": "fileName", "capture": "to" },
+      "note": "기간의 끝. 이것이 있어야 «이 행이 어느 달에 온전히 들어가는가»를 판정할 수 있다 — 없으면 기간 걸침을 영영 모른다."
+    },
+    {
+      "target": "date_precision",
+      "kind": "text",
+      "derive": { "from": "constant", "value": "period" },
+      "note": "ordered_at이 실제 주문일이 아니라 기간 시작일임을 값 옆에 남긴다. 클레임의 'proxy'와 같은 계보다 (마이그레이션 003). 이 표기가 있어야 일별 분해가 불가능하다는 사실을 화면이 말할 수 있다."
+    },
+    {
+      "target": "status",
+      "kind": "text",
+      "derive": { "from": "constant", "value": "UNKNOWN" },
+      "required": true,
+      "note": "집계 행이라 주문 상태라는 개념이 없다. 취소는 이미 순 판매 금액에서 차감돼 있다."
+    },
+    {
+      "target": "total_amount",
+      "source": "순 판매 금액(전체 거래 금액 - 취소 금액)",
+      "kind": "number",
+      "default": 0,
+      "signPolicy": "magnitude",
+      "note": "★ 전체 거래 금액이 아니라 순 판매 금액을 쓴다 ★ 실측 7월: 전체 85,969,850 − 취소 12,229,510 = 순 73,740,340. 원칙대로면 전체를 매출로, 취소를 fact_claim으로 갈라야 하지만(ADR-009 ②) **한 행이 두 테이블로 나뉘는 적재를 rowRouting이 지원하지 않는다** — 라우팅은 행을 한 곳으로 보낼 뿐이다. 순액을 쓰면 손익 결과가 같고 이중계상도 없다. 잃는 것은 «취소 12,229,510원»이라는 사실의 가시성이며, 그 한계를 여기 적어 둔다."
+    }
+  ],
+
+  "validationRules": [
+    { "kind": "required", "fields": ["ordered_at", "status"] },
+    { "kind": "nonNegative", "fields": ["total_amount"] },
+    { "kind": "parseRate", "min": 0.99 }
+  ],
+
+  "unmappedColumns": {
+    "policy": "keep-count",
+    "note": "13열 중 매핑 1개(+키 1 +리스팅 2 +파생 4). 나머지: 상품타입(전량 «로켓그로스») · 카테고리 · 아이템위너 비율(«100.0%» 문자열) · 순 판매 상품 수 · 전체 거래 금액 · 전체 거래 상품 수 · 총 취소 금액 · 총 취소 상품 수 · 즉시 취소 상품 수. 수량 계열은 fact_order_item이 필요하고, 취소 계열은 순 판매 금액에 이미 반영돼 있다. **PII가 하나도 없다** — 집계라 구매자 정보 자체가 없다."
+  }
+}

@@ -65,7 +65,14 @@ export interface BatchOpen {
   readonly connectionId: string
   readonly sourceName: string
   readonly sourceBytes: number
-  readonly sourceSha256?: string
+  /**
+   * 파일 바이트의 지문 (SHA-1 hex). **같은 바이트·다른 이름**을 잡는 유일한 단서다.
+   *
+   * 파일명이 키에 들어가는 양식(기간 집계)에서는 이름만 바꿔 다시 넣으면
+   * `source_key`가 갈라져 매출이 두 번 쌓인다 — 그 사고를 확인 단계에서 미리
+   * 말하려면 지문이 batch에 남아 있어야 한다 (마이그레이션 006).
+   */
+  readonly sourceHash?: string
   readonly containerFormat: string
   readonly sheetName?: string
   readonly mappingVersion: string
@@ -107,6 +114,43 @@ export interface ConnectionUpsert {
  * 제외는 `batch_exclusion`에 **넣기만 하고 아무도 읽지 않았다**. 읽지 못한 것을
  * 표시해야 한다는 LOCK 6은 적재까지만 지켜지고 화면에는 닿지 못하고 있었다.
  */
+/**
+ * 가져오기 이력 한 줄 (`batchHistory`). 되돌리기 버튼의 3상태 판정 재료를 포함한다.
+ */
+export interface BatchHistoryRow {
+  readonly id: string
+  readonly connectionId: string
+  /** 사람이 읽는 채널 이름 — `connection.display_name` (헌장 C-4). */
+  readonly channel: string
+  readonly sourceName: string
+  readonly sheetName: string | null
+  readonly mappingVersion: string
+  readonly status: string
+  readonly startedAt: string
+  readonly committedAt: string | null
+  readonly undoneAt: string | null
+  /** 적재 당시 센 행. 되돌리면 0이 된다. */
+  readonly rowCount: number
+  readonly excludedCount: number
+  /** **지금** 이 배치가 소유한 fact 행 — 되돌리면 사라질 수. */
+  readonly ownedRows: number
+  /**
+   * 테이블별 소유 행. 「엔티티」 칸이 이걸 말한다 — ESM 한 파일이 `fact_order`와
+   * `fact_claim` 둘로 갈리는 것(`rowRouting`)이 여기서 보인다.
+   */
+  readonly ownedByTable: Readonly<Record<string, number>>
+  /** 이 배치가 덮어쓴 행 — 되돌리면 이전 판으로 **복원될** 수. */
+  readonly restoresRows: number
+  /** 이후 배치가 가져간 행. **0이 아니면 잠긴다.** */
+  readonly takenOverRows: number
+  /** 잠근 배치. `takenOverRows === 0`이면 `null`. */
+  readonly blockedBy: {
+    readonly id: string
+    readonly sourceName: string
+    readonly at: string | null
+  } | null
+}
+
 export interface BatchDigest {
   readonly id: string
   readonly sourceName: string
@@ -184,7 +228,7 @@ export class Repository {
     await this.db
       .prepare(
         `INSERT INTO batch (id, library_id, connection_id, source_name, source_bytes,
-           source_sha256, container_format, sheet_name, mapping_version, status,
+           source_hash, container_format, sheet_name, mapping_version, status,
            row_count, excluded_count, started_at)
          VALUES (?,?,?,?,?,?,?,?,?, 'open', 0, 0, ?)`,
       )
@@ -194,7 +238,7 @@ export class Repository {
         b.connectionId,
         b.sourceName,
         b.sourceBytes,
-        b.sourceSha256 ?? null,
+        b.sourceHash ?? null,
         b.containerFormat,
         b.sheetName ?? null,
         b.mappingVersion,
@@ -597,18 +641,46 @@ export class Repository {
       const r = await this.db
         .prepare(`UPDATE batch SET status = 'undone', undone_at = ?, row_count = 0 WHERE id = ?`)
         .run(at, batchId)
+      // `assertUndoable`이 같은 트랜잭션 안에서 존재를 이미 확인했으므로 여기 걸릴
+      // 일은 없다. 그래도 남겨 둔다 — 위 검사를 누가 옮기거나 지우면 여기가 잡는다.
       if (r.changes === 0) throw new Error(`되돌릴 수 없는 배치: ${batchId}`)
       return removed
     })
   }
 
   /**
-   * 되돌리기는 행 단위로 LIFO다.
+   * 되돌릴 수 있는가 — **세 가지를 본다.**
    *
-   * 이 배치가 남긴 판 위에 다른 배치가 또 얹혀 있으면 되돌릴 수 없다 — 복원하면
-   * 나중 배치의 데이터를 덮어쓰게 된다. 조용히 덮는 대신 거부한다 (헌장 A-5).
+   * ─────────────────────────────────────────────────────────────
+   * ★ `open` 배치의 undo는 «취소»이고, `committed` 배치의 undo는 «되돌리기»다 ★
+   *
+   * 같은 함수가 두 의미를 갖는다. 전자는 적재하다 만 것을 치우는 일이고 후자는
+   * 이미 손익에 반영된 것을 물리는 일이다. **v1에서는 스키마를 나누지 않는다** —
+   * `aborted_at`을 따로 두는 것은 실사용에서 둘을 구분해 보여줄 필요가 생긴
+   * 뒤에 한다. 지금은 이 주석과 테스트가 의미를 진다 (2026-08-14 판정).
+   * ─────────────────────────────────────────────────────────────
    */
   private async assertUndoable(batchId: string): Promise<void> {
+    // ① 존재 — 앞으로 옮겼다. 전에는 맨 끝(UPDATE의 changes===0)에서 걸려서,
+    //    거부되기 전에 DELETE들이 먼저 돌았다. 트랜잭션이 롤백해 주긴 했지만
+    //    **안전이 «검사가 앞에 있어서»가 아니라 래핑에 걸려 있었다.** 이제 둘 다다.
+    const b = await this.db.prepare(`SELECT status FROM batch WHERE id = ?`).get(batchId)
+    if (!b) throw new Error(`되돌릴 수 없는 배치: ${batchId}`)
+
+    // ② 상태 — 이미 되돌린 배치는 거부한다 (2026-08-14 판정).
+    //
+    // 두 번째 되돌리기는 **하는 일이 없으면서 `undone_at`만 덮어쓴다.** 최초로
+    // 되돌린 시각은 감사 이력이고, 이 앱은 이력 덮어쓰기를 전부 금지해 왔다 —
+    // 조정도 삭제도 기록으로 남기는 판에 되돌리기 시각만 예외일 이유가 없다.
+    // `commitBatch`가 `AND status='open'`으로 막는 것과의 비대칭도 근거다.
+    if (String(b["status"]) === "undone") {
+      throw new Error(`이미 되돌린 배치다: ${batchId}`)
+    }
+
+    // ③ 순서 — 되돌리기는 행 단위로 LIFO다.
+    //
+    // 이 배치가 남긴 판 위에 다른 배치가 또 얹혀 있으면 되돌릴 수 없다 — 복원하면
+    // 나중 배치의 데이터를 덮어쓰게 된다. 조용히 덮는 대신 거부한다 (헌장 A-5).
     const r = await this.db
       .prepare(
         `SELECT batch_id AS blocker FROM row_shadow WHERE prev_batch_id = ? LIMIT 1`,
@@ -761,8 +833,118 @@ export class Repository {
     return Number(r?.s ?? 0)
   }
 
+  /**
+   * 같은 지문의 배치를 찾는다 — **같은 바이트·다른 이름** 판정 (마이그레이션 006).
+   *
+   * ★ 막지 않는다. 알린다 ★
+   * 같은 파일을 다시 넣는 것이 언제나 틀린 것은 아니다 — 되돌린 뒤 재적재가 그렇다.
+   * 그래서 확인 단계의 **고지**가 되고, 검문이 되지 않는다 (§22 금지 조항 계열).
+   *
+   * 되돌린 배치(`status='undone'`)도 함께 준다. 화면이 «이미 들어왔지만 되돌렸다»와
+   * «지금 살아 있다»를 갈라 말할 수 있어야 한다.
+   */
+  async batchesWithHash(libraryId: string, hash: string): Promise<readonly Row[]> {
+    return this.db
+      .prepare(
+        `SELECT id, source_name, status, row_count, started_at, committed_at, undone_at
+           FROM batch
+          WHERE library_id = ? AND source_hash = ?
+          ORDER BY started_at DESC`,
+      )
+      .all(libraryId, hash)
+  }
+
   async batchStatus(batchId: string): Promise<Row | undefined> {
     return this.db.prepare(`SELECT * FROM batch WHERE id = ?`).get(batchId)
+  }
+
+  /**
+   * 가져오기 이력 — **목록 조회.** `batchStatus`(한 건)의 확장이 아니라 신설이다.
+   *
+   * ★ 되돌리기 버튼의 3상태가 여기서 결정된다 ★
+   * 화면이 «되돌릴 수 있나»를 스스로 판정하면 `assertUndoable`과 두 벌이 되고,
+   * 그 둘은 언젠가 갈린다. 그래서 **같은 신호(`row_shadow`)를 여기서 세어** 준다:
+   *
+   * | | |
+   * |---|---|
+   * | `takenOverRows > 0` | 잠김 — 이후 배치가 이 배치의 행을 가져갔다 |
+   * | `status === 'undone'` | 이미 되돌림 |
+   * | 그 외 | 가능 |
+   *
+   * `ownedRows`·`restoresRows`는 «되돌리면 무엇이 일어나나»를 미리 말하기 위한
+   * 것이다 — 확인 다이얼로그가 «행 N개가 사라지고 M개가 이전 판으로 돌아갑니다»를
+   * 지어내지 않고 말할 수 있어야 한다 (헌장 A-5).
+   */
+  async batchHistory(libraryId: string): Promise<readonly BatchHistoryRow[]> {
+    // Fact 테이블 목록에서 UNION을 만든다 — 테이블이 늘면 자동으로 따라온다.
+    // (ADR-004 재검토 트리거 3의 «빠뜨리면 그 테이블만 조용히 옛 동작» 교훈)
+    const ownedUnion = FACT_TABLES.map(
+      (t) => `SELECT batch_id, '${t}' AS t FROM ${t} WHERE library_id = ?`,
+    ).join(" UNION ALL ")
+
+    const ownedRows = await this.db
+      .prepare(
+        `SELECT batch_id AS b, t, COUNT(*) AS n FROM (${ownedUnion}) GROUP BY batch_id, t`,
+      )
+      .all(...(FACT_TABLES.map(() => libraryId) as SqlValue[]))
+
+    const owned = new Map<string, Record<string, number>>()
+    for (const r of ownedRows) {
+      const b = String(r["b"] ?? "")
+      const per = owned.get(b) ?? {}
+      per[String(r["t"] ?? "")] = Number(r["n"] ?? 0)
+      owned.set(b, per)
+    }
+
+    const rows = await this.db
+      .prepare(
+        `SELECT b.id, b.connection_id, COALESCE(c.display_name, '') AS channel,
+                b.source_name, b.sheet_name, b.mapping_version, b.status,
+                b.started_at, b.committed_at, b.undone_at, b.row_count, b.excluded_count,
+                (SELECT COUNT(*) FROM row_shadow s WHERE s.batch_id = b.id)      AS restores,
+                (SELECT COUNT(*) FROM row_shadow s WHERE s.prev_batch_id = b.id) AS taken,
+                (SELECT s.batch_id FROM row_shadow s WHERE s.prev_batch_id = b.id LIMIT 1) AS blocker
+           FROM batch b LEFT JOIN connection c ON c.id = b.connection_id
+          WHERE b.library_id = ?
+          ORDER BY b.started_at DESC, b.id DESC`,
+      )
+      .all(libraryId)
+
+    const nameOf = new Map(rows.map((r) => [String(r["id"] ?? ""), r]))
+
+    return rows.map((r): BatchHistoryRow => {
+      const id = String(r["id"] ?? "")
+      const blockerId = r["blocker"] == null ? null : String(r["blocker"])
+      const blocker = blockerId === null ? undefined : nameOf.get(blockerId)
+      return {
+        id,
+        connectionId: String(r["connection_id"] ?? ""),
+        channel: String(r["channel"] ?? ""),
+        sourceName: String(r["source_name"] ?? ""),
+        sheetName: r["sheet_name"] == null ? null : String(r["sheet_name"]),
+        mappingVersion: String(r["mapping_version"] ?? ""),
+        status: String(r["status"] ?? ""),
+        startedAt: String(r["started_at"] ?? ""),
+        committedAt: r["committed_at"] == null ? null : String(r["committed_at"]),
+        undoneAt: r["undone_at"] == null ? null : String(r["undone_at"]),
+        rowCount: Number(r["row_count"] ?? 0),
+        excludedCount: Number(r["excluded_count"] ?? 0),
+        ownedByTable: owned.get(id) ?? {},
+        ownedRows: Object.values(owned.get(id) ?? {}).reduce((a, b) => a + b, 0),
+        restoresRows: Number(r["restores"] ?? 0),
+        takenOverRows: Number(r["taken"] ?? 0),
+        blockedBy:
+          blockerId === null
+            ? null
+            : {
+                id: blockerId,
+                // 화면은 batch id를 내보내지 않는다 (헌장 C-4). 사람이 알아보는
+                // 것은 **파일 이름과 시각**이므로 그걸 함께 들려 보낸다.
+                sourceName: blocker ? String(blocker["source_name"] ?? "") : "",
+                at: blocker ? String(blocker["committed_at"] ?? blocker["started_at"] ?? "") : null,
+              },
+      }
+    })
   }
 
   /**

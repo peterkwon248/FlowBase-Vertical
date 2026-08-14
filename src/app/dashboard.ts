@@ -18,6 +18,7 @@
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import type { Period } from "@core/profit/index.js"
 import { pnlGaps } from "@core/profit/gaps.js"
+import type { ConnectionCoverage } from "@core/coverage/load.js"
 import type { TemplateVals } from "./generated/vals.js"
 import { compact, pct, signed, won } from "./format.js"
 
@@ -67,7 +68,42 @@ export function periodLabel(p: Period): string {
  * 스냅샷을 대시보드 값으로. **빈 값 위에 덮어쓴다** — 아직 배선하지 않은
  * 값(브리지·무버스·비교)은 빈 채로 남고, 그게 지금의 사실이다.
  */
-export function dashboardVals(vals: TemplateVals, snap: PnlSnapshot, period: Period): void {
+/**
+ * 커버리지를 «담지 못한 것» 카드의 행으로 바꾼다 (§22-4).
+ *
+ * ★ 왜 지표 이름을 쓰나 ★ 행이 세 칸(이름·상태·수치)뿐이라 «주문 파일이 없다»보다
+ * «매출이 잠겼다»가 **손해를 말한다.** 무엇을 넣어야 하는지는 채널 화면의 3절
+ * 문장이 맡고, 대시보드는 소비 지점에서 «이 숫자에 무엇이 빠졌나»만 말한다.
+ *
+ * 마켓 사전을 쓰지 않으므로 팩을 import하지 않는다 — 지표 이름은 core가 안다.
+ */
+function coverageGapRows(
+  list: readonly ConnectionCoverage[],
+): { name: string; state: string; last: string; color: string; dot: string }[] {
+  const rows: { name: string; state: string; last: string; color: string; dot: string }[] = []
+  for (const cc of list) {
+    for (const e of cc.coverage.entries) {
+      // 대시보드가 그리는 숫자에 실제로 구멍을 내는 것만 — 매출과 수수료다.
+      // 나머지(수량·광고비·원가·기여이익)는 채널 화면과 기존 gaps가 이미 말한다.
+      if (e.open || (e.metric !== "revenue" && e.metric !== "fee")) continue
+      rows.push({
+        name: cc.channel,
+        state: `${e.label} 잠김`,
+        last: e.lockedValue === null ? "" : `${won(e.lockedValue)}원`,
+        color: WARN,
+        dot: WARN,
+      })
+    }
+  }
+  return rows
+}
+
+export function dashboardVals(
+  vals: TemplateVals,
+  snap: PnlSnapshot,
+  period: Period,
+  coverage: readonly ConnectionCoverage[] = [],
+): void {
   const p = snap.pnl
   const mix = costMix(snap)
   const mixTotal = mix.reduce((s, m) => s + m.v, 0)
@@ -155,13 +191,20 @@ export function dashboardVals(vals: TemplateVals, snap: PnlSnapshot, period: Per
   //
   // 판정은 `pnlGaps` 하나뿐이라 CLI와 화면이 갈라질 수 없다. 여기서 하는 일은
   // 그 결과를 카드 행 세 칸(이름·상태·수치)에 놓는 것뿐이다.
-  vals.freshness = pnlGaps(snap).map((g) => ({
-    name: g.label,
-    state: g.state,
-    last: g.note,
-    color: g.tone === "warn" ? WARN : "var(--fg-4)",
-    dot: g.tone === "warn" ? WARN : "var(--fg-4)",
-  }))
+  //
+  // ★ 커버리지가 여기 합류한다 (§22-4) ★
+  // 새 카드를 만들지 않는다. 같은 질문(«이 숫자가 무엇을 담지 못했나»)에 대한
+  // 다른 사유일 뿐이라, 사유가 늘 때마다 표면이 늘면 사용자는 세 군데를 봐야 한다.
+  vals.freshness = [
+    ...pnlGaps(snap).map((g) => ({
+      name: g.label,
+      state: g.state,
+      last: g.note,
+      color: g.tone === "warn" ? WARN : "var(--fg-4)",
+      dot: g.tone === "warn" ? WARN : "var(--fg-4)",
+    })),
+    ...coverageGapRows(coverage),
+  ]
 
   // KPI 스트립 — 목업 L4057~4073. 6장 중 값이 있는 것만.
   //

@@ -67,6 +67,20 @@ export interface PnlSnapshot {
   /** 발생일이 **추정**인 클레임 수 (`date_precision='proxy'`, ADR-009 ①-보완). */
   readonly proxyDatedClaims: number
   /**
+   * **기간 집계로 들어온 주문** (`date_precision='period'`, 마이그레이션 005).
+   *
+   * 로켓그로스처럼 마켓이 건별 데이터를 주지 않는 채널이 여기 잡힌다. 월 합계는
+   * 온전하지만 **일별 분해가 불가능**하므로, 그 한계를 `pnlGaps`가 말한다.
+   *
+   * `spilling`은 기간이 조회 범위를 **넘어가는** 행 수다 — 월 단위 파일을 월 단위로
+   * 보는 한 0이고, 0이 아니면 귀속이 애매해진 것이다.
+   */
+  readonly periodAggregated: {
+    readonly count: number
+    readonly amount: number
+    readonly spilling: number
+  }
+  /**
    * 이 기간에 데이터를 보탠 **연결의 수**. 매출·광고비·정산을 통틀어 센다.
    *
    * 2 이상이면 순이익이 여러 연결의 합성이다 — 한 채널의 완결된 손익으로 읽으면
@@ -115,6 +129,26 @@ export async function loadPnlSnapshot(
     period.from,
     period.to,
   )
+
+  /**
+   * 기간 집계로 들어온 주문 (`date_precision='period'`, 마이그레이션 005).
+   *
+   * ★ 왜 세는가 ★ 이 행들은 **일별로 분해할 수 없다.** 월 합계에는 온전히
+   * 들어가지만 일별 차트에서는 통째로 빠지고, 그 부재를 말하지 않으면 사용자는
+   * 일별 그래프의 합이 월 숫자와 다른 것을 보고 어느 쪽이 틀렸는지 모른다.
+   *
+   * `period_end`가 조회 기간을 벗어나면 **기간이 달 경계를 걸친 것**이다 — 그때만
+   * 귀속이 애매해지므로 따로 센다.
+   */
+  const periodRows = await db
+    .prepare(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(total_amount),0) AS amt,
+              SUM(CASE WHEN period_end IS NOT NULL AND period_end > ? THEN 1 ELSE 0 END) AS spill
+         FROM active_order
+        WHERE library_id = ? AND date_precision = 'period'
+          AND ordered_at >= ? AND ordered_at < date(?, '+1 day')`,
+    )
+    .get(period.to, libraryId, period.from, period.to)
 
   /**
    * 수수료는 **주문 귀속**이다 — 정산일이 아니라 주문의 `ordered_at` 달에 잡힌다
@@ -231,6 +265,11 @@ export async function loadPnlSnapshot(
       },
     },
     proxyDatedClaims: claimRows.filter((r) => r["date_precision"] === "proxy").length,
+    periodAggregated: {
+      count: num(periodRows, "n"),
+      amount: num(periodRows, "amt"),
+      spilling: num(periodRows, "spill"),
+    },
     contributingConnections: num(conns, "n"),
     hasPriorPeriod: num(prior, "n") === 1,
   }

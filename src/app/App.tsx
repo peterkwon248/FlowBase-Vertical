@@ -27,15 +27,21 @@ import { dashboardVals } from "./dashboard.js"
 import { settlementVals } from "./settlement.js"
 import { orderVals } from "./order.js"
 import { linkingVals, type LinkTab, type LinkingActions } from "./linking.js"
+import { channelVals } from "./channel.js"
+import { historyVals, undoConfirm, type ConfirmDialog } from "./history.js"
+import { marketDict } from "@packs/kr-marketplace/markets/index.js"
 import { importVals, BIG_FILE_BYTES, EMPTY_WIZARD, type ImportActions, type ImportWizardState } from "./import.js"
 import { analyzeImport } from "@core/import/analyze.js"
 import { runImport } from "@core/import/run.js"
 import { loadProfiles } from "@packs/kr-marketplace/profiles/index.js"
-import { DEV_LIBRARY, DEV_PERIOD, loadDevSnapshot, nowStamp, readDigest, writeThenReload, type LoadResult } from "./data.js"
+import { DEV_LIBRARY, DEV_PERIOD, findPriorImports, loadDevSnapshot, nowStamp, readDigest, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import type { SettlementRow } from "@core/settlement/rows.js"
 import type { OrderRow } from "@core/order/rows.js"
 import type { LinkingCard, LinkingView } from "@core/linking/view.js"
+import type { ConnectionCoverage } from "@core/coverage/load.js"
+import { openedBy } from "@core/coverage/index.js"
+import type { HistoryRow } from "@core/history/rows.js"
 import { shellStateFor, shellVals, type NavKey, type ShellState } from "./shell.js"
 
 /** 목업 L3908과 같은 기준. 사이드바가 서랍이 되는 폭이다. */
@@ -76,6 +82,10 @@ export function App(): React.JSX.Element {
   const [setRows, setSetRows] = useState<readonly SettlementRow[]>([])
   const [ordRows, setOrdRows] = useState<readonly OrderRow[]>([])
   const [linking, setLinking] = useState<LinkingView | null>(null)
+  const [coverage, setCoverage] = useState<readonly ConnectionCoverage[]>([])
+  const [history, setHistory] = useState<readonly HistoryRow[]>([])
+  /** 되돌리기 확인 다이얼로그. `null`이면 안 떠 있다. */
+  const [confirm, setConfirm] = useState<ConfirmDialog | null>(null)
 
   const take = useCallback((r: LoadResult) => {
     if (r.snapshot) setSnap(r.snapshot)
@@ -83,6 +93,8 @@ export function App(): React.JSX.Element {
     setSetRows(r.settlement)
     setOrdRows(r.orders)
     setLinking(r.linking)
+    setCoverage(r.coverage)
+    setHistory(r.history)
   }, [])
 
   useEffect(() => {
@@ -168,7 +180,10 @@ export function App(): React.JSX.Element {
   const analyze = useCallback(async (bytes: Uint8Array, name: string, sheetIndex: number) => {
     try {
       const analysis = await analyzeImport(bytes, name, loadProfiles(), { sheetIndex })
-      setWiz((w) => ({ ...w, analysis, profileIndex: 0, error: null, busy: false }))
+      // 같은 바이트가 이미 들어왔는지 — **파일명이 달라도** 잡힌다 (마이그레이션 006).
+      // 실패해도 가져오기를 막지 않는다. 고지를 못 하는 것이 못 넣는 것보다 낫다.
+      const priorSame = await findPriorImports(analysis.contentHash)
+      setWiz((w) => ({ ...w, analysis, priorSame, profileIndex: 0, error: null, busy: false }))
     } catch (e) {
       setWiz((w) => ({
         ...w,
@@ -271,11 +286,51 @@ export function App(): React.JSX.Element {
     [],
   )
 
+  /**
+   * 되돌리기 — **묻고, 실행하고, 다시 읽는다.**
+   *
+   * 되돌린 뒤 화면 상태를 손으로 고치지 않고 `writeThenReload`로 전부 다시 조회한다.
+   * 되돌리기는 대시보드 숫자까지 바꾸는 행위라, 목록만 갱신하면 그 순간 화면
+   * 절반이 옛 숫자를 믿는다 (연결 화면에서 세운 규율과 같다).
+   */
+  const askUndo = useCallback(
+    (row: HistoryRow) => {
+      setConfirm(
+        undoConfirm(row, () => {
+          setConfirm(null)
+          void writeThenReload(async (repo) => {
+            await repo.undoBatch(row.id, nowStamp())
+          }).then((r) => {
+            take(r)
+            // 실패를 삼키지 않는다 (헌장 6). 새 UI를 만들지 않고 같은 모달로 말한다.
+            if (r.error) {
+              setConfirm({
+                title: "되돌리지 못했습니다",
+                body: r.error,
+                hasRows: false,
+                rows: [],
+                hasChoice: false,
+                choices: [],
+                hasType: false,
+                confirmLabel: "닫기",
+                btnFg: "var(--fg)",
+                btnBorder: "var(--border-strong)",
+                btnOp: "1",
+                run: () => setConfirm(null),
+              })
+            }
+          })
+        }),
+      )
+    },
+    [take],
+  )
+
   const vals = shellVals(state, { go, toggleNav, closeNav, openNav, goImport, toggleTheme })
   // 데이터가 있으면 대시보드 값을 덮어쓴다. 없으면 빈 값 그대로 —
   // 시드를 넣어 채워 보이지 않는다 (헌장 C).
   if (snap) {
-    dashboardVals(vals, snap, DEV_PERIOD)
+    dashboardVals(vals, snap, DEV_PERIOD, coverage)
     // 데이터가 들어왔으니 첫 실행 안내는 지나간다.
     vals.firstRun = false
     vals.notFirstRun = true
@@ -288,7 +343,29 @@ export function App(): React.JSX.Element {
   // 하나도 없으면 "연결할 것이 없습니다"가 떠야 하기 때문이다 — 목업의 빈 상태가
   // 그 자리에 이미 있다.
   if (linking) linkingVals(vals, linking, linkTab, picked, linkActions)
-  importVals(vals, wiz, importActions)
+  // §22-4 다이제스트 한 줄 — 방금 넣은 파일이 이 채널에서 무엇을 열었나.
+  // 커버리지는 `take(r)`가 적재 뒤 다시 읽어 둔 것이라 DB가 아는 값이다.
+  const doneProfile = wiz.digest ? wiz.analysis?.profiles[wiz.profileIndex]?.profile : undefined
+  const doneDocType =
+    doneProfile?.docType === "order" || doneProfile?.docType === "settlement" || doneProfile?.docType === "ad"
+      ? doneProfile.docType
+      : null
+  const doneCov = doneProfile
+    ? coverage.find((c) => c.marketplaceKey === doneProfile.marketplaceKey)
+    : undefined
+  importVals(
+    vals,
+    wiz,
+    importActions,
+    doneCov && doneDocType ? openedBy(doneCov.coverage, doneDocType) : [],
+  )
+  // 커버리지도 **0개가 사실**이다 — 연결이 없으면 카드가 없는 것이 맞다.
+  // 잠긴 것을 말하는 화면이라 데이터가 적을수록 오히려 할 말이 많다 (§22).
+  channelVals(vals, coverage, { goImport }, marketDict)
+  historyVals(vals, history, { askUndo })
+  // 확인 다이얼로그는 화면이 아니라 앱 상태다 — 어느 화면에서 띄웠든 같은 모달이다.
+  vals.confirm = confirm
+  vals.closeConfirm = () => setConfirm(null)
 
   return <Template vals={vals} />
 }

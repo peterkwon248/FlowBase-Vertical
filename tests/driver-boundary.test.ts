@@ -42,9 +42,15 @@ class FakeDriver implements Driver {
       },
       async get(...p: readonly SqlValue[]) {
         self.params.push([...p])
-        // 집계 조회에만 준비된 답을 준다. 존재 확인 조회(되돌리기 가능 여부 등)에
-        // 값을 돌려주면 "행이 있다"는 뜻이 되어 엉뚱한 분기를 탄다.
-        return sql.includes("COUNT(*)") ? self.canned : undefined
+        if (sql.includes("COUNT(*)")) return self.canned
+        // ★ 존재 확인 조회는 **극성이 둘로 갈린다** ★
+        //   · 배치 자신을 찾는 조회 → 없으면 «되돌릴 수 없는 배치»로 거부된다
+        //   · 그림자 blocker 조회   → 없는 것이 정상(=되돌릴 수 있다)
+        // 하나로 뭉뚱그려 undefined를 주면 앞의 것이 항상 거부된다. 이 스텁의
+        // 목적은 SQL이 아니라 **드라이버 계약**을 시험하는 것이므로, 배치는
+        // «있고 committed»라고 답한다.
+        if (sql.includes("FROM batch")) return { status: "committed" }
+        return undefined
       },
       async all(...p: readonly SqlValue[]) {
         self.params.push([...p])

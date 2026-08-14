@@ -1,0 +1,84 @@
+{
+  "$schema": "flowbase/mapping-profile@1",
+  "id": "coupang/order/order-option",
+  "version": "1",
+  "packId": "kr-marketplace",
+  "marketplaceKey": "coupang",
+  "docType": "order",
+  "grain": "order-option",
+  "targetTable": "fact_order",
+  "label": "쿠팡 일반 매출 (판매자 배송)",
+  "displayName": "쿠팡",
+
+  "_grainNote": "★ 세션 1의 «배송(운송장) grain» 메모는 절반만 맞다 ★ 실측(2026-07 파일 141행): 주문번호 단독 140/141 · 운송장번호 단독 140/141 · 묶음배송번호 단독 140/141로 **셋 다 유일하지 않다.** 중복 1건의 실체는 같은 주문·같은 운송장에 «블루»와 «핑크» 두 옵션이 실린 것이다. 옵션이 하나뿐인 배송이 대부분이라 운송장번호가 거의 유일해 보였을 뿐이고, 정확한 입도는 **배송 × 옵션**이다.",
+
+  "_listingNote": "리스팅은 옵션 단위다 — 옵션ID가 키이고 노출상품명(옵션명)이 제목이다. 쿠팡 제트(로켓그로스)도 옵션 단위라 grain이 동률인데, 실측에서 **옵션ID 겹침이 0**이다(일반 28 · 제트 147). 판매자 배송과 로켓그로스는 물류 경로가 갈리고 쿠팡이 경로별로 별도 옵션을 만들기 때문이다. 그래서 둘 다 리스팅 생성권을 갖는다 — §22-5 «grain 동률이면 겹침이 판정한다».",
+  "listing": {
+    "grain": "option",
+    "keyColumns": ["옵션ID"],
+    "titleColumns": ["노출상품명(옵션명)"]
+  },
+
+  "recognitionRules": {
+    "containerFormats": ["xlsx"],
+    "requiredHeaders": [
+      "묶음배송번호",
+      "운송장번호",
+      "노출상품ID",
+      "옵션ID",
+      "결제액",
+      "주문일"
+    ],
+    "headerMatch": "all",
+    "fileNamePattern": "쿠팡\\s*일반\\s*매출",
+    "minConfidence": 0.8
+  },
+
+  "extractionRules": {
+    "sheetSelector": { "kind": "firstData" },
+    "headerRowHint": 1,
+    "detectUnlabeledAggregates": true
+  },
+
+  "sourceKey": {
+    "strategy": "natural",
+    "columns": ["주문번호", "옵션ID"],
+    "note": "실측(2026-07 파일 141행): 주문번호+옵션ID = 141/141 유일하고 빈값이 없다. 주문번호 단독은 140/141이라 쓸 수 없다 — 한 주문에 옵션이 둘이면 UPSERT가 두 행을 조용히 하나로 합쳐 매출을 잃는다 (ADR-006 «서로 다른 행이 합쳐지지 않는다»). 묶음배송번호+옵션ID·운송장번호+옵션ID도 141/141이지만, 운송장은 재발송으로 바뀔 수 있고 묶음배송번호는 배송 단위라 주문보다 불안정하다. '번호'는 행 일련번호(positional)라 쓰지 않는다."
+  },
+
+  "fieldMappings": [
+    {
+      "target": "ordered_at",
+      "source": "주문일",
+      "kind": "date",
+      "required": true,
+      "note": "손익 인식 기준일이다 (ADR-009 ①). 출고일·배송완료일·구매확정일자가 아니라 주문일을 쓴다 — 발생주의이므로 거래가 성립한 날이다."
+    },
+    {
+      "target": "status",
+      "kind": "text",
+      "derive": { "from": "constant", "value": "UNKNOWN" },
+      "required": true,
+      "note": "★ 이 양식에는 주문 상태 컬럼이 없다 ★ 41열을 전수 실측했다. 가장 가까운 것이 구매확정일자(138/141)와 배송완료일(141/141)인데 둘 다 날짜지 상태가 아니다. 「배송완료」 같은 상수를 넣으면 이 파일에서 참일 뿐 다음 파일에서 거짓이 될 수 있어, 파일이 말해주지 않는다는 사실을 그대로 남긴다 — ESM 프로파일이 빈 진행상태에 쓰는 값과 같은 토큰이다."
+    },
+    {
+      "target": "total_amount",
+      "source": "결제액",
+      "kind": "number",
+      "default": 0,
+      "signPolicy": "magnitude",
+      "note": "실측 합계 5,272,380원(141행). 옵션판매가(판매단가)×구매수가 아니라 결제액을 쓴다 — 할인이 반영된 실제 결제 금액이기 때문이다. 배송비는 이 달 전량 0이고 도서산간 추가배송비 9,000원은 별도 컬럼이라 매출에 넣지 않는다."
+    }
+  ],
+
+  "validationRules": [
+    { "kind": "required", "fields": ["ordered_at", "status"] },
+    { "kind": "nonNegative", "fields": ["total_amount"] },
+    { "kind": "parseRate", "min": 0.99 }
+  ],
+
+  "unmappedColumns": {
+    "policy": "keep-count",
+    "note": "41열 중 매핑은 3개(+키 2 +리스팅 2). 나머지의 사유를 갈라 적는다. ① PII 6종 — 구매자·구매자전화번호·수취인이름·수취인전화번호·우편번호·수취인 주소·배송메세지는 의도적으로 받지 않는다 (헌장 E-10). 전화번호는 쿠팡이 이미 마스킹해 내보낸다(010-****-****). ② 빈 컬럼 9종 — 분리배송 출고예정일·업체상품코드·바코드·상품별 추가메시지·주문자 추가메시지·개인통관번호(PCCC)·통관용수취인전화번호·기타·쿠팡 원 딜리버리는 141행 전부 비어 있다. ③ 수량(구매수) — fact_order_item이 필요한데 이 프로파일은 targetTable이 하나라 주문 헤더만 적재한다 (ESM과 같은 한계). ④ 배송비·도서산간 추가배송비 — fact_order에 배송비 컬럼이 없다. 정산 파일이 오면 그쪽에서 잡힌다. ⑤ 수수료는 **이 양식에 아예 없다** — ESM과 같은 반쪽이라, 쿠팡 수수료는 정산 파일이 와야 한다."
+  }
+}

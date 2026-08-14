@@ -6,14 +6,19 @@
  * 어떤 픽스처를 넣는지 아니까 그래도 됐지만, 사용자가 파일을 고르는 순간 그 전제가 사라진다.
  *
  * ★ 이 테스트가 진짜로 묻는 것 ★
- * 목록이 3개인가가 아니라 — **엉뚱한 프로파일이 이기지 않는가**이다. 후보가 하나뿐이던
+ * 목록이 몇 개인가가 아니라 — **엉뚱한 프로파일이 이기지 않는가**이다. 후보가 하나뿐이던
  * 시절에는 검증할 수 없었던 성질이고, 프로파일이 늘수록 위험해지는 성질이다.
+ *
+ * ★ 2026-08-14: 쿠팡 매출 2종이 들어오며 전제 하나가 깨졌다 ★
+ * 「마켓 × 성격」이 유일하다고 단언하고 있었는데, 쿠팡은 이제 `order` 문서가 **둘**이다
+ * (판매자 배송 = 건별 · 로켓그로스 = 기간 집계). 유일해야 하는 것은 그것이 아니라
+ * `mapping_version`(grain 포함)이다.
  */
 
 import { describe, expect, it } from "vitest"
-import { readFileSync, existsSync } from "node:fs"
+import { readFileSync, existsSync, readdirSync } from "node:fs"
 import { loadProfiles } from "../src/packs/kr-marketplace/profiles/index.js"
-import { matchProfiles } from "../src/core/import/mapping/index.js"
+import { matchProfiles, profileVersion } from "../src/core/import/mapping/index.js"
 import { sniff } from "../src/core/import/recognition/sniff.js"
 import { parserFor } from "../src/core/import/parsers/index.js"
 import { streamSheet } from "../src/core/import/pipeline.js"
@@ -22,9 +27,24 @@ import { FIXTURES, fixturePath, CLEAN_DIR } from "./fixtures.js"
 describe("프로파일 레지스트리", () => {
   it("팩의 프로파일을 전부 읽는다 — 목록을 손으로 관리하지 않는다", () => {
     const all = loadProfiles()
-    expect(all.length, "프로파일이 없다 — glob 경로를 확인해야 한다").toBe(3)
-    const keys = all.map((p) => `${p.marketplaceKey}/${p.docType ?? p.id}`).sort()
-    expect(keys.length).toBe(new Set(keys).size)
+
+    // ★ 개수를 손으로 적지 않는다 ★ 전에는 `toBe(3)`이었는데, 그건 «목록을 손으로
+    // 관리하지 않는다»를 시험하면서 정작 **개수를 손으로 관리**하는 모순이었다.
+    // 디렉터리와 대조한다 — 파일을 더하면 통과하고, glob이 깨지면 잡힌다.
+    const onDisk = readdirSync("src/packs/kr-marketplace/profiles").filter((f) => f.endsWith(".json"))
+    expect(all.length, "glob이 읽은 수가 디스크와 다르다").toBe(onDisk.length)
+    expect(all.length, "프로파일이 하나도 없다").toBeGreaterThan(0)
+
+    // ★ 유일해야 하는 것은 `mapping_version`이지 «마켓 × 성격»이 아니다 ★
+    // 쿠팡은 `order` 문서가 둘이다 — 판매자 배송(건별)과 로켓그로스(기간 집계).
+    // 같은 성격이라도 grain이 다르면 다른 양식이고, batch가 기록하는 것도 grain을
+    // 포함한 `mapping_version`이다 (헌장 B-6).
+    const versions = all.map(profileVersion)
+    expect(versions.length, `mapping_version이 겹친다: ${versions.join(" · ")}`).toBe(
+      new Set(versions).size,
+    )
+    const ids = all.map((p) => p.id)
+    expect(ids.length).toBe(new Set(ids).size)
     for (const p of all) {
       expect(p.displayName, `${p.id}에 채널 통칭이 없다`).toBeTruthy()
       // 채널 통칭과 문서 이름은 다른 것이다 — 섞이면 화면 채널 열에 문서 제목이 뜬다

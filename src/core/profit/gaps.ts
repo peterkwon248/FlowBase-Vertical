@@ -26,6 +26,8 @@ import type { PnlSnapshot } from "./snapshot.js"
 export type PnlGapId =
   | "settlement-unjoined"
   | "claim-proxy-date"
+  | "period-aggregated"
+  | "period-spilling"
   | "cogs-missing"
   | "overhead-missing"
   | "connections-mixed"
@@ -99,6 +101,44 @@ export function pnlGaps(snap: PnlSnapshot): PnlGap[] {
         `클레임 ${snap.proxyDatedClaims}건의 발생일이 **추정**이다 — 양식에 클레임 일자 컬럼이 ` +
         `없어 결제일을 프록시로 썼다(date_precision='proxy'). 실제 반품일이 다음 달이면 그 달에 ` +
         `잡혀야 하지만 파일이 말해주지 않는다 (ADR-009 ①-보완)`,
+    })
+  }
+
+  // ★ 기간 집계 — 월 합계는 온전한데 일별로는 못 쪼갠다 ★
+  //
+  // 마켓이 건별 데이터를 주지 않는 채널이 여기 잡힌다 (§22-5 개정: «건별이
+  // 존재하지 않는 사실의 집계는 그 사실의 원본이다»). 원본이므로 손익에는
+  // 온전히 들어가지만, **일별 그래프에서는 통째로 빠진다.** 말하지 않으면
+  // 사용자는 일별 합이 월 숫자와 다른 것을 보고 어느 쪽이 틀렸는지 모른다.
+  //
+  // `tone: "info"` — 숫자를 왜곡하지 않는다. 표현 방식의 한계일 뿐이다.
+  const pa = snap.periodAggregated
+  if (pa.count > 0) {
+    gaps.push({
+      id: "period-aggregated",
+      label: "기간으로만 오는 매출",
+      state: "일별 분해 불가",
+      note: won(pa.amount),
+      tone: "info",
+      detail:
+        `매출 ${won(pa.amount)}(${pa.count.toLocaleString("ko-KR")}행)가 **기간 집계**로 들어왔다 — ` +
+        `마켓이 건별 데이터를 주지 않아 파일이 기간 합계만 준다. 월 합계에는 온전히 들어가지만 ` +
+        `**일별 그래프에는 나타나지 않는다** (date_precision='period', 마이그레이션 005)`,
+    })
+  }
+
+  // 기간이 조회 범위를 넘어가면 귀속이 애매해진다. 월 파일을 월로 보는 한 0이다.
+  if (pa.spilling > 0) {
+    gaps.push({
+      id: "period-spilling",
+      label: "기간이 조회 범위를 넘는 집계",
+      state: "귀속 애매",
+      note: `${pa.spilling.toLocaleString("ko-KR")}행`,
+      tone: "warn",
+      detail:
+        `기간 집계 ${pa.spilling}행의 기간이 보고 있는 범위 **밖까지 걸쳐 있다.** ` +
+        `그 매출의 일부는 다음 기간의 것인데 시작일 기준으로 이 기간에 전부 잡혔다 — ` +
+        `범위를 파일의 기간에 맞추면 사라지는 단서다`,
     })
   }
 

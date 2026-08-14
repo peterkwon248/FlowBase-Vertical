@@ -17,7 +17,7 @@
  * 풀어 인라인하고 Pretendard는 data URI로 심는다. 파일 하나만 열면 앱과 같은 화면이다.
  */
 
-import { readFileSync, writeFileSync } from "node:fs"
+import { readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { createElement } from "react"
 import { renderToString } from "react-dom/server"
@@ -31,6 +31,13 @@ import { dashboardVals } from "../../src/app/dashboard.js"
 import { settlementVals } from "../../src/app/settlement.js"
 import { orderVals } from "../../src/app/order.js"
 import { linkingVals, type LinkTab } from "../../src/app/linking.js"
+import { channelVals } from "../../src/app/channel.js"
+import { loadCoverage } from "../../src/core/coverage/load.js"
+import { historyVals } from "../../src/app/history.js"
+import { loadHistoryRows } from "../../src/core/history/rows.js"
+import type { DocType } from "../../src/core/coverage/index.js"
+import type { MarketDict } from "../../src/packs/kr-marketplace/markets/index.js"
+import { profileVersion, type MappingProfile } from "../../src/core/import/mapping/index.js"
 import { Template } from "../../src/app/generated/Template.js"
 import { shellVals, shellStateFor } from "../../src/app/shell.js"
 
@@ -70,23 +77,63 @@ function embedFonts(css: string, baseDir: string): string {
   })
 }
 
+/**
+ * 팩 사전과 프로파일을 **디스크에서** 읽는다.
+ *
+ * `packs/…/markets/index.ts`와 `profiles/index.ts`는 `import.meta.glob`을 쓰므로
+ * 번들러 안에서만 돈다. 하네스는 `tsx`라 그 길이 없어서, 여기서는 «자기가 쓸 것을
+ * 명시하는» 하네스의 기존 규율대로 파일을 직접 읽는다.
+ */
+const readJson = <T,>(p: string): T => JSON.parse(readFileSync(p, "utf8")) as T
+const MARKET_DIR = "src/packs/kr-marketplace/markets"
+const PROFILE_DIR = "src/packs/kr-marketplace/profiles"
+
+const profiles = readdirSync(PROFILE_DIR)
+  .filter((f) => f.endsWith(".json"))
+  .map((f) => readJson<MappingProfile>(`${PROFILE_DIR}/${f}`))
+
+/** 마켓별로 **읽을 수 있는** 성격 — 팩의 `readableDocTypes()`와 같은 파생이다. */
+const readableOf = (key: string): DocType[] =>
+  profiles
+    .filter((p) => p.marketplaceKey === key)
+    .map((p) => p.docType)
+    .filter((d): d is DocType => d === "order" || d === "settlement" || d === "ad")
+
+const dicts = readdirSync(MARKET_DIR)
+  .filter((f) => f.endsWith(".json"))
+  .map((f) => readJson<Omit<MarketDict, "readable">>(`${MARKET_DIR}/${f}`))
+const dictOf = (key: string): MarketDict | null => {
+  const d = dicts.find((x) => x.marketplaceKey === key)
+  return d === undefined ? null : { ...d, readable: readableOf(key) }
+}
+
+const docTypeByVersion = new Map(profiles.map((p) => [profileVersion(p), p.docType]))
+const resolveDocType = (mv: string): DocType | null => {
+  const dt = docTypeByVersion.get(mv)
+  return dt === "order" || dt === "settlement" || dt === "ad" ? dt : null
+}
+
 const db = openNodeDriver(DB, { pragmas: false })
 const snap = await loadPnlSnapshot(db, "lib-1", PERIOD)
 const settlement = await loadSettlementRows(db, "lib-1", PERIOD)
 const orders = await loadOrderRows(db, "lib-1", PERIOD)
 const linking = await loadLinkingView(db, "lib-1", krLinkingMatcher)
+const coverage = await loadCoverage(db, "lib-1", resolveDocType)
+const history = await loadHistoryRows(db, "lib-1", resolveDocType)
 await db.close()
 
 const noop = (): void => {}
 const vals = shellVals(shellStateFor(false), {
   go: noop, toggleNav: noop, closeNav: noop, openNav: noop, goImport: noop, toggleTheme: noop,
 } as never)
-dashboardVals(vals, snap, PERIOD)
+dashboardVals(vals, snap, PERIOD, coverage)
 settlementVals(vals, settlement, PERIOD)
 orderVals(vals, orders, PERIOD)
 // 선택 상태는 상호작용이라 SSR에서는 늘 비어 있다 — 일괄 바의 «모두 선택»은
 // 그려지지만 눌린 뒤의 모습은 이 층이 증명하지 못한다 (2d에서 사람이 본다).
 linkingVals(vals, linking, TAB, new Set())
+channelVals(vals, coverage, { goImport: noop }, dictOf)
+historyVals(vals, history)
 vals.firstRun = false
 vals.notFirstRun = true
 ;(vals.v as Record<string, boolean>)[VIEW] = true

@@ -45,8 +45,13 @@ import {
   type MappingError,
 } from "./mapping/index.js"
 import { collectListings } from "./mapping/listing.js"
+import { sha1Bytes } from "./mapping/sha1.js"
 import type { ExcludedRow, HeaderDetection, SheetInfo } from "./types.js"
 import type { BatchOpen, FactTable, ListingUpsert, LoadStats, Repository } from "../store/repository.js"
+
+/** `analyze.ts`와 같은 표기 — 두 곳이 같은 문자열을 내야 대조가 성립한다. */
+const hex = (b: Uint8Array): string =>
+  Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")
 
 export interface ImportRunOptions {
   readonly bytes: Uint8Array
@@ -111,12 +116,35 @@ export async function runImport(
     const sheet = src.sheets[o.sheetIndex]
     if (!sheet) throw new Error(`시트 ${o.sheetIndex}는 없다`)
 
+    // ★ 캡처 실패는 정지다 — 화면보다 여기가 진짜 가드다 ★
+    //
+    // 위저드가 막힌 후보로는 [가져오기]를 못 누르게 하지만, `runImport`는
+    // «하나뿐인 적재 경로»라 하네스·CLI도 지나간다. 키의 일부가 빈 문자열로
+    // 들어가면 **같은 파일의 두 이름이 서로 다른 키를 얻어** 재가져오기가
+    // 중복을 쌓는다. 조용히 폴백하지 않고 여기서 멈춘다 (ADR-006 증축).
+    const needCaptures = o.profile.sourceKey.fileNameCaptures ?? []
+    if (needCaptures.length > 0) {
+      const got = captureFromFileName(o.profile, o.fileName)
+      const missing = needCaptures.filter((c) => (got[c] ?? "") === "")
+      if (missing.length > 0) {
+        const eg = o.profile.recognitionRules.fileNameExample
+        throw new Error(
+          `파일명에서 ${missing.join("·")}를 읽지 못했다 — 이 양식은 파일명이 키의 일부다` +
+            (eg === undefined ? "" : ` (예: ${eg})`),
+        )
+      }
+    }
+
     const batch: BatchOpen = {
       id: o.batchId,
       libraryId: o.libraryId,
       connectionId: o.connectionId,
       sourceName: o.fileName,
       sourceBytes: o.bytes.length,
+      // ★ 파일 지문 ★ 이게 있어야 «같은 바이트·다른 이름»을 다음 가져오기에서
+      // 잡을 수 있다 (마이그레이션 006). 배관은 001부터 있었지만 아무도 값을
+      // 넘기지 않아 늘 NULL이었다.
+      sourceHash: hex(sha1Bytes(o.bytes)),
       containerFormat: top.format,
       // 어느 시트에서 왔는지 남긴다 — 여러 시트짜리 파일에서 이게 없으면
       // 나중에 "이 batch가 무엇이었나"를 되짚을 수 없다.
