@@ -71,6 +71,10 @@ describe("가져오기 기록 — 3상태", () => {
     const a = batch("b-A", "7월.xlsx", "t1")
     await repo.openBatch(a)
     await repo.loadChunk("fact_order", a, [order("o-1", "SK-1", 1000)])
+    // ★ 「가져온 행」은 **파일 행 수**라 `loadChunk`가 세지 않는다 (2026-08-14) ★
+    // 한 파일 행이 여러 Fact 행이 되는 경우가 둘이다(품목 · 이중 기록). 무엇이
+    // 한 행인지는 매핑이 알고, `runImport`가 그 수를 넘긴다.
+    await repo.addBatchRows("b-A", 1)
     await repo.commitBatch("b-A", "t1")
 
     const r = find(await load(), "b-A")

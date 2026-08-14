@@ -296,11 +296,15 @@ export async function runImport(
           // `countsAsRow: false` — 품목은 파일의 새 행이 아니라 **같은 행의 두 번째
           // 표현**이다. 더하면 160행 파일이 「301행 적재」가 되고, 사용자가 파일과
           // 대조하는 산식(적재 + 제외 = 파일 행)이 깨진다.
-          await repo.loadChunk("fact_order_item", batch, itemRows, false)
+          await repo.loadChunk("fact_order_item", batch, itemRows)
           perTable.set("fact_order_item", (perTable.get("fact_order_item") ?? 0) + itemRows.length)
           loaded += itemRows.length
         }
       }
+
+      // ★ 「가져온 행」은 **파일 행 수**다 — 테이블 적재 수의 합이 아니다 ★
+      // 한 파일 행이 여러 Fact 행이 되는 경우가 둘이다(품목 · 이중 기록).
+      await repo.addBatchRows(batch.id, mapped.rowsLoaded)
 
       o.onProgress?.({ rowsDone: offset, chunk: perTable.size })
     }

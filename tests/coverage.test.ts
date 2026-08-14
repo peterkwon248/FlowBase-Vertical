@@ -378,7 +378,11 @@ run("§22 실파일 — 반쪽씩 들어온 두 채널", () => {
 
       const esm = byId.get("conn-esm")!
       expect(esm.coverage.held, "주문 파일 하나만 들어왔다").toEqual(["order"])
-      expect(esm.counts.order).toBe(146)
+      // ★ 146 → 155 (이중 기록, 2026-08-14) ★ 취소·반품·환불 9건이 **주문에도**
+      // 들어간다. 그 판매는 실제로 일어났고 취소는 클레임이 따로 뺀다 —
+      // 클레임으로만 보내면 매출에 들어간 적 없는 것을 손익이 또 빼서
+      // 순이익이 388,700원 과소계상됐다 (esm-order@1.json의 `alsoDefault`).
+      expect(esm.counts.order, "판매 155 = 정상 146 + 취소 계열 9").toBe(155)
       expect(entry(esm.coverage, "revenue").open, "매출은 열렸다").toBe(true)
       expect(entry(esm.coverage, "fee").open, "★ 사용자가 DB를 캐물어 알아낸 그 사실 ★").toBe(
         false,

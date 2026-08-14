@@ -89,8 +89,21 @@ export interface BaseCosts {
  */
 export interface PnlSnapshot {
   readonly pnl: Pnl
-  /** 기간 안 주문 건수. */
+  /**
+   * 기간 안 **판매** 건수 — 취소된 것도 «팔리기는 했다»이므로 포함된다.
+   *
+   * ★ 이 숫자의 뜻이 바뀌었다 (이중 기록, 2026-08-14) ★
+   * 전에는 ESM 클레임 계열 9건이 `fact_claim`으로만 가서 여기 없었다(146). 이제
+   * 주문에도 들어가므로 155다. 그 9건이 매출에 잡히고 클레임이 다시 빼는 것이
+   * 회계상 옳고, **그러려면 판매 건수에도 있어야 한다** — 매출 8,285,200원이
+   * 155건에서 나왔다고 말해야 건당 금액이 맞는다.
+   *
+   * 화면은 이 값을 혼자 두지 않는다: **«판매 155 · 취소 9»**로 함께 쓴다.
+   * 146이라는 숫자는 이제 어디에도 없고, 그 소멸은 의도된 것이다.
+   */
   readonly orderCount: number
+  /** 기간 안 클레임 건수. `orderCount`와 **짝으로만** 표시한다 (위 주석). */
+  readonly claimCount: number
   /**
    * 정산 원자료. **파생하지 않고 둘 다 준다** — 소비자마다 필요한 모양이 달라서다.
    *
@@ -375,6 +388,17 @@ export async function loadPnlSnapshot(
    * 그래서 boolean이 아니라 **모집단으로 센다** — §22가 요구하는 것은 «있나 없나»가
    * 아니라 «몇 건이 밖에 있나»다.
    */
+  /**
+   * ★ 취소된 판매는 «품목 없음»이 **정상**이다 ★
+   *
+   * 이중 기록(`alsoDefault`)은 취소된 행을 주문에도 넣지만 품목은 **일부러**
+   * 만들지 않는다 — 매출·클레임이 상쇄되므로(net 0) 원가도 붙지 않아야 정합이다.
+   * 그 행을 «품목이 없다»로 세면 화면이 *"그 파일을 다시 넣으면 품목이 생긴다"*고
+   * 말하는데, **다시 넣어도 안 생긴다.** 못 지킬 처방이라 세지 않는다.
+   *
+   * 판정은 «같은 `source_key`의 클레임이 있는가»다 — 이중 기록이 두 행에 같은 키를
+   * 주므로 조인이 정확하고, 근사 매칭이 아니다 (ADR-006).
+   */
   const itemCoverage = await db
     .prepare(
       `SELECT COUNT(*) AS orders,
@@ -383,7 +407,9 @@ export async function loadPnlSnapshot(
               COALESCE(SUM(CASE WHEN NOT EXISTS(SELECT 1 FROM active_order_item i WHERE i.order_id = o.id)
                        THEN o.total_amount ELSE 0 END),0) AS amount_without
          FROM active_order o
-        WHERE o.library_id = ? AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')`,
+        WHERE o.library_id = ? AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')
+          AND NOT EXISTS (SELECT 1 FROM active_claim c
+                           WHERE c.connection_id = o.connection_id AND c.source_key = o.source_key)`,
     )
     .get(libraryId, period.from, period.to)
 
@@ -444,6 +470,7 @@ export async function loadPnlSnapshot(
   return {
     pnl,
     orderCount,
+    claimCount: claimRows.length,
     settlement: {
       all: {
         count: num(all, "n"),

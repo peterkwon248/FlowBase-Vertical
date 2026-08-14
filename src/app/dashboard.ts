@@ -216,7 +216,13 @@ export function dashboardVals(
     {
       label: "총 매출",
       value: `${compact(p.revenue)}원`,
-      sub: `주문 ${won(snap.orderCount)}건`,
+      // ★ 조건 (d) — 판매와 취소를 **짝으로** 쓴다 ★ 이중 기록 이후 판매 건수에는
+      // 취소된 것도 들어 있다. 「주문 155건」만 쓰면 사용자가 옛 146과 대조하다
+      // 9건이 어디서 왔는지 못 찾는다 — 그 차이를 숫자로 보인다.
+      sub:
+        snap.claimCount > 0
+          ? `판매 ${won(snap.orderCount)}건 · 취소 ${won(snap.claimCount)}건`
+          : `판매 ${won(snap.orderCount)}건`,
       color: "var(--fg)",
     },
     {

@@ -32,9 +32,9 @@ const PERIOD = { from: "2026-07-01", to: "2026-07-31" }
 const PROFILE_DIR = "src/packs/kr-marketplace/profiles"
 
 const CASES = [
-  { fixture: 8, profile: "esm-order@1.json", conn: "conn-esm", orders: 146, items: 146, claims: 9 },
-  { fixture: 14, profile: "coupang-order@1.json", conn: "conn-coupang", orders: 141, items: 141, claims: 0 },
-  { fixture: 15, profile: "coupang-jet@1.json", conn: "conn-coupang", orders: 147, items: 147, claims: 0 },
+  { fixture: 8, profile: "esm-order@1.json", conn: "conn-esm", orders: 155, items: 146, claims: 9, fileRows: 155 },
+  { fixture: 14, profile: "coupang-order@1.json", conn: "conn-coupang", orders: 141, items: 141, claims: 0, fileRows: 141 },
+  { fixture: 15, profile: "coupang-jet@1.json", conn: "conn-coupang", orders: 147, items: 147, claims: 0, fileRows: 147 },
 ] as const
 
 const ready = CASES.every((c) => {
@@ -185,11 +185,13 @@ run("① 키 — 품목은 «부모 주문 + 리스팅»이다", () => {
       try {
         await importOnce(repo, c, "b1")
         const digest = (await repo.batchDigest("b1"))!
-        const fileRows = c.orders + c.claims
+        // ESM은 한 파일 행이 최대 **세** Fact 행이 된다(주문 + 클레임 + 품목).
+        // 그 합을 쓰면 155행 파일이 「310행」이 되고 파일과 대조가 안 된다.
+        const factRows = c.orders + c.claims + c.items
         expect(
           digest.rowCount,
-          `품목을 더하면 ${fileRows + c.items}이 된다 — 파일과 대조가 안 된다`,
-        ).toBe(fileRows)
+          `Fact 합(${factRows})이 아니라 파일 행(${c.fileRows})이어야 한다`,
+        ).toBe(c.fileRows)
         // 그래도 품목은 DB에 있다 — 세는 자리를 가른 것이지 안 넣은 게 아니다
         expect(await one(db, `SELECT COUNT(*) AS n FROM fact_order_item`)).toBe(c.items)
       } finally {
@@ -222,7 +224,7 @@ run("③ 클레임 정합 — 취소된 판매의 원가도 빠진다", () => {
       expect(
         r.perTable.get("fact_order_item"),
         "품목이 155(=146+9)면 취소된 물건의 매입원가가 손익에 들어간다",
-      ).toBe(c.orders)
+      ).toBe(c.items)
 
       // 품목의 부모는 **전부** fact_order다 — 클레임 source_key를 가리키는 것이 없다
       const claimKeys = (await db.prepare(`SELECT source_key FROM fact_claim`).all()).map((x) =>
@@ -279,7 +281,10 @@ run("④ 완료 기준 — 원가 1건이 순이익을 정확히 «수량 × 원
       // ── 원가 이전 ──
       const before = await loadPnlSnapshot(db, LIB, PERIOD)
       expect(before.pnl.cogs).toBe(0)
-      expect(before.cogsBasis.ordersWithoutItems, "모든 주문에 품목이 붙었다").toBe(0)
+      expect(
+        before.cogsBasis.ordersWithoutItems,
+        "품목이 붙었거나 취소로 상쇄됐다 — 취소분을 «다시 넣어라»라고 말하면 못 지킬 처방이다",
+      ).toBe(0)
       // 이제 «적용 불가»는 성립하지 않는다 — 곱할 대상이 생겼다
       expect(pnlGaps(before).map((g) => g.id)).not.toContain("cogs-unappliable")
 

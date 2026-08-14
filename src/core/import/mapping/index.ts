@@ -171,6 +171,36 @@ export interface MappingProfile {
       readonly match: readonly string[]
       readonly targetTable: string
       readonly fieldMappings: readonly FieldMapping[]
+      /**
+       * **기본 경로에도 남긴다** — 한 행이 두 테이블로 간다 (2026-08-14 판정).
+       *
+       * ─────────────────────────────────────────────────────────────
+       * ★ 왜 필요한가 — 클레임 이중 차감 ★
+       *
+       * ESM은 취소·반품·환불이 **원거래 행 자체**에 상태로 찍혀 온다. 그 행을
+       * `fact_claim`으로만 보내면 그 판매는 매출에 **들어간 적이 없는데** 손익이
+       * 클레임을 또 뺀다 — 실측 순이익이 388,700원 과소계상됐다.
+       *
+       * ADR-009 ①과 충돌하지 않는다는 점이 함정이었다: 「클레임은 발생일 기준」은
+       * **원거래가 다른 달에 있는** 클레임의 규칙이고, 여기서는 원거래와 취소가
+       * 같은 행이다. 두 경우를 같은 식으로 다루면 후자만 두 번 빠진다.
+       *
+       * ★ 왜 조인 판정이 아닌가 ★
+       * 「매출에 짝이 있나」를 조인으로 물으려면 근사 매칭이 필요하다 — ESM 클레임
+       * 키는 주문번호뿐이고 주문 키는 주문번호+상품번호라 **비접합**이다. ADR-006이
+       * 근사 매칭을 금지하므로 그 길은 닫혀 있고, 전부 「짝 없음」으로 판정하면
+       * 월경계 클레임(8월에 오는 7월 주문 취소)이 영영 안 빠지는 더 큰 사고가 된다.
+       *
+       * ★ 왜 표시 계층이 아닌가 ★
+       * §22-5의 소비처 고정 — 「매출은 `order`에서만」. 화면에서 `fact_claim`을
+       * 매출에 합치는 땜질은 그 LOCK 위반이므로 **저장 계층에서** 두 번 쓴다.
+       *
+       * 파일 모양이 회계 규칙을 바꾸면 채널마다 순이익의 정의가 달라진다 —
+       * 판매 사실은 `fact_order`(주문일 인식), 취소 사실은 `fact_claim`(발생일)이
+       * 한 파일에 압축돼 오든 따로 오든 같아야 한다.
+       * ─────────────────────────────────────────────────────────────
+       */
+      readonly alsoDefault?: boolean
       readonly note?: string
     }[]
   }
@@ -419,6 +449,14 @@ export interface MappingResult {
    * 매출에서 빠진 판매의 원가도 빠져야 한다.
    */
   readonly items: readonly MappedItem[]
+  /**
+   * **파일에서 실제로 읽어낸 행 수** — 치명 오류로 버린 행은 빼고 센다.
+   *
+   * 테이블별 적재 수의 합이 아니다. 한 행이 여러 Fact 행이 되는 경우가 둘이라
+   * (품목 · 이중 기록) 그 합은 파일 행 수와 대조되지 않는다. 사용자가 읽는
+   * 「가져온 행」은 이쪽이다 (`Repository.addBatchRows`).
+   */
+  readonly rowsLoaded: number
   readonly errors: readonly MappingError[]
   /** 매핑하지 않고 버린 컬럼 수. 조용히 빠뜨리지 않기 위해 센다 (헌장 A-5). */
   readonly unmappedColumnCount: number
@@ -540,6 +578,10 @@ export function mapRows(
   const out: MappedRow[] = bucket(profile.targetTable)
   const errors: MappingError[] = []
   const items: MappedItem[] = []
+  /** 없는 컬럼은 **컬럼당 한 번만** 보고한다 — 매핑을 두 벌 돌려도 중복되지 않게. */
+  const missingReported = new Set<string>()
+  /** 파일에서 읽어낸 행 수 — 버린 행은 빼고 센다. */
+  let rowsLoaded = 0
   const seen = (ctx.keyState ?? newKeyState()).seen
 
   /**
@@ -580,19 +622,68 @@ export function mapRows(
     // 청크가 못 알려주는 합성 입력에서만 옛 계산으로 물러난다.
     const rowIndex = chunk.rowIndices[i] ?? startRowIndex + i
     const base = i * chunk.width
-    const fields: Record<string, RawCell> = {}
-    let fatal = false
+
+    /** 매핑 한 벌을 적용한다. **두 번 부를 수 있다** — 이중 기록이 그래서 가능하다. */
+    const apply = (mappings: readonly FieldMapping[]): { fields: Record<string, RawCell>; fatal: boolean } => {
+      const fields: Record<string, RawCell> = {}
+      let fatal = false
+      for (const m of mappings) {
+        let value: RawCell = null
+
+        if (m.derive) {
+          if (m.derive.from === "constant") {
+            value = m.derive.value
+          } else {
+            const raw = ctx.fileNameCaptures[m.derive.capture]
+            value = raw === undefined ? null : (looseDate(raw) ?? raw)
+          }
+        } else if (m.source !== undefined) {
+          const col = index.get(m.source)
+          if (col === undefined) {
+            // 헤더 자체가 없다 — 행마다 보고하면 8만 건이 되므로 **컬럼당 한 번만**.
+            // (전에는 `i === 0`이었는데, 이중 기록으로 매핑을 두 벌 돌리면서
+            //  같은 컬럼이 두 번 보고될 수 있게 됐다.)
+            if (!missingReported.has(m.source)) {
+              missingReported.add(m.source)
+              errors.push({ rowIndex, field: m.target, reason: `컬럼 "${m.source}"가 없다`, fatal: false })
+            }
+          } else if (col < chunk.width) {
+            value = coerce(chunk.values[base + col] ?? null, chunk.raws[base + col] ?? null, m.kind)
+            if (m.valueMap && value !== null) {
+              const mappedValue = m.valueMap[String(value)]
+              if (mappedValue === undefined) {
+                // 모르는 값을 통과시키면 스키마의 CHECK가 적재 시점에 터지거나,
+                // 더 나쁘게는 엉뚱한 분류로 집계된다. 여기서 잡는다.
+                errors.push({
+                  rowIndex,
+                  field: m.target,
+                  reason: `사전에 없는 값: "${String(value)}"`,
+                  fatal: true,
+                })
+                fatal = true
+              }
+              value = mappedValue ?? null
+            }
+          }
+        }
+
+        if (value === null && m.default !== undefined) value = m.default
+
+        if (value === null && m.required) {
+          errors.push({ rowIndex, field: m.target, reason: "필수 필드가 비었다", fatal: true })
+          fatal = true
+        }
+        fields[m.target] = value
+      }
+      return { fields, fatal }
+    }
 
     // 이 행이 어느 경로로 가는가. 일치하는 route가 없으면 기본 경로다.
-    let targetTable = profile.targetTable
-    let mapped = profile.fieldMappings
+    let hit: (typeof routing extends undefined ? never : NonNullable<typeof routing>["routes"][number]) | undefined
     if (routing && routeCol !== undefined && routeCol < chunk.width) {
       const routeValue = String(chunk.values[base + routeCol] ?? "")
-      const hit = routing.routes.find((r) => r.match.includes(routeValue))
-      if (hit) {
-        targetTable = hit.targetTable
-        mapped = hit.fieldMappings
-      } else if (routing.knownValues && !routing.knownValues.includes(routeValue)) {
+      hit = routing.routes.find((r) => r.match.includes(routeValue))
+      if (!hit && routing.knownValues && !routing.knownValues.includes(routeValue)) {
         // 모르는 값이다. 기본 경로로 보내되 조용히 넘기지 않는다.
         errors.push({
           rowIndex,
@@ -604,53 +695,18 @@ export function mapRows(
       }
     }
 
-    for (const m of mapped) {
-      let value: RawCell = null
-
-      if (m.derive) {
-        if (m.derive.from === "constant") {
-          value = m.derive.value
-        } else {
-          const raw = ctx.fileNameCaptures[m.derive.capture]
-          value = raw === undefined ? null : (looseDate(raw) ?? raw)
-        }
-      } else if (m.source !== undefined) {
-        const col = index.get(m.source)
-        if (col === undefined) {
-          // 헤더 자체가 없다 — 행마다 보고하면 8만 건이 되므로 첫 행에서만.
-          if (i === 0) {
-            errors.push({ rowIndex, field: m.target, reason: `컬럼 "${m.source}"가 없다`, fatal: false })
-          }
-        } else if (col < chunk.width) {
-          value = coerce(chunk.values[base + col] ?? null, chunk.raws[base + col] ?? null, m.kind)
-          if (m.valueMap && value !== null) {
-            const mappedValue = m.valueMap[String(value)]
-            if (mappedValue === undefined) {
-              // 모르는 값을 통과시키면 스키마의 CHECK가 적재 시점에 터지거나,
-              // 더 나쁘게는 엉뚱한 분류로 집계된다. 여기서 잡는다.
-              errors.push({
-                rowIndex,
-                field: m.target,
-                reason: `사전에 없는 값: "${String(value)}"`,
-                fatal: true,
-              })
-              fatal = true
-            }
-            value = mappedValue ?? null
-          }
-        }
-      }
-
-      if (value === null && m.default !== undefined) value = m.default
-
-      if (value === null && m.required) {
-        errors.push({ rowIndex, field: m.target, reason: "필수 필드가 비었다", fatal: true })
-        fatal = true
-      }
-      fields[m.target] = value
-    }
-
-    if (fatal) continue
+    /**
+     * ★ 이중 기록 — 한 행이 **판매이면서 취소**일 때 (`alsoDefault`) ★
+     *
+     * 두 벌을 다 만들고, **어느 하나라도 치명적이면 둘 다 버린다.** 반쪽만 넣으면
+     * 매출은 잡히고 취소는 안 잡히거나(순이익 과대) 그 반대가 되는데, 둘 다
+     * 「조용히 틀린 숫자」다. ESM의 결제일 빈 5행이 정확히 이 경우이고, 그 행들은
+     * 지금까지도 양쪽 다 못 만들어 통째로 제외돼 왔다 — 동작이 바뀌지 않는다.
+     */
+    const asRoute = hit === undefined ? null : apply(hit.fieldMappings)
+    const asDefault =
+      hit === undefined || hit.alsoDefault === true ? apply(profile.fieldMappings) : null
+    if (asRoute?.fatal === true || asDefault?.fatal === true) continue
 
     const sourceKey =
       profile.sourceKey.strategy === "natural"
@@ -671,7 +727,16 @@ export function mapRows(
             .join(KEY_SEP)
         : (rowValuesInto(chunk, i, scratch), contentKey(scratch, seen))
 
-    bucket(targetTable).push({ sourceKey, fields })
+    /**
+     * ★ 두 행의 `source_key`는 **같다** ★ 테이블이 다르므로 UNIQUE가 갈리고,
+     * 「같은 원본 행의 두 표현」이라는 사실이 키에 그대로 남는다. 재가져오기에서
+     * 둘 다 같은 키를 다시 얻으므로 멱등도 각자 성립한다 (`tests/order-item.test.ts`).
+     */
+    rowsLoaded++
+    if (asDefault !== null) bucket(profile.targetTable).push({ sourceKey, fields: asDefault.fields })
+    if (hit !== undefined && asRoute !== null) {
+      bucket(hit.targetTable).push({ sourceKey, fields: asRoute.fields })
+    }
 
     /**
      * ★ 품목은 **기본 경로로 간 행에서만** 나온다 ★
@@ -680,7 +745,10 @@ export function mapRows(
      * 간다. 그 행에서도 품목을 만들면 **팔리지 않은 물건의 매입원가가 계상되고**,
      * 매출에는 없는 원가가 손익에 들어가 손실이 두 번 잡힌다.
      */
-    if (itemsPossible && targetTable === profile.targetTable) {
+    // ★ 조건 (c) — 라우팅된 행은 **이중 기록이더라도** 품목을 만들지 않는다 ★
+    // 취소된 판매의 원가를 계상하지 않는 것이 매출·클레임 상쇄(net 0)와 정합이다.
+    // 「반품 시 재고 손실」 같은 정교화는 알려진 단순화로 ADR-009에 적혀 있다.
+    if (itemsPossible && hit === undefined) {
       const parts = listingKeyCols.map((c) =>
         c === undefined || c >= chunk.width ? "" : String(chunk.values[base + c] ?? "").trim(),
       )
@@ -713,7 +781,7 @@ export function mapRows(
     }
   }
 
-  return { rows: out, errors, items, unmappedColumnCount, byTable }
+  return { rows: out, errors, items, rowsLoaded, unmappedColumnCount, byTable }
 }
 
 /**

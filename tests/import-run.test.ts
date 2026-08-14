@@ -35,18 +35,31 @@ const NOW = "2026-08-14T00:00:00.000Z"
 const CASES = [
   {
     fixture: 6, profile: "11st-settlement@1.json", conn: "conn-11st",
+    fileRows: 128,
     expect: { fact_settlement: 128 },
     pipelineExcluded: 2, lostRows: 0, listings: 44,
     reasons: { subtitle: 1, "trailing-blank": 1 },
   },
   {
     fixture: 8, profile: "esm-order@1.json", conn: "conn-esm",
+    // 파일 데이터 160행 − 제외 5 = 155행을 읽어냈다. Fact 행 수(310)와 다르다.
+    fileRows: 155,
     // ★ 라우팅이 갈리는 자리 ★ `mapped.rows`만 읽으면 클레임 9건이 통째로 사라진다
     //
-    // ★ 품목 146 = 주문 146 (2026-08-14) ★ **클레임 9건은 품목을 만들지 않는다** —
-    // 매출에서 빠진 판매의 원가도 빠져야 하기 때문이다. 그 규율이 깨지면 이 숫자가
-    // 155가 되고, 취소된 물건의 매입원가가 손익에 들어간다.
-    expect: { fact_order: 146, fact_claim: 9, fact_order_item: 146 },
+    /**
+     * ★ 세 숫자가 각자 다른 사실을 말한다 (이중 기록 이후) ★
+     *
+     * ```
+     * fact_order      155  판매 사실 — 취소된 것도 «팔리기는 했다»
+     * fact_claim        9  취소 사실 — 발생일 기준으로 다시 뺀다
+     * fact_order_item 146  원가가 붙는 판매 — 취소분은 품목을 만들지 않는다
+     * ```
+     *
+     * 품목이 155가 되면 취소된 물건의 매입원가가 손익에 들어가고, 매출·클레임
+     * 상쇄(net 0)와 어긋난다. 주문이 146이면 매출에 들어간 적 없는 것을
+     * 클레임이 또 빼서 순이익이 388,700원 과소계상된다 — **둘 다 조용히 틀린다.**
+     */
+    expect: { fact_order: 155, fact_claim: 9, fact_order_item: 146 },
     pipelineExcluded: 0,
     // ★ 단언이 뒤집힌 자리 ★ 전에는 "5건이 DB에 남지 않는다"를 단언했다.
     // 이제 남는다 — 발생일 없는 클레임 5행이 `reason: "error"`로 기록된다.
@@ -122,6 +135,19 @@ run("runImport — 파일 하나를 끝까지 넣는다", () => {
         // ★ 잃은 것이 DB에 남는다 (LOCK 6) ★
         const d = (await repo.batchDigest(`batch-${c.conn}`))!
         expect(d.excludedCount, "제외 합계").toBe(c.pipelineExcluded + c.lostRows)
+
+        /**
+         * ★ 「가져온 행」은 **파일 행 수**여야 한다 ★
+         *
+         * 사용자가 대조하는 산식은 「적재 + 제외 = 파일 행」이다. 한 파일 행이
+         * 여러 Fact 행이 되는 경우가 둘이라(품목 · 이중 기록) Fact 합을 쓰면
+         * 160행 파일이 「310행 적재」가 되고 대조가 헤드라인에서 깨진다.
+         */
+        expect(d.rowCount, "다이제스트 제목이 말하는 «N행 적재»").toBe(c.fileRows)
+        expect(
+          d.rowCount + d.excludedCount,
+          "적재 + 제외 = 파일 데이터 행",
+        ).toBe(c.fileRows + c.pipelineExcluded + c.lostRows)
         expect(
           Object.fromEntries(d.exclusionsByReason.map((x) => [x.reason, x.count])),
           "사유별 제외",

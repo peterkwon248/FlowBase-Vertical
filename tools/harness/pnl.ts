@@ -39,7 +39,7 @@ import {
   type ListingUpsert,
   type LoadStats,
 } from "../../src/core/store/repository.js"
-import { collectListings } from "../../src/core/import/mapping/listing.js"
+import { runImport } from "../../src/core/import/run.js"
 import { type Period } from "../../src/core/profit/index.js"
 import { loadPnlSnapshot } from "../../src/core/profit/snapshot.js"
 import { pnlGaps } from "../../src/core/profit/gaps.js"
@@ -99,11 +99,6 @@ for (const t of TARGETS) {
   const profile = JSON.parse(readFileSync(join(PROFILE_DIR, t.profile), "utf-8")) as MappingProfile
   const bytes = new Uint8Array(readFileSync(fixturePath(f, DIR)))
 
-  // ── Recognition ──
-  const rec = sniff(bytes, f.file)
-  const top = rec.candidates[0]!
-  const src = await parserFor(top.format).open(bytes, { chunkSize: 1_000 })
-
   await db
     .prepare(
       `INSERT INTO connection (id, library_id, pack_id, marketplace_key, display_name, state, created_at, updated_at)
@@ -116,93 +111,37 @@ for (const t of TARGETS) {
       profile.displayName, "CONNECTED", NOW, NOW,
     )
 
-  const batch = {
-    id: `batch-${t.market}`,
+  /**
+   * ★ 적재는 `runImport` **하나**다 (2026-08-14) ★
+   *
+   * 여기 있던 루프는 `runImport`가 생기기 전의 «완전한 쪽»이었고, 그 뒤로도 남아
+   * **두 번째 벌**로 살아 있었다. 적대적 검토가 잡았다 — 이 루프는 `mapped.items`를
+   * 읽지 않아 같은 파일이 CLI에서는 품목 0, 위저드에서는 146이 됐다.
+   * «화면 숫자 = CLI 숫자»가 구조적 보장에서 **검사 항목**으로 내려간 상태였다.
+   *
+   * 이제 CLI도 앱과 **같은 함수**를 부른다. Recognition·파서 열기·리스팅 UPSERT·
+   * 제외 기록·커밋이 전부 그 안에 있으므로 여기서 다시 하지 않는다.
+   */
+  const r = await runImport(repo, {
+    bytes,
+    fileName: f.file,
+    profile,
+    sheetIndex: 0,
     libraryId: LIB,
     connectionId: t.conn,
-    sourceName: f.file,
-    sourceBytes: bytes.length,
-    containerFormat: top.format,
-    mappingVersion: profileVersion(profile),
-    startedAt: NOW,
-  }
-  await repo.openBatch(batch)
-
-  const { chunks, getSummary } = streamSheet(src, 0, { chunkSize: 1_000 })
-  const captures = captureFromFileName(profile, f.file)
-  const keyState = newKeyState()
-  let headers: string[] = []
-  let matched = false
-  let n = 0
-  let errors = 0
-  let unmapped = 0
-  let offset = 0
-  const perTable = new Map<string, number>()
-  /** 이 파일이 만드는 리스팅 **종류**. 청크를 가로질러 모인다. */
-  const listings = new Map<string, ListingUpsert>()
-
-  for await (const chunk of chunks) {
-    if (!matched) {
-      headers = [...getSummary().header.columns]
-      const m = matchProfiles([profile], { containerFormat: top.format, headers, fileName: f.file })
-      if (m.length === 0) throw new Error(`프로파일이 맞지 않는다: ${t.profile} ← ${f.file}`)
-      matched = true
-    }
-    const mapped = mapRows(
-      profile,
-      headers,
-      chunk,
-      { fileName: f.file, fileNameCaptures: captures, keyState },
-      offset,
-    )
-    if (profile.listing) collectListings(profile.listing, headers, chunk, listings)
-
-    offset += chunk.rowCount
-    errors += mapped.errors.length
-    unmapped = mapped.unmappedColumnCount
-
-    // ★ byTable로 읽는다 ★ `rows`만 보면 라우팅으로 다른 테이블에 간 행을
-    // 통째로 놓친다 (ESM은 클레임이 fact_claim으로 갈라진다).
-    for (const [table, rows] of mapped.byTable) {
-      if (rows.length === 0) continue
-      await repo.loadChunk(
-        table as FactTable,
-        batch,
-        rows.map((r, i) => ({
-          id: `${batch.id}-${table}-${offset - chunk.rowCount + i}`,
-          source_key: r.sourceKey,
-          ...r.fields,
-        })),
-      )
-      perTable.set(table, (perTable.get(table) ?? 0) + rows.length)
-      n += rows.length
-    }
-  }
-
-  // ★ 리스팅은 청크마다 적재하지 않고 **다 모은 뒤 한 번** 넣는다 ★
-  // 종류의 목록이라 청크마다 넣으면 같은 리스팅에 UPSERT가 반복된다.
-  // 파일 하나가 만드는 종류 수는 행 수보다 훨씬 작으므로 모아둬도 가볍다.
-  if (profile.listing && listings.size > 0) {
-    const stats = await repo.upsertListings(LIB, t.conn, [...listings.values()], NOW)
-    listingStats.set(t.market, stats)
-  }
-
-  const sum = getSummary()
-  await repo.recordExclusions(
-    batch.id,
-    sum.excluded.map((e) => ({ rowIndex: e.rowIndex, reason: e.reason, detail: e.detail })),
-  )
-  await repo.commitBatch(batch.id, NOW)
-  src.close()
+    batchId: `batch-${t.market}`,
+    now: NOW,
+  })
+  if (r.listings) listingStats.set(t.market, r.listings)
 
   loaded.push({
     market: t.market,
     file: f.file,
-    table: [...perTable].map(([t, c]) => `${t}:${c}`).join(" + ") || profile.targetTable,
-    rows: n,
-    excluded: sum.excluded.length,
-    errors,
-    unmapped,
+    table: [...r.perTable].map(([tbl, c]) => `${tbl}:${c}`).join(" + ") || profile.targetTable,
+    rows: r.loaded,
+    excluded: r.excluded.length,
+    errors: r.mappingErrors.length,
+    unmapped: r.unmappedColumnCount,
   })
 }
 

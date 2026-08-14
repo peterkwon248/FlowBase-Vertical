@@ -123,7 +123,19 @@ run("대시보드 1단 — 화면 숫자 = CLI 숫자", () => {
     // ── 축약 표기 — KPI 스트립 ─────────────────────────────────
     expect(html, "총매출 KPI가 없다").toContain(`${compact(s.pnl.revenue)}원`)
     expect(html, "순이익 KPI가 없다").toContain(`${compact(s.pnl.netProfit)}원`)
-    expect(html, "주문 건수가 없다").toContain(`주문 ${won(s.orderCount)}건`)
+    /**
+     * ★ 「주문 N건」 → 「판매 N건 · 취소 M건」 (조건 d, 2026-08-14) ★
+     *
+     * 이중 기록 이후 판매 건수에는 취소된 것도 들어 있다. 「주문 155건」만 쓰면
+     * 사용자가 옛 146과 대조하다 9건이 어디서 왔는지 못 찾는다 — 그 차이를 숫자로
+     * 보인다. 146이라는 숫자는 이제 어디에도 없고, 그 소멸은 의도된 것이다.
+     */
+    expect(html, "판매 건수가 없다").toContain(`판매 ${won(s.orderCount)}건`)
+    if (s.claimCount > 0) {
+      expect(html, "취소 건수를 짝으로 안 쓰면 155의 출처가 안 보인다").toContain(
+        `취소 ${won(s.claimCount)}건`,
+      )
+    }
 
     // ── 비용 구성 카드 — `showCost` 복원의 결과 ────────────────
     // 이 문자열이 없으면 카드 자체가 안 그려진 것이다. 이게 원래 막혀 있던 자리다.
