@@ -78,6 +78,36 @@ export interface ExclusionRecord {
   readonly detail: string
 }
 
+/** 연결 하나. `displayName`은 프로파일이 선언한 **채널 통칭**이다 (문서 이름이 아니다). */
+export interface ConnectionUpsert {
+  readonly id: string
+  readonly libraryId: string
+  readonly packId: string
+  readonly marketplaceKey: string
+  readonly displayName: string
+}
+
+/**
+ * 배치 하나가 무엇을 했는지 — 가져오기 다이제스트 화면이 읽는 **타입 있는 요약**.
+ *
+ * `batchStatus`는 `SELECT *`라 화면이 `Record<string, SqlValue>`를 손으로 파싱해야 했고,
+ * 제외는 `batch_exclusion`에 **넣기만 하고 아무도 읽지 않았다**. 읽지 못한 것을
+ * 표시해야 한다는 LOCK 6은 적재까지만 지켜지고 화면에는 닿지 못하고 있었다.
+ */
+export interface BatchDigest {
+  readonly id: string
+  readonly sourceName: string
+  readonly containerFormat: string
+  readonly sheetName: string | null
+  readonly status: string
+  readonly rowCount: number
+  readonly excludedCount: number
+  readonly startedAt: string
+  readonly committedAt: string | null
+  /** 제외 사유별 건수. **0건이면 빈 배열이고 그것도 사실이다.** */
+  readonly exclusionsByReason: readonly { readonly reason: string; readonly count: number }[]
+}
+
 /** 적재할 행 하나 — 공통 컬럼을 뺀 본문만. */
 export type FactRow = Readonly<Record<string, SqlValue>>
 
@@ -91,6 +121,47 @@ export class Repository {
   private readonly columnCache = new Map<string, string[]>()
 
   constructor(private readonly db: Driver) {}
+
+  // ─────────────────────────────────────────────────────────
+  // 배치가 붙을 자리 — 라이브러리와 연결
+  // ─────────────────────────────────────────────────────────
+
+  /**
+   * 라이브러리가 있게 한다. 이미 있으면 아무것도 하지 않는다.
+   *
+   * 지금까지 이걸 하는 코드는 전부 **생 INSERT**였다(`smoke.ts` · `pnl.ts` · `e2e-worker.ts`).
+   * 하네스는 자기가 만든 DB를 자기가 아니까 그래도 됐지만, 사용자가 파일을 넣는
+   * 경로에는 "처음이면 만들고 아니면 둔다"가 필요하다.
+   */
+  async ensureLibrary(id: string, name: string, now: string): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO library (id, name, created_at) VALUES (?,?,?)
+         ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(id, name, now)
+  }
+
+  /**
+   * 연결이 있게 한다.
+   *
+   * ★ `displayName`은 프로파일이 선언한 **채널 통칭**이다 ★
+   * 문서 이름(`label`)이 아니다. 이걸 헷갈리면 화면의 채널 열에
+   * "11번가 결제일 정산확정" 같은 문서 제목이 뜬다 (헌장 C-4 계열).
+   *
+   * 재가져오기로 같은 연결이 다시 오면 이름만 갱신한다 — 사용자가 나중에
+   * 덮어쓰는 값이 되면(§10-2) 그때 이 동작을 다시 본다.
+   */
+  async ensureConnection(c: ConnectionUpsert, now: string): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO connection
+           (id, library_id, pack_id, marketplace_key, display_name, state, created_at, updated_at)
+         VALUES (?,?,?,?,?,'CONNECTED',?,?)
+         ON CONFLICT(id) DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.updated_at`,
+      )
+      .run(c.id, c.libraryId, c.packId, c.marketplaceKey, c.displayName, now, now)
+  }
 
   // ─────────────────────────────────────────────────────────
   // 배치 수명주기 (헌장 B-2)
@@ -605,6 +676,47 @@ export class Repository {
 
   async batchStatus(batchId: string): Promise<Row | undefined> {
     return this.db.prepare(`SELECT * FROM batch WHERE id = ?`).get(batchId)
+  }
+
+  /**
+   * 배치 하나의 요약 — **가져오기가 끝난 뒤 화면이 보여줄 것 전부.**
+   *
+   * 제외를 사유별로 세는 것이 요점이다. 「80,137행 적재」만 말하고 제외 3건을
+   * 두고 오면 그게 곧 조용한 실패다 (LOCK 6). 사유별로 갈라야 사용자가
+   * "합계 행이 걸러진 것"과 "읽다 실패한 것"을 구분할 수 있다.
+   */
+  async batchDigest(batchId: string): Promise<BatchDigest | undefined> {
+    const b = await this.db
+      .prepare(
+        `SELECT id, source_name, container_format, sheet_name, status,
+                row_count, excluded_count, started_at, committed_at
+           FROM batch WHERE id = ?`,
+      )
+      .get(batchId)
+    if (!b) return undefined
+
+    const rows = await this.db
+      .prepare(
+        `SELECT reason, COUNT(*) AS c FROM batch_exclusion
+          WHERE batch_id = ? GROUP BY reason ORDER BY c DESC, reason`,
+      )
+      .all(batchId)
+
+    return {
+      id: String(b["id"]),
+      sourceName: String(b["source_name"]),
+      containerFormat: String(b["container_format"]),
+      sheetName: b["sheet_name"] == null ? null : String(b["sheet_name"]),
+      status: String(b["status"]),
+      rowCount: Number(b["row_count"] ?? 0),
+      excludedCount: Number(b["excluded_count"] ?? 0),
+      startedAt: String(b["started_at"]),
+      committedAt: b["committed_at"] == null ? null : String(b["committed_at"]),
+      exclusionsByReason: rows.map((r) => ({
+        reason: String(r["reason"]),
+        count: Number(r["c"] ?? 0),
+      })),
+    }
   }
 
   // ─────────────────────────────────────────────────────────
