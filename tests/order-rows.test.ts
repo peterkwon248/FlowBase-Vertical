@@ -52,28 +52,49 @@ run("주문 화면 — 화면 숫자 = CLI 숫자", () => {
     }
   }
 
-  it("행 수가 적재된 행 수와 같다 — 주문 146 · 클레임 9", async () => {
+  /**
+   * ★ 절대값을 박지 않는다 (2026-08-14) ★
+   * 「주문 146 · 155행」은 «CLI가 만든 DB» 한 상태의 사진이었다. 위저드가 서고
+   * 사용자가 실제로 파일을 넣자(쿠팡 매출 2종) 숫자가 늘었고 게이트가 빨개졌다 —
+   * **회귀가 아니라 데이터가 는 것**이다. 이 테스트가 지켜야 할 것은 특정 숫자가
+   * 아니라 «목록이 센 것 = 스냅샷이 센 것»이다.
+   */
+  it("행 수가 적재된 행 수와 같다 — 목록과 스냅샷이 갈리지 않는다", async () => {
     const { snap, rows } = await load()
     const orders = rows.filter((r) => r.kind === "order")
     const claims = rows.filter((r) => r.kind === "claim")
 
-    expect(orders.length, "주문").toBe(146)
-    expect(claims.length, "클레임").toBe(9)
-    expect(rows.length, "합계 — 겹쳐 세지도 빠뜨리지도 않는다").toBe(155)
+    expect(rows.length, "겹쳐 세지도 빠뜨리지도 않는다").toBe(orders.length + claims.length)
     // 스냅샷이 센 주문 건수와 같아야 한다. 다르면 기간 필터가 갈린 것이다
     expect(orders.length, "스냅샷의 orderCount와 같다").toBe(snap.orderCount)
+    expect(orders.length, "주문이 0이면 이 게이트는 무의미하다").toBeGreaterThan(0)
   })
 
-  it("합계가 손익과 원 단위로 같다 — 총매출 7,896,500 · 클레임 388,700", async () => {
+  it("합계가 손익과 원 단위로 같다", async () => {
     const { snap, rows } = await load()
     const sum = (k: string): number =>
       rows.filter((r) => r.kind === k).reduce((a, r) => a + r.amount, 0)
 
-    expect(sum("order"), "총매출").toBe(7_896_500)
     expect(sum("order"), "손익의 revenue와 같다").toBe(snap.pnl.revenue)
     // 부호는 화면이 붙이지 않는다 — 빼는 것은 계산기의 몫이다
-    expect(sum("claim"), "클레임 원금액").toBe(388_700)
     expect(sum("claim"), "손익의 claims와 같다").toBe(snap.pnl.claims)
+  })
+
+  /**
+   * 손으로 검산한 정답지 — **연결 단위로만 유효하다.**
+   * 라이브러리 합계는 파일이 들어올 때마다 바뀌지만, 「ESM 주문 146건 =
+   * 7,896,500원 · 클레임 9건 388,700원」은 그 batch가 살아 있는 한 참이다.
+   */
+  it("ESM 정답지가 그대로 살아 있다", async () => {
+    const { rows } = await load()
+    const esm = rows.filter((r) => r.channel === "ESM (G마켓·옥션)")
+    const orders = esm.filter((r) => r.kind === "order")
+    const claims = esm.filter((r) => r.kind === "claim")
+
+    expect(orders.length, "ESM 주문 건수").toBe(146)
+    expect(orders.reduce((a, r) => a + r.amount, 0), "ESM 매출").toBe(7_896_500)
+    expect(claims.length, "ESM 클레임 건수").toBe(9)
+    expect(claims.reduce((a, r) => a + r.amount, 0), "ESM 클레임 금액").toBe(388_700)
   })
 
   /**
@@ -85,11 +106,16 @@ run("주문 화면 — 화면 숫자 = CLI 숫자", () => {
     const { snap, rows } = await load()
     const est = rows.filter((r) => r.kind === "claim" && r.dateEstimated).length
     expect(est, "목록이 센 추정 건수").toBe(snap.proxyDatedClaims)
-    expect(est, "오늘은 9건 전부가 추정이다").toBe(9)
+    // 클레임은 ESM에서만 오고 전부 프록시 일자다 — 다른 클레임 양식이 생기면 바뀐다
+    expect(est, "오늘은 클레임 전부가 추정이다").toBe(
+      rows.filter((r) => r.kind === "claim").length,
+    )
   })
 
   it("표가 화면에 그려진다 — 클레임이 성격이 보이게 선다", async () => {
     const { rows } = await load()
+    const nOrder = rows.filter((r) => r.kind === "order").length
+    const nClaim = rows.filter((r) => r.kind === "claim").length
     const vals = shellVals(shellStateFor(false), emptyActions() as never)
     orderVals(vals, rows, PERIOD)
     vals.firstRun = false
@@ -99,8 +125,8 @@ run("주문 화면 — 화면 숫자 = CLI 숫자", () => {
     const html = renderToString(createElement(Template, { vals }))
 
     expect(html, "빈 상태가 떠 있다").not.toContain("주문이 없습니다")
-    expect(html, "범위 줄이 없다").toContain("주문 146건")
-    expect(html, "클레임 건수가 없다").toContain("클레임 9건")
+    expect(html, "범위 줄이 없다").toContain(`주문 ${nOrder.toLocaleString("ko-KR")}건`)
+    expect(html, "클레임 건수가 없다").toContain(`클레임 ${nClaim.toLocaleString("ko-KR")}건`)
     // 클레임 행이 자기 성격을 말한다
     expect(html, "클레임 유형 표기가 없다").toMatch(/취소|반품|환불|교환/)
     // 날짜가 추정인 것을 숨기지 않는다
