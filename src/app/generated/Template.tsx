@@ -4703,7 +4703,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                       {r.picked ? "선택됨" : "선택"}
                                     </span>
                                     {" "}
-                                    <span className="v-btn v-btn--primary" style={{ height: "26px", cursor: "pointer" }} onClick={r.newSku}>
+                                    <span className={r.newSkuClass} style={{ height: "26px", cursor: "pointer" }} onClick={r.newSku}>
                                       새 SKU로 등록
                                     </span>
                                   </span>
@@ -4754,7 +4754,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                           {c.sku}
                                         </span>
                                         {" "}
-                                        <span className="v-btn v-btn--primary" style={{ height: "24px", padding: "0 10px", fontSize: "11px", cursor: "pointer", justifySelf: "end" }} onClick={c.pick}>
+                                        <span className={c.pickClass} style={{ height: "24px", padding: "0 10px", fontSize: "11px", cursor: "pointer", justifySelf: "end" }} onClick={c.pick}>
                                           연결
                                         </span>
                                       </div>

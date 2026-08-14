@@ -235,6 +235,53 @@ run("상품 연결 — 엔진 분류가 화면에 1:1로 온다 (완료 기준 a
     expect(html, "contested 후보가 노랑이 아니다").toContain("var(--pnl-warn)")
   })
 
+  /**
+   * ★ §20 루프의 첫 수확 — 버튼 위계가 등급을 따른다 ★
+   *
+   * 사용자가 2d에서 리스팅 86개를 연결하며 **61번 전부 [새 SKU로 등록]**을 눌렀다.
+   * 제안은 보였다("이렇게 보였던 거 같아"). 시각 위계가 아니라 **버튼 위계** 문제였다 —
+   * 파란 primary가 카드 머리에 늘 떠 있고 옳은 행동인 [연결]은 아래 작은 보조 버튼이라,
+   * 눈이 먼저 가는 쪽을 누른 것이다.
+   *
+   * §21-6은 이미 «후보가 없을 때의 기본값»이라고 적어 뒀다. 「기본 액션」을
+   * 「항상 primary」로 읽은 것이 오독이었고, 이 테스트가 그 오독의 재발을 막는다.
+   */
+  it("primary는 등급이 정한다 — none은 [새 SKU], clear는 [연결], contested는 아무것도", async () => {
+    const v = await loadLinkingView(db, LIB, M)
+    const kind = (k: string) => v.todo.find((c) => c.suggestionKind === k)
+    expect(kind("none"), "none 카드가 있어야 시험이 성립한다").toBeTruthy()
+    expect(kind("clear"), "clear 카드가 있어야 한다").toBeTruthy()
+    expect(kind("contested"), "contested 카드가 있어야 한다").toBeTruthy()
+
+    const noop = (): void => {}
+    const vals = shellVals(shellStateFor(false), {
+      go: noop, toggleNav: noop, closeNav: noop, openNav: noop, goImport: noop, toggleTheme: noop,
+    } as never)
+    linkingVals(vals, v, "todo", new Set())
+
+    const rows = vals.linkRows as { newSkuClass: string; cands: { pickClass: string }[] }[]
+    const byKind = new Map(v.todo.map((c, i) => [c.key, { kind: c.suggestionKind, row: rows[i]! }]))
+
+    for (const { kind: k, row } of byKind.values()) {
+      if (k === "none") {
+        expect(row.newSkuClass, "후보가 없으면 [새 SKU]가 유일한 길이다").toContain("v-btn--primary")
+        expect(row.cands, "none은 후보가 없다").toHaveLength(0)
+      } else {
+        expect(row.newSkuClass, `${k}인데 [새 SKU]가 primary다`).not.toContain("v-btn--primary")
+      }
+      if (k === "clear") {
+        expect(row.cands, "clear는 후보 하나다").toHaveLength(1)
+        expect(row.cands[0]!.pickClass, "clear의 [연결]이 primary가 아니다").toContain("v-btn--primary")
+      }
+      if (k === "contested") {
+        // ★ 미리 고르지 않는다 ★ 애매한 것을 골라주면 확정이 통과의례가 된다
+        for (const c of row.cands) {
+          expect(c.pickClass, "contested인데 어느 후보가 미리 골라져 있다").not.toContain("v-btn--primary")
+        }
+      }
+    }
+  })
+
   it("done 탭 카피가 ADR-012가 보증하는 것만 말한다 (결함 48)", async () => {
     const v = await loadLinkingView(db, LIB, M)
     expect(v.counts.done, "등록한 27장이 done에 있다").toBe(27)

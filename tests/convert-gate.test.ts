@@ -213,6 +213,36 @@ const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[
       "결함 47(비교 문장)과 **같은 처방**이고 — 문구가 아니라 조건을 고친다 — 첫 SKU가 " +
       "생기는 순간 스스로 살아난다. 그 자리를 지금 채우는 것이 §21-6 ②다",
   },
+  // ── §20 루프의 첫 수확 — 버튼 위계를 등급에 묶는다 ──────────────────────
+  // 사용자가 2d에서 61번 전부 [새 SKU로 등록]을 눌렀다. 제안은 보였는데도 그랬다 —
+  // 파란 primary가 카드 머리에 늘 떠 있고 옳은 행동인 [연결]은 아래 작은 보조 버튼이라
+  // 눈이 먼저 가는 쪽을 누른 것이다. §21-6은 이미 다르게 적어 뒀다:
+  //   "[새 SKU로 등록] — **후보가 없을 때의 기본값**"
+  //   "`clear`는 후보 1개를 *미리 선택된 상태로* 제시"
+  // 「기본 액션」을 「항상 primary」로 읽은 것이 오독이었다.
+  {
+    field: "classes",
+    // 앞의 «무시/해제 버튼 + 일치도·SKU 코드»까지 붙여야 유일해진다 —
+    // `v-btn v-btn--primary`만으로는 18곳에서 잡히고, `indexOfRun`이 그걸 세웠다
+    from: ["v-btn", "v-num", "v-num", "v-btn v-btn--primary"],
+    to: ["v-btn", "v-num", "v-num", "{c.pickClass}"],
+    why:
+      "§21-6 — [연결]의 강조가 **등급을 따른다.** `clear`면 primary(후보 하나가 «미리 " +
+      "선택된» 것의 시각적 표현), `contested`면 보조 — 여럿 중 어느 것도 미리 고르지 " +
+      "않는다. 애매한 것을 골라주면 사람의 확정이 검토가 아니라 통과의례가 된다 (§20 신뢰 전제)",
+  },
+  {
+    field: "attrs",
+    from: ["class=v-btn v-btn--primary", "onClick={c.pick}"],
+    to: ["class={c.pickClass}", "onClick={c.pick}"],
+    why: "위 `classes` 선언의 짝 — `attrs`는 속성 원문도 따로 센다",
+  },
+  {
+    field: "holes",
+    from: ["c.sku", "c.pick"],
+    to: ["c.sku", "c.pickClass", "c.pick"],
+    why: "위 `classes` 선언이 만든 새 동적 자리",
+  },
   {
     field: "holes",
     from: ["c.label", "c.sku"],

@@ -114,6 +114,33 @@ function confColor(kind: LinkingCard["suggestionKind"]): string {
   return kind === "clear" ? G : kind === "contested" ? YEL : DIM
 }
 
+/**
+ * ★ 버튼 위계는 **등급을 따른다** — §20 루프의 첫 수확 ★
+ *
+ * 사용자가 2d에서 리스팅 86개를 연결하며 **61번 전부 [새 SKU로 등록]을 눌렀다.**
+ * 제안은 보였다("이렇게 보였던 거 같아"). 즉 시각 위계 문제가 아니라 **버튼 위계**
+ * 문제였다 — 파란 primary가 카드 머리에 늘 떠 있고, 옳은 행동인 [연결]은 그 아래
+ * 작은 보조 버튼이었다. 사람은 눈에 띄는 것을 누른다.
+ *
+ * §21-6이 이미 다르게 적어 뒀는데 내가 다르게 만들었다:
+ *
+ *   "[새 SKU로 등록] — … **후보가 없을 때의 기본값**"
+ *   "`clear`는 후보 1개를 *미리 선택된 상태로* 제시"
+ *
+ * 「기본 액션」을 「항상 primary」로 읽은 것이 오독이다. 이제 등급이 정한다:
+ *
+ * ```
+ * none       [새 SKU로 등록] primary   후보가 없으니 그것이 유일한 길이다
+ * clear      [연결] primary            후보 1개가 «미리 선택된» 것의 시각적 표현
+ * contested  둘 다 보조                미리 고르지 않는다 — 사람이 골라야 한다
+ * ```
+ *
+ * `contested`에서 아무것도 primary가 아닌 것이 요점이다. 애매한 것을 골라주면
+ * 사람의 확정이 검토가 아니라 **통과의례**가 된다 (§20 신뢰 전제).
+ */
+const PRIMARY = "v-btn v-btn--primary"
+const SECONDARY = "v-btn"
+
 function candRow(card: LinkingCard, c: ViewCandidate, act: LinkingActions) {
   return {
     conf: `${Math.round(c.score * 100)}%`,
@@ -126,6 +153,9 @@ function candRow(card: LinkingCard, c: ViewCandidate, act: LinkingActions) {
      * 공간이 부족하면 SKU 코드 열을 줄이지 이 줄을 접지 않는다.
      */
     shared: c.shared.length > 0 ? `겹침: ${c.shared.join(", ")}` : "겹침 없음",
+    // clear의 후보는 하나뿐이고 그것이 «미리 선택된» 것이다. contested는 여럿이라
+    // 어느 것도 primary가 아니다 — 고르는 일을 사람에게 남긴다.
+    pickClass: card.suggestionKind === "clear" ? PRIMARY : SECONDARY,
     pick: () => act.link(card, c.skuId),
   }
 }
@@ -187,6 +217,9 @@ function cardRow(
     // 후보가 없을 때의 기본 액션이다. 이것이 없으면 SKU 0개 상태에서 화면이
     // 작동 자체를 못 한다 — 목업은 SKU가 이미 있는 세계를 전제하고 그렸다.
     newSku: () => act.newSku(card),
+    // 후보가 없을 때만 primary다 (§21-6 ②의 «후보가 없을 때의 기본값»).
+    // 후보가 있는데 이게 파랗게 떠 있으면 사람은 그걸 누른다 — 실제로 61번 눌렀다.
+    newSkuClass: card.suggestionKind === "none" ? PRIMARY : SECONDARY,
     picked: picked.has(card.key),
     toggle: () => act.toggle(card.key),
 
