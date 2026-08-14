@@ -185,16 +185,26 @@ export interface PnlSnapshot {
      */
     readonly periodApproxItems: number
     /**
-     * 라이브러리에 품목 행이 **하나라도** 있는가.
+     * ★ **이 기간의** 주문 중 품목이 붙지 않은 건수 ★
      *
-     * ★ 오늘 이 값은 거짓이다 ★ 어느 프로파일도 2단계 적재(주문 헤더 + 품목)를 하지
-     * 않아 `fact_order_item`이 0행이다 — 주문 파일에는 상품번호와 수량이 있는데
-     * 적재에서 버려진다(각 프로파일의 `unmappedColumns` 주석이 그렇게 적고 있다).
-     * 그래서 원가를 아무리 넣어도 매입원가는 0으로 남는다. 기간으로 묻지 않고
-     * 테이블 자체를 보는 이유는, 기간으로 물으면 «7월엔 안 팔렸다»가 «품목 데이터가
-     * 없다»로 둔갑하기 때문이다.
+     * 품목 없이 들어온 주문은 원가 계산의 모집단 **밖**이다 — 매출에는 잡히고
+     * 매입원가에는 안 잡히므로 기여이익이 그만큼 부푼다. 오늘 그런 주문이 생기는
+     * 경로는 하나뿐이다: **품목 적재 이전에 들어온 batch.** 그 파일을 다시 넣으면
+     * 품목이 생기고 이 값이 스스로 0이 된다.
+     *
+     * boolean이 아닌 이유는 아래 `amountWithoutItems`와 같다 — 아래 주석 참조.
      */
-    readonly hasOrderItems: boolean
+    readonly ordersWithoutItems: number
+    /** 그 주문들의 매출 합. **크기를 말할 수 있어야** 사용자가 무게를 안다. */
+    readonly amountWithoutItems: number
+    /**
+     * 기간 안 주문 중 품목이 붙은 건수. `ordersWithoutItems`와 합이 `orderCount`다.
+     *
+     * ★ 왜 «있나 없나»가 아닌가 ★ 전에는 라이브러리 전역 `hasOrderItems` boolean이었고,
+     * 그 한 줄이 «품목 있는 파일 하나»만으로 나머지 파일의 부재를 전 표면에서
+     * 지웠다. §22가 요구하는 것은 «있나»가 아니라 **«몇 건이 밖에 있나»**다.
+     */
+    readonly ordersWithItems: number
   }
 }
 
@@ -339,16 +349,43 @@ export async function loadPnlSnapshot(
               COUNT(*) AS items,
               COALESCE(SUM(CASE WHEN ml.sku_id IS NULL THEN 1 ELSE 0 END),0) AS no_link,
               COALESCE(SUM(CASE WHEN ml.sku_id IS NOT NULL AND ${COST} IS NULL THEN 1 ELSE 0 END),0) AS no_cost,
-              COALESCE(SUM(CASE WHEN ${COST} IS NULL THEN oi.quantity ELSE 0 END),0) AS no_cost_qty
+              COALESCE(SUM(CASE WHEN ml.sku_id IS NOT NULL AND ${COST} IS NULL THEN oi.quantity ELSE 0 END),0) AS no_cost_qty
        ${ITEM_JOIN}
         WHERE oi.library_id = ? AND ${SOLD}
           AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')`,
     )
     .get(libraryId, period.from, period.to)
 
-  const anyItem = await db
-    .prepare(`SELECT EXISTS(SELECT 1 FROM active_order_item WHERE library_id = ?) AS n`)
-    .get(libraryId)
+  /**
+   * ★ «품목이 없는 주문»을 **기간 안에서** 센다 ★
+   *
+   * 여기 있던 것은 `EXISTS(… WHERE library_id = ?)` — **라이브러리 전역 boolean**이었다.
+   * 적대적 검토가 그 한 줄로 세 표면을 동시에 침묵시켰다:
+   *
+   * ```
+   * 품목 없는 옛 batch(ESM 주문 146 · 789만원) + 품목 있는 새 batch(제트) 공존
+   *   → hasOrderItems = true (제트 때문에)
+   *   → cogs-unappliable 억제 · 상품 화면 게이지 note 소멸 · soldQty가 «0»으로 표시
+   *   → 146건 789만원이 원가 모집단 **밖**인데 그 부재를 말하는 줄이 하나도 없다
+   * ```
+   *
+   * **이건 사용자의 바로 다음 동작 위에 있었다.** 파일을 한 번에 하나씩 다시 넣으므로
+   * 첫 재가져오기 한 번에 나머지 파일의 부재가 통째로 조용해진다.
+   *
+   * 그래서 boolean이 아니라 **모집단으로 센다** — §22가 요구하는 것은 «있나 없나»가
+   * 아니라 «몇 건이 밖에 있나»다.
+   */
+  const itemCoverage = await db
+    .prepare(
+      `SELECT COUNT(*) AS orders,
+              SUM(CASE WHEN EXISTS(SELECT 1 FROM active_order_item i WHERE i.order_id = o.id)
+                       THEN 1 ELSE 0 END) AS with_items,
+              COALESCE(SUM(CASE WHEN NOT EXISTS(SELECT 1 FROM active_order_item i WHERE i.order_id = o.id)
+                       THEN o.total_amount ELSE 0 END),0) AS amount_without
+         FROM active_order o
+        WHERE o.library_id = ? AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')`,
+    )
+    .get(libraryId, period.from, period.to)
 
   /**
    * ★ 조건 2 — 기간 집계 매출의 원가는 **근사다** ★
@@ -437,7 +474,9 @@ export async function loadPnlSnapshot(
       itemsWithoutCost: num(cogsRow, "no_cost"),
       qtyWithoutCost: num(cogsRow, "no_cost_qty"),
       periodApproxItems: num(approxRow, "n"),
-      hasOrderItems: num(anyItem, "n") === 1,
+      ordersWithItems: num(itemCoverage, "with_items"),
+      ordersWithoutItems: num(itemCoverage, "orders") - num(itemCoverage, "with_items"),
+      amountWithoutItems: num(itemCoverage, "amount_without"),
     },
   }
 }

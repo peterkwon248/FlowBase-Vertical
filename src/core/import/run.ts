@@ -293,7 +293,10 @@ export async function runImport(
           })
         }
         if (itemRows.length > 0) {
-          await repo.loadChunk("fact_order_item", batch, itemRows)
+          // `countsAsRow: false` — 품목은 파일의 새 행이 아니라 **같은 행의 두 번째
+          // 표현**이다. 더하면 160행 파일이 「301행 적재」가 되고, 사용자가 파일과
+          // 대조하는 산식(적재 + 제외 = 파일 행)이 깨진다.
+          await repo.loadChunk("fact_order_item", batch, itemRows, false)
           perTable.set("fact_order_item", (perTable.get("fact_order_item") ?? 0) + itemRows.length)
           loaded += itemRows.length
         }

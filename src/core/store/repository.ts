@@ -662,6 +662,21 @@ export class Repository {
     table: FactTable,
     batch: BatchOpen,
     rows: readonly FactRow[],
+    /**
+     * `batch.row_count`에 더할 것인가. **품목은 더하지 않는다** (`countsAsRow: false`).
+     *
+     * ★ 왜 특수 취급인가 ★ `row_count`는 세 표면이 «가져온 행»으로 읽는다 —
+     * 다이제스트 제목, 가져오기 기록의 「가져온 행」·「신규」, 되돌리기 다이얼로그.
+     * 사용자는 그 숫자를 **파일 행 수와 대조**한다(「적재 + 제외 = 파일 행」).
+     *
+     * 품목은 파일의 새 행이 아니라 **같은 행의 두 번째 표현**이다. 더하면
+     * 160행 파일이 「301행 적재」가 되고 대조 산식이 깨진다 — LOCK 6이 «제외를
+     * 표시한다»로 지키려던 대조 가능성이 헤드라인에서 사라진다.
+     *
+     * 분해는 이미 다른 자리가 말한다: 다이제스트·기록 화면의 「엔티티」 칸이
+     * 「주문 146 · 클레임 9 · 품목 146」을 그대로 보인다.
+     */
+    countsAsRow = true,
   ): Promise<LoadStats> {
     if (!FACT_TABLES.includes(table)) throw new Error(`적재할 수 없는 테이블: ${table}`)
     if (rows.length === 0) return { inserted: 0, updated: 0 }
@@ -734,9 +749,11 @@ export class Repository {
 
       await this.db.runMany(sql, paramRows())
 
-      await this.db
-        .prepare(`UPDATE batch SET row_count = row_count + ? WHERE id = ?`)
-        .run(rows.length, batch.id)
+      if (countsAsRow) {
+        await this.db
+          .prepare(`UPDATE batch SET row_count = row_count + ? WHERE id = ?`)
+          .run(rows.length, batch.id)
+      }
 
       const inserted = (await this.countRows(table, batch.connectionId)) - before
       return { inserted, updated: rows.length - inserted }

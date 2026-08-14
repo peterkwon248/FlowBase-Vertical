@@ -378,6 +378,67 @@ describe("★ 연결과 원가는 다른 부재다 — 처방이 다르면 다�
   })
 })
 
+/**
+ * ★ 적대적 검토가 잡은 세 자리 ★
+ *
+ * 셋 다 «전 게이트 녹색»에서 나왔다 — 619개 테스트 중 어느 것도 이 질문을 하지
+ * 않았기 때문이다. 작업 리듬 7의 그 이야기이고, 그래서 질문을 여기 추가한다.
+ */
+describe("★ 회귀 — 침묵하던 세 자리 ★", () => {
+  it("품목 있는 파일 하나가 들어와도 **나머지 주문의 부재는 계속 말한다**", async () => {
+    // 옛 코드는 라이브러리 전역 boolean이라, 품목 있는 batch 하나면 나머지가
+    // 통째로 조용해졌다. 파일을 하나씩 다시 넣는 사용자의 바로 다음 동작 위에
+    // 있던 침묵이다.
+    const db = openNodeDriver(":memory:")
+    try {
+      await seed(db)
+      // 품목 없이 들어온 옛 주문 (매출 9,000)
+      await db
+        .prepare(
+          `INSERT INTO fact_order (id, connection_id, batch_id, library_id, updated_at, mapping_version,
+                                   source_key, ordered_at, status, total_amount)
+           VALUES ('old','conn-x','b1',?,?,'x/order/line@1','old','2026-07-02','PAID',9000)`,
+        )
+        .run(LIB, NOW)
+      // 품목이 붙은 새 주문
+      await addOrderItem(db, { id: "new", on: "2026-07-05", amount: 5000, sku: "sku-1", qty: 2 })
+
+      const snap = await loadPnlSnapshot(db, LIB, PERIOD)
+      expect(snap.cogsBasis.ordersWithItems).toBe(1)
+      expect(snap.cogsBasis.ordersWithoutItems).toBe(1)
+      expect(snap.cogsBasis.amountWithoutItems, "크기를 말해야 무게를 안다").toBe(9_000)
+
+      const gap = pnlGaps(snap).find((g) => g.id === "cogs-unappliable")
+      expect(gap, "★ 하나가 들어왔다고 나머지의 부재가 조용해지면 안 된다 ★").toBeDefined()
+      expect(gap!.state).toBe("일부 적용 불가")
+      expect(gap!.detail, "처방은 «기다려라»가 아니라 «다시 넣어라»다").toContain("다시 넣으면")
+      expect(gap!.detail, "«2단계 적재 미구현»은 이제 거짓이다").not.toContain("미구현")
+    } finally {
+      await db.close()
+    }
+  })
+
+  it("«수량 N개»가 미연결 품목까지 세지 않는다 — 부분집합이 모집단보다 클 수 없다", async () => {
+    const db = openNodeDriver(":memory:")
+    try {
+      await seed(db)
+      // 연결O·원가X 수량 7 · 미연결 수량 100
+      await addOrderItem(db, { id: "o1", on: "2026-07-05", amount: 7000, sku: "sku-1", qty: 7 })
+      await addOrderItem(db, { id: "o2", on: "2026-07-06", amount: 100_000, sku: null, qty: 100 })
+
+      const snap = await loadPnlSnapshot(db, LIB, PERIOD)
+      expect(snap.cogsBasis.itemsWithoutCost, "연결된 것만").toBe(1)
+      expect(snap.cogsBasis.qtyWithoutCost, "100을 더하면 107이 된다 — 문장이 제 모집단보다 커진다").toBe(7)
+
+      const gap = pnlGaps(snap).find((g) => g.id === "cogs-missing")!
+      expect(gap.detail).toContain("수량 7개")
+      expect(gap.detail).not.toContain("107")
+    } finally {
+      await db.close()
+    }
+  })
+})
+
 describe("★ 조건 2 — 기간 집계의 원가 근사를 조용히 넘기지 않는다 ★", () => {
   it("기간 안에서 원가가 바뀌면 말한다", async () => {
     const db = openNodeDriver(":memory:")
@@ -456,7 +517,8 @@ describe("★ «원가 0원»의 뜻이 셋이라 갈라 말한다 ★", () => {
         .run(LIB, NOW)
 
       const snap = await loadPnlSnapshot(db, LIB, PERIOD)
-      expect(snap.cogsBasis.hasOrderItems).toBe(false)
+      expect(snap.cogsBasis.ordersWithoutItems, "이 기간 주문 1건에 품목이 없다").toBe(1)
+      expect(snap.cogsBasis.amountWithoutItems, "크기를 말할 수 있어야 한다").toBe(5000)
       const gaps = pnlGaps(snap)
       const un = gaps.find((g) => g.id === "cogs-unappliable")
       expect(un, "원가를 넣어도 안 움직인다는 사실을 말해야 한다").toBeDefined()
@@ -589,13 +651,28 @@ describe("③ 상품 화면 조회", () => {
     const db = openNodeDriver(":memory:")
     try {
       await seed(db)
+      // ★ 주문이 아예 없으면 «미상»이 아니다 — 팔 것이 없었을 뿐이라 0이 사실이다 ★
+      const none = await loadProductRows(db, LIB, PERIOD, "2026-08-14")
+      expect(none.hasOrderItems, "주문 0건은 데이터 부재가 아니다").toBe(true)
+      expect(none.ordersWithoutItems).toBe(0)
+
+      // 품목 없이 들어온 주문 — **이때가 «미상»이다** (품목 적재 이전 batch의 모양)
+      await db
+        .prepare(
+          `INSERT INTO fact_order (id, connection_id, batch_id, library_id, updated_at, mapping_version,
+                                   source_key, ordered_at, status, total_amount)
+           VALUES ('o0','conn-x','b1',?,?,'x/order/line@1','o0','2026-07-02','PAID',9000)`,
+        )
+        .run(LIB, NOW)
       const v = await loadProductRows(db, LIB, PERIOD, "2026-08-14")
       expect(v.hasOrderItems).toBe(false)
+      expect(v.ordersWithoutItems, "boolean이 아니라 건수로 센다").toBe(1)
       expect(v.rows.every((r) => r.soldQty === null), "«0개 팔림»과 «데이터 없음»은 다르다").toBe(true)
 
       await addOrderItem(db, { id: "o1", on: "2026-07-05", amount: 5000, sku: "sku-1", qty: 2 })
       const after = await loadProductRows(db, LIB, PERIOD, "2026-08-14")
       expect(after.hasOrderItems).toBe(true)
+      expect(after.ordersWithoutItems, "★ o0은 여전히 품목이 없다 — 하나가 들어왔다고 조용해지지 않는다 ★").toBe(1)
       const byId = new Map(after.rows.map((r) => [r.skuId, r]))
       expect(byId.get("sku-1")!.soldQty).toBe(2)
       expect(byId.get("sku-2")!.soldQty, "이제는 진짜로 0개 팔린 것이다").toBe(0)

@@ -60,13 +60,15 @@ export interface ProductView {
   /**
    * 주문이 **품목 단위로** 들어와 있는가.
    *
-   * ★ 이것이 ④의 자물쇠다 ★ `fact_order`에는 SKU도 수량도 없다 — 주문 헤더뿐이다.
-   * 원가를 매출에 곱하려면 «어느 SKU가 몇 개 팔렸나»가 필요하고 그건
-   * `fact_order_item`에 산다. 오늘 그 테이블은 0행이다(어느 프로파일도 2단계
-   * 적재를 하지 않는다). 그래서 원가를 넣어도 매입원가는 0으로 남고, **그 사실을
-   * 숨기지 않으려고** 이 플래그를 들고 나간다 (`pnlGaps`의 `cogs-unappliable`).
+   * **이 기간의** 주문에 품목이 붙어 있는가. 주문이 아예 없으면 참이다 —
+   * 팔 것이 없었던 것이지 데이터가 미상인 게 아니다.
    */
   readonly hasOrderItems: boolean
+  /**
+   * 이 기간 주문 중 품목이 안 붙은 건수. 게이지 아래 줄이 이 값으로 말한다.
+   * 손익의 `cogsBasis.ordersWithoutItems`와 **같은 창**을 본다.
+   */
+  readonly ordersWithoutItems: number
 }
 
 /** 기간. 판매 수량에만 쓴다 — 원가·연결은 «기준»이라 기간으로 자르지 않는다. */
@@ -139,13 +141,28 @@ export async function loadProductRows(
     .all(libraryId, period.from, period.to)
   const soldBy = new Map(sold.map((r) => [String(r["sku"] ?? ""), Number(r["q"] ?? 0)]))
 
-  // ★ «품목이 하나도 없다»와 «이 SKU가 안 팔렸다»는 다르다 ★
-  // 앞은 미상(화면이 «—»), 뒤는 0이다. 기간과 무관하게 테이블 자체를 본다 —
-  // 기간으로 물으면 «7월엔 안 팔렸다»가 «품목 데이터가 없다»로 둔갑한다.
-  const anyItem = await db
-    .prepare(`SELECT EXISTS(SELECT 1 FROM active_order_item WHERE library_id = ?) AS n`)
-    .get(libraryId)
-  const hasOrderItems = Number(anyItem?.["n"] ?? 0) === 1
+  /**
+   * ★ «품목이 하나도 없다»와 «이 SKU가 안 팔렸다»는 다르다 ★
+   * 앞은 미상(화면이 «—»), 뒤는 0이다.
+   *
+   * ★ 라이브러리 전역 EXISTS였다가 **기간 안 주문 기준**으로 바뀌었다 ★
+   * 전역으로 물으면 품목 있는 파일 하나가 들어오는 순간 «이 기간 주문에는 품목이
+   * 없다»가 참인데도 `true`가 되고, 화면은 팔린 적 없다는 듯 `0`을 그린다.
+   * 손익 쪽(`cogsBasis.ordersWithoutItems`)과 **같은 창으로** 본다.
+   */
+  const cover = await db
+    .prepare(
+      `SELECT COUNT(*) AS orders,
+              SUM(CASE WHEN EXISTS(SELECT 1 FROM active_order_item i WHERE i.order_id = o.id)
+                       THEN 1 ELSE 0 END) AS with_items
+         FROM active_order o
+        WHERE o.library_id = ? AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')`,
+    )
+    .get(libraryId, period.from, period.to)
+  const ordersInPeriod = Number(cover?.["orders"] ?? 0)
+  const ordersWithItems = Number(cover?.["with_items"] ?? 0)
+  // 주문이 아예 없으면 «수량 미상»이 아니다 — 팔 것이 없었을 뿐이라 0이 사실이다.
+  const hasOrderItems = ordersInPeriod === 0 || ordersWithItems > 0
 
   const rows = skus.map((s): ProductSkuRow => {
     const id = String(s["id"] ?? "")
@@ -171,6 +188,7 @@ export async function loadProductRows(
     costed: rows.filter((r) => r.cost !== null).length,
     total: rows.length,
     hasOrderItems,
+    ordersWithoutItems: ordersInPeriod - ordersWithItems,
   }
 }
 

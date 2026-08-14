@@ -146,9 +146,11 @@ export function productVals(
      * 원가를 다 넣은 사용자가 대시보드에서 매입원가 0원을 보고 «저장이 안 됐나»
      * 하는 것을 막는 자리이고, 품목 적재가 생기면 **스스로 사라진다.**
      */
-    note: view.hasOrderItems
-      ? ""
-      : "입력한 원가는 저장되지만, 주문이 품목 단위로 들어오기 전까지 손익의 매입원가에는 반영되지 않습니다.",
+    note:
+      view.ordersWithoutItems === 0
+        ? ""
+        : `이 기간 주문 ${won(view.ordersWithoutItems)}건에는 품목이 붙어 있지 않아, ` +
+          `원가를 넣어도 그 주문의 손익에는 반영되지 않습니다 — 그 파일을 다시 넣으면 붙습니다.`,
   }
 
   vals.skuRows = rows.map((r) => {

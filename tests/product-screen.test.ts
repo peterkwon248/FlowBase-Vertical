@@ -34,11 +34,17 @@ const row = (o: Partial<ProductSkuRow> = {}): ProductSkuRow => ({
   ...o,
 })
 
-const view = (rows: readonly ProductSkuRow[], hasOrderItems = false): ProductView => ({
+/** `ordersWithoutItems`가 곧 «품목 없이 들어온 주문 수»다. 0이면 게이지 note가 없다. */
+const view = (
+  rows: readonly ProductSkuRow[],
+  hasOrderItems = false,
+  ordersWithoutItems = hasOrderItems ? 0 : 3,
+): ProductView => ({
   rows,
   costed: rows.filter((r) => r.cost !== null).length,
   total: rows.length,
   hasOrderItems,
+  ordersWithoutItems,
 })
 
 /**
@@ -139,7 +145,8 @@ describe("게이지 — 분모는 SKU 수다", () => {
     // 대시보드의 매입원가 0원을 보고 «저장이 안 됐나» 하는 것을 막는 자리다.
     const full = wire(view([row({ cost: 1000 })], false))
     expect(full.costGauge.text).toContain("전부 입력됐습니다")
-    expect(full.costGauge.note).toContain("손익의 매입원가에는 반영되지 않습니다")
+    expect(full.costGauge.note).toContain("품목이 붙어 있지 않아")
+    expect(full.costGauge.note, "몇 건인지까지 말한다 — boolean이 아니다").toContain("3건")
 
     // 품목이 들어오면 **스스로 사라진다** — 누가 끄러 오지 않아도 된다
     const wired = wire(view([row({ cost: 1000 })], true))

@@ -116,7 +116,23 @@ export async function loadDevSnapshot(): Promise<LoadResult> {
       const resolveDocType = krDocTypeResolver()
       const coverage = await loadCoverage(db, DEV_LIBRARY, resolveDocType)
       const history = await loadHistoryRows(db, DEV_LIBRARY, resolveDocType)
-      const products = await loadProductRows(db, DEV_LIBRARY, DEV_PERIOD, today())
+      /**
+       * ★ 기준일은 **보고 있는 기간의 끝**이지 오늘이 아니다 ★
+       *
+       * 오늘을 쓰면 화면 셋이 서로 다른 말을 한다. 적대적 검토가 실측한 모양:
+       * 사용자가 날짜 기본값(오늘 = 8/14) 그대로 원가를 넣고 7월을 보면 —
+       *
+       * ```
+       * 게이지   «원가 61/61 — 전부 입력됐습니다»   (오늘 기준이라 다 보인다)
+       * 손익     매입원가 0원                        (7월 판매에 8/14 원가는 안 붙는다)
+       * gaps     «미입력 — 넣으면 채워진다»          (넣었는데 또 넣으라고 한다)
+       * ```
+       *
+       * 손익이 판매일로 원가를 고르므로(ADR-009 ①-보완 2) 화면도 **같은 창**으로
+       * 봐야 한다. 기간 끝을 기준일로 쓰면 «이 기간 판매에 붙는 원가»가 되고 셋이
+       * 한 말을 한다. 그래도 8/14 원가는 사라지지 않는다 — 8월을 보면 나타난다.
+       */
+      const products = await loadProductRows(db, DEV_LIBRARY, DEV_PERIOD, DEV_PERIOD.to)
       return { snapshot, settlement, orders, linking, coverage, history, products, error: null }
     } finally {
       await db.close()
