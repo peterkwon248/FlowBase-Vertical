@@ -272,7 +272,7 @@ describe("§22-4 다이제스트 한 줄 — 이 파일로 열린 것", () => {
   })
 
   /** 다이제스트가 실제로 그리는 목록. 제외 사유와 **같은 모양의 줄** 하나다. */
-  const digest = (excl: { reason: string; count: number }[]) => ({
+  const digest = (excl: { reason: string; count: number }[], merged = 0) => ({
     id: "b1",
     sourceName: "2026년 7월_11st 결제일 정산확정 건.xls",
     containerFormat: "biff",
@@ -283,6 +283,10 @@ describe("§22-4 다이제스트 한 줄 — 이 파일로 열린 것", () => {
     startedAt: NOW,
     committedAt: NOW,
     exclusionsByReason: excl,
+    // 마이그레이션 007. 여기 관심사는 «열린 것» 줄이라 기본은 병합 0이다
+    inserted: 128,
+    updated: 0,
+    merged,
   })
 
   it("제외 목록 뒤에 «이 파일로 열린 것»이 붙는다", () => {

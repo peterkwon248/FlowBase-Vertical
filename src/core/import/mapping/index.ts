@@ -460,6 +460,17 @@ export interface MappingResult {
   readonly errors: readonly MappingError[]
   /** 매핑하지 않고 버린 컬럼 수. 조용히 빠뜨리지 않기 위해 센다 (헌장 A-5). */
   readonly unmappedColumnCount: number
+  /**
+   * **같은 파일 안에서** 앞 행과 같은 `source_key`를 얻은 행 수 — UPSERT가 이
+   * 행들을 앞 행에 합친다.
+   *
+   * `loadChunk`의 `updated`와 **다른 사실이다.** 그쪽은 «이전 배치의 행을 덮었다»
+   * (재가져오기의 정상 동작)이고 이쪽은 «이 파일의 행 식별이 유일하지 않다»
+   * (사고)다. 저장 계층은 둘을 구분하지 못하므로 여기서 센다.
+   *
+   * `content` 전략은 등장 순번(`:n`)이 붙어 구조적으로 0이다.
+   */
+  readonly merged: number
 }
 
 /**
@@ -503,10 +514,28 @@ export interface KeyState {
    * 확률은 8만 행 기준 무시할 수준이면서(생일 한계 ≈ 8만²/2⁴⁹) 항목이 훨씬 가볍다.
    */
   readonly seen: Map<number, number>
+  /**
+   * `natural` 전략에서 **테이블별로** 이미 나온 `source_key`.
+   *
+   * ★ 왜 필요한가 ★ 키 컬럼이 파일에 없으면 그 자리가 빈 문자열이 되어 서로 다른
+   * 행이 같은 키를 얻고, `loadChunk`의 UPSERT가 둘을 하나로 합친다. 그런데 그
+   * 함수의 통계는 «앞뒤 행 수 차이»라 **파일 안 병합과 이전 배치 갱신을 구분하지
+   * 못한다.** 병합을 셀 수 있는 유일한 자리가 여기다.
+   *
+   * **테이블별인 이유**: 이중 기록은 같은 `source_key`를 `fact_order`와
+   * `fact_claim`에 **일부러** 넣는다. 테이블을 안 가르면 그 정상 동작이 전부
+   * 병합으로 잡힌다.
+   *
+   * ★ `seen`과 달리 문자열 그대로 둔다 ★ 위 주석이 해시를 쓰는 이유는 8만 행
+   * 때문인데, 그쪽은 `content` 전략이고 이 맵은 `natural`에서만 큰다(오늘 최대
+   * 155행). 그리고 여기서 해시 충돌은 «다른 행인데 병합»이라는 **거짓 경고**가
+   * 되므로, 값이 다르다 — 순번이 하나 어긋나는 `seen` 쪽과 같은 위험이 아니다.
+   */
+  readonly naturalKeys: Map<string, Set<string>>
 }
 
 export function newKeyState(): KeyState {
-  return { seen: new Map() }
+  return { seen: new Map(), naturalKeys: new Map() }
 }
 
 export interface MapContext {
@@ -582,7 +611,27 @@ export function mapRows(
   const missingReported = new Set<string>()
   /** 파일에서 읽어낸 행 수 — 버린 행은 빼고 센다. */
   let rowsLoaded = 0
-  const seen = (ctx.keyState ?? newKeyState()).seen
+  const keyState = ctx.keyState ?? newKeyState()
+  const seen = keyState.seen
+
+  /**
+   * 이 행을 테이블 버킷에 넣으면서 **파일 안 키 충돌을 센다.**
+   *
+   * 버킷에 직접 `push`하지 않고 이 함수를 거치는 이유: 넣는 자리가 두 곳이라
+   * (기본 경로 · 라우팅 경로) 한쪽에만 세면 이중 기록에서 절반이 빠진다.
+   */
+  let merged = 0
+  const put = (table: string, row: MappedRow): void => {
+    bucket(table).push(row)
+    if (profile.sourceKey.strategy !== "natural") return
+    let keys = keyState.naturalKeys.get(table)
+    if (keys === undefined) {
+      keys = new Set()
+      keyState.naturalKeys.set(table, keys)
+    }
+    if (keys.has(row.sourceKey)) merged++
+    else keys.add(row.sourceKey)
+  }
 
   /**
    * 품목의 리스팅 키를 만드는 컬럼들 — `collectListings`와 **같은 규칙**이어야 한다.
@@ -733,9 +782,9 @@ export function mapRows(
      * 둘 다 같은 키를 다시 얻으므로 멱등도 각자 성립한다 (`tests/order-item.test.ts`).
      */
     rowsLoaded++
-    if (asDefault !== null) bucket(profile.targetTable).push({ sourceKey, fields: asDefault.fields })
+    if (asDefault !== null) put(profile.targetTable, { sourceKey, fields: asDefault.fields })
     if (hit !== undefined && asRoute !== null) {
-      bucket(hit.targetTable).push({ sourceKey, fields: asRoute.fields })
+      put(hit.targetTable, { sourceKey, fields: asRoute.fields })
     }
 
     /**
@@ -781,7 +830,7 @@ export function mapRows(
     }
   }
 
-  return { rows: out, errors, items, rowsLoaded, unmappedColumnCount, byTable }
+  return { rows: out, errors, items, rowsLoaded, unmappedColumnCount, byTable, merged }
 }
 
 /**

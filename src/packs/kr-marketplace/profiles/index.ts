@@ -32,6 +32,7 @@
  */
 
 import type { MappingProfile } from "../../../core/import/mapping/index.js"
+import { formatDefects, validateProfiles } from "../../../core/import/mapping/validate.js"
 
 const RAW = import.meta.glob("./*.json", {
   import: "default",
@@ -41,11 +42,25 @@ const RAW = import.meta.glob("./*.json", {
 /**
  * 이 팩의 프로파일 전부. 순서는 파일명순이고, **우선순위가 아니다** —
  * 어느 것이 맞는지는 `matchProfiles`가 confidence로 정한다.
+ *
+ * ★ 문에서 검증한다 (2026-08-15) ★
+ * 프로파일 결함은 **사용자의 잘못이 아니다.** 가져오기 도중에 터뜨리면 사용자가
+ * 남의 잘못을 «내 파일이 문제인가»로 만난다. 그래서 프로파일이 들어오는 이 문에서
+ * 막는다 — 여기서 던지면 앱이 아예 안 뜨고, 그건 «양식 하나가 조용히 틀린 채
+ * 도는 것»보다 낫다 (LOCK 6).
+ *
+ * 내장 프로파일은 `tests/profile-registry.test.ts`가 디스크에서 전수로 돌므로
+ * 이 던지기는 **실전에서 도달하지 않는다** — 미래의 프로파일(양식 구독·사용자
+ * 확정분)이 들어올 자리를 지키는 가드다.
  */
 export function loadProfiles(): readonly MappingProfile[] {
   const list = Object.values(RAW) as MappingProfile[]
   if (list.length === 0) {
     throw new Error("번들에 프로파일이 하나도 없다 — glob 경로를 확인해야 한다")
+  }
+  const defects = validateProfiles(list)
+  if (defects.size > 0) {
+    throw new Error(`프로파일 선언이 자기모순이다 — 고쳐야 한다\n${formatDefects(defects)}`)
   }
   return list
 }

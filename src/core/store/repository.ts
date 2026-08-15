@@ -202,6 +202,15 @@ export interface BatchDigest {
   readonly committedAt: string | null
   /** 제외 사유별 건수. **0건이면 빈 배열이고 그것도 사실이다.** */
   readonly exclusionsByReason: readonly { readonly reason: string; readonly count: number }[]
+  /**
+   * 적재의 분해 — 「신규 + 갱신 + 병합 + 제외 = 파일 행」 (마이그레이션 007).
+   *
+   * ⚠ **007 이전 배치는 셋 다 0이다.** «병합이 없었다»가 아니라 «세지 않았다»이므로,
+   * 화면은 `merged > 0`일 때만 말한다 (ADR-009 ①-보완 3의 3번).
+   */
+  readonly inserted: number
+  readonly updated: number
+  readonly merged: number
 }
 
 /** 적재할 행 하나 — 공통 컬럼을 뺀 본문만. */
@@ -801,6 +810,29 @@ export class Repository {
     await this.db.prepare(`UPDATE batch SET row_count = row_count + ? WHERE id = ?`).run(n, batchId)
   }
 
+  /**
+   * 적재의 **분해**를 남긴다 — 「신규 + 갱신 + 병합 + 제외 = 파일 행」 (마이그레이션 007).
+   *
+   * `addBatchRows`와 나눠 둔 이유는 **세는 주체가 다르기 때문**이다. `row_count`는
+   * «파일 행»이라 매핑이 세고(`rowsLoaded`), 신규·갱신은 저장이 세고(`loadChunk`),
+   * 병합은 **둘 다 못 세서** 매핑이 키 충돌로 센다. 한 함수에 밀어 넣으면 그
+   * 세 출처가 한 인자 목록에서 섞인다.
+   */
+  async addBatchLoadStats(
+    batchId: string,
+    s: { readonly inserted: number; readonly updated: number; readonly merged: number },
+  ): Promise<void> {
+    if (s.inserted === 0 && s.updated === 0 && s.merged === 0) return
+    await this.db
+      .prepare(
+        `UPDATE batch SET inserted_count = inserted_count + ?,
+                          updated_count  = updated_count  + ?,
+                          merged_count   = merged_count   + ?
+          WHERE id = ?`,
+      )
+      .run(s.inserted, s.updated, s.merged, batchId)
+  }
+
   async recordExclusions(batchId: string, exclusions: readonly ExclusionRecord[]): Promise<void> {
     if (exclusions.length === 0) return
     await this.db.transaction(async () => {
@@ -1184,7 +1216,8 @@ export class Repository {
     const b = await this.db
       .prepare(
         `SELECT id, source_name, container_format, sheet_name, status,
-                row_count, excluded_count, started_at, committed_at
+                row_count, excluded_count, started_at, committed_at,
+                inserted_count, updated_count, merged_count
            FROM batch WHERE id = ?`,
       )
       .get(batchId)
@@ -1211,6 +1244,9 @@ export class Repository {
         reason: String(r["reason"]),
         count: Number(r["c"] ?? 0),
       })),
+      inserted: Number(b["inserted_count"] ?? 0),
+      updated: Number(b["updated_count"] ?? 0),
+      merged: Number(b["merged_count"] ?? 0),
     }
   }
 

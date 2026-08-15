@@ -173,6 +173,15 @@ export async function runImport(
     let loaded = 0
     let offset = 0
     let unmappedColumnCount = 0
+    /**
+     * 「신규 + 갱신 + 병합 + 제외 = 파일 행」의 앞 셋. 마이그레이션 007 참조.
+     *
+     * `merged`만 사고다 — 앞의 둘은 재가져오기의 정상 동작이라, 뭉뚱그리면
+     * 사용자가 «덮어써진 것»과 «합쳐져 사라진 것»을 구분할 수 없다.
+     */
+    let inserted = 0
+    let updated = 0
+    let merged = 0
     const errors: MappingError[] = []
     const perTable = new Map<string, number>()
     /** 이 파일이 만드는 리스팅 **종류**. 청크를 가로질러 모인다. */
@@ -223,6 +232,7 @@ export async function runImport(
       offset += chunk.rowCount
       errors.push(...mapped.errors)
       unmappedColumnCount = mapped.unmappedColumnCount
+      merged += mapped.merged
 
       // ★ `byTable`로 읽는다. `rows`만 보면 라우팅으로 다른 테이블에 간 행을
       // 통째로 놓친다 — `smoke.ts`가 정확히 그렇게 하고 있다.
@@ -237,7 +247,17 @@ export async function runImport(
       for (const table of tables) {
         const rows = mapped.byTable.get(table)
         if (!rows || rows.length === 0) continue
-        await repo.loadChunk(
+        /**
+         * ★ 반환값을 받는다 (2026-08-15) ★
+         *
+         * 001부터 `{inserted, updated}`를 돌려주는데 여기서 버리고 `rows.length`를
+         * 더하고 있었다. 그래서 UPSERT가 행을 합쳐도 「적재 + 제외 = 파일 행」이
+         * **겉으로는 성립했다** — 사고가 항등식을 통과하는 구조였다.
+         *
+         * `loaded`는 그대로 `rows.length`를 쓴다. 「이 파일이 만든 Fact 행 수」라는
+         * 뜻이고 진행 표시가 그걸 읽는다 — 뜻을 바꾸지 않고 **분해를 옆에 둔다.**
+         */
+        const stats = await repo.loadChunk(
           table as FactTable,
           batch,
           rows.map((r, i) => ({
@@ -246,6 +266,8 @@ export async function runImport(
             ...r.fields,
           })),
         )
+        inserted += stats.inserted
+        updated += stats.updated
         perTable.set(table, (perTable.get(table) ?? 0) + rows.length)
         loaded += rows.length
       }
@@ -332,6 +354,8 @@ export async function runImport(
       if (at) at.push(`${e.field}: ${e.reason}`)
       else lost.set(e.rowIndex, [`${e.field}: ${e.reason}`])
     }
+
+    await repo.addBatchLoadStats(batch.id, { inserted, updated, merged })
 
     await repo.recordExclusions(batch.id, [
       ...sum.excluded.map((e) => ({ rowIndex: e.rowIndex, reason: e.reason, detail: e.detail })),

@@ -20,7 +20,16 @@
 
   "recognitionRules": {
     "containerFormats": ["biff", "xlsx"],
-    "requiredHeaders": ["주문번호", "주문순번", "정산금액", "판매금액합계", "공제금액합계", "정산확정일"],
+    "requiredHeaders": [
+      "주문번호",
+      "주문순번",
+      "상품번호",
+      "옵션명",
+      "정산금액",
+      "판매금액합계",
+      "공제금액합계",
+      "정산확정일"
+    ],
     "headerMatch": "all",
     "fileNamePattern": "(?<year>\\d{4})년\\s*(?<month>\\d{1,2})월_11st",
     "minConfidence": 0.8
