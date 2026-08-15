@@ -24,8 +24,14 @@ import type { Period } from "../src/core/profit/index.js"
 import { settlementVals } from "../src/app/settlement.js"
 import { Template } from "../src/app/generated/Template.js"
 import { shellVals, shellStateFor } from "../src/app/shell.js"
+import { DEV_SNAPSHOT } from "./dev-db.js"
 
-const DB = ".tmp/pnl.sqlite"
+/**
+ * ★ 개발용 DB를 **직접 열지 않는다** — 스냅샷을 읽는다 ★
+ * 세 파일이 같은 물리 파일을 워커별로 동시에 열다 `database is locked`로 깨졌다.
+ * 진단과 처방은 `tests/dev-db.ts`에 있다. 읽는 내용은 그대로다.
+ */
+const DB = DEV_SNAPSHOT
 const PERIOD: Period = { from: "2026-07-01", to: "2026-07-31" }
 const LIB = "lib-1"
 

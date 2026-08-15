@@ -10,6 +10,12 @@ export default defineConfig({
   },
   test: {
     include: ["tests/**/*.test.ts"],
+    /**
+     * 픽스처 준비 단계 — 개발용 DB의 스냅샷을 **워커가 뜨기 전에 한 번** 뜬다.
+     * 워커들이 같은 물리 파일을 동시에 열다 `database is locked`로 깨지던 자리다
+     * (`tests/dev-db.ts`에 진단과 처방).
+     */
+    globalSetup: ["tests/global-setup.ts"],
     // 픽스처 15개(#13은 80,138행)를 도는 하네스 테스트가 있다
     testTimeout: 120_000,
     hookTimeout: 120_000,
