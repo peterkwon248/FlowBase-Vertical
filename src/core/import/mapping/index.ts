@@ -12,6 +12,7 @@
 
 import { readUInt48BE, sha1 } from "./sha1.js"
 import type { NormalizedChunk, RawCell } from "../types.js"
+import type { IssueCode } from "../issues.js"
 import { normalizeValue } from "../normalization/value.js"
 import { rowValuesInto } from "../normalization/chunk.js"
 
@@ -406,16 +407,21 @@ export interface MappingError {
   readonly field: string
   readonly reason: string
   /**
-   * ★ 이 오류가 **행을 버렸는가** ★
+   * ★ 무슨 일이 있었나 — **치명 여부와 좌표계를 이 코드가 정한다** ★
    *
    * 이 목록은 두 가지를 섞어 담는다 — 행이 통째로 빠진 것(필수 필드 없음 · 사전에
    * 없는 값)과 **행은 적재됐지만 알려야 하는 것**(모르는 라우팅 값 · 없는 컬럼).
    * 섞인 채로 세면 «오류 5건»이 몇 행을 잃은 것인지 아무도 모른다.
    *
-   * 특히 이 값을 보지 않고 전부 `batch_exclusion`에 넣으면 **적재된 행을 제외됐다고
-   * 기록**하게 된다 — 조용한 실패를 고치려다 조용한 거짓을 만드는 꼴이다 (LOCK 6).
+   * 전에는 여기 `fatal: boolean`이 있었고 **부르는 자리마다 손으로 적었다.** 같은
+   * 사유가 두 곳에서 다르게 판정될 수 있는 모양이라 코드값 하나로 바꿨다 —
+   * 판정은 `ISSUE_KINDS`가 한 곳에서 한다 (`isFatal(e.code)`).
+   *
+   * 목적지도 코드가 정한다: 치명은 `batch_exclusion`(reason="error"), 비치명은
+   * `batch_issue`다. 구분 없이 전부 제외에 넣으면 **적재된 행을 제외됐다고 기록**하게
+   * 된다 — 조용한 실패를 고치려다 조용한 거짓을 만드는 꼴이다 (LOCK 6).
    */
-  readonly fatal: boolean
+  readonly code: IssueCode
 }
 
 /**
@@ -429,6 +435,14 @@ export interface MappingError {
  */
 export interface MappedItem {
   readonly sourceKey: string
+  /**
+   * 이 품목이 나온 **물리 행 번호** (`chunk.rowIndices[i]`).
+   *
+   * 적재가 아니라 **보고**를 위해 있다. 부모를 못 찾은 품목을 알릴 때 좌표가 없으면
+   * 청크 시작 번호나 품목 순번을 대신 쓰게 되는데, 그 둘은 파일 행과 다른 좌표계라
+   * 사용자를 엉뚱한 줄로 보낸다 — 「좌표계는 하나여야 한다」(mapRows 루프의 기록).
+   */
+  readonly rowIndex: number
   /** 부모 주문의 `source_key`. 적재 직전에 `fact_order.id`로 바뀐다. */
   readonly orderSourceKey: string
   /** `marketplace_listing.listing_key`. `listing_id`가 여기서 나온다. */
@@ -655,7 +669,7 @@ export function mapRows(
       reason:
         "품목을 만들 수 없다 — 리스팅 키 컬럼이 이 파일에 없다" +
         `(선언: ${(profile.listing?.keyColumns ?? []).join("·") || "없음"})`,
-      fatal: false,
+      code: "item_key_missing",
     })
   }
 
@@ -694,7 +708,12 @@ export function mapRows(
             //  같은 컬럼이 두 번 보고될 수 있게 됐다.)
             if (!missingReported.has(m.source)) {
               missingReported.add(m.source)
-              errors.push({ rowIndex, field: m.target, reason: `컬럼 "${m.source}"가 없다`, fatal: false })
+              errors.push({
+                rowIndex,
+                field: m.target,
+                reason: `컬럼 "${m.source}"가 없다`,
+                code: "missing_column",
+              })
             }
           } else if (col < chunk.width) {
             value = coerce(chunk.values[base + col] ?? null, chunk.raws[base + col] ?? null, m.kind)
@@ -707,7 +726,7 @@ export function mapRows(
                   rowIndex,
                   field: m.target,
                   reason: `사전에 없는 값: "${String(value)}"`,
-                  fatal: true,
+                  code: "value_not_in_dict",
                 })
                 fatal = true
               }
@@ -719,7 +738,12 @@ export function mapRows(
         if (value === null && m.default !== undefined) value = m.default
 
         if (value === null && m.required) {
-          errors.push({ rowIndex, field: m.target, reason: "필수 필드가 비었다", fatal: true })
+          errors.push({
+            rowIndex,
+            field: m.target,
+            reason: "필수 필드가 비었다",
+            code: "required_empty",
+          })
           fatal = true
         }
         fields[m.target] = value
@@ -739,7 +763,7 @@ export function mapRows(
           field: routing.column,
           reason: `알 수 없는 ${routing.column}: "${routeValue}" — 새 상태가 생겼는지 확인해야 한다`,
           // 행은 **기본 경로로 적재된다.** 버린 것이 아니라 알리는 것이다
-          fatal: false,
+          code: "unknown_route",
         })
       }
     }
@@ -822,6 +846,7 @@ export function mapRows(
           // 부모 키 + 리스팅 키. 부모가 이미 유일하므로 그 안에서 리스팅만
           // 구분되면 되고, 두 값 모두 파일이 같으면 같다 → 재가져오기 멱등.
           sourceKey: `${sourceKey}${KEY_SEP}${listingKey}`,
+          rowIndex,
           orderSourceKey: sourceKey,
           listingKey,
           fields: itemFields,

@@ -46,12 +46,14 @@ import {
 } from "./mapping/index.js"
 import { collectListings } from "./mapping/listing.js"
 import { sha1Bytes } from "./mapping/sha1.js"
+import { isFatal, scopeOf } from "./issues.js"
 import type { ExcludedRow, HeaderDetection, SheetInfo } from "./types.js"
 import {
   listingIdFor,
   type BatchOpen,
   type FactRow,
   type FactTable,
+  type IssueRecord,
   type ListingUpsert,
   type LoadStats,
   type Repository,
@@ -89,7 +91,11 @@ export interface ImportRunResult {
    * 내므로 오류 수는 잃은 행 수보다 클 수 있다. 이 값이 사람에게 말할 숫자다.
    */
   readonly lostRows: number
-  /** 매핑 오류 전부 (치명 + 비치명). 치명인 것만 제외로 기록된다. */
+  /**
+   * 매핑 오류 전부 (치명 + 비치명). **둘 다 목적지가 있다** — 치명은
+   * `batch_exclusion`(reason="error"), 비치명은 `batch_issue`다 (마이그레이션 008).
+   * 어느 쪽인지는 `ISSUE_KINDS`가 코드로 정한다.
+   */
   readonly mappingErrors: readonly MappingError[]
   readonly unmappedColumnCount: number
   readonly listings: LoadStats | null
@@ -291,11 +297,19 @@ export async function runImport(
           mapped.items.map((it) => it.orderSourceKey),
         )
         const itemRows: FactRow[] = []
-        let orphan = 0
         for (const [i, it] of mapped.items.entries()) {
           const orderId = parentIds.get(it.orderSourceKey)
           if (orderId === undefined) {
-            orphan++
+            // ★ 품목마다 **그 행의 번호로** 남긴다 ★
+            // 전에는 청크당 한 줄에 «N건»을 적었고, 그 줄이 달고 있던 행 번호는
+            // 청크 시작 번호(`base`)라 실제 행과 무관했다. 사람이 그 번호로 파일을
+            // 열면 엉뚱한 줄을 본다 — 좌표계는 하나여야 한다.
+            errors.push({
+              rowIndex: it.rowIndex,
+              field: "order_id",
+              reason: "품목이 부모 주문을 찾지 못해 버려졌다 — 이 행의 원가가 붙지 않는다",
+              code: "orphan_item",
+            })
             continue
           }
           itemRows.push({
@@ -304,14 +318,6 @@ export async function runImport(
             order_id: orderId,
             listing_id: listingIdFor(o.connectionId, it.listingKey),
             ...it.fields,
-          })
-        }
-        if (orphan > 0) {
-          errors.push({
-            rowIndex: base,
-            field: "order_id",
-            reason: `품목 ${orphan}건이 부모 주문을 찾지 못했다 — 이 청크의 주문 적재를 확인해야 한다`,
-            fatal: false,
           })
         }
         if (itemRows.length > 0) {
@@ -343,16 +349,69 @@ export async function runImport(
      * 있던 160행 중 5행이 어디로 갔는지 아무 데도 안 적혀 있었다.
      *
      * 두 가지를 지킨다:
-     *  · `fatal`만 넣는다. 비치명 오류(모르는 라우팅 값 · 없는 컬럼)는 **행이
+     *  · 치명만 넣는다. 비치명 오류(모르는 라우팅 값 · 없는 컬럼)는 **행이
      *    적재됐으므로** 제외가 아니다. 넣으면 조용한 실패를 고치려다 조용한 거짓이 된다
      *  · **행 단위로 합친다.** 한 행에서 필드 셋이 실패해도 잃은 행은 하나다
      */
     const lost = new Map<number, string[]>()
     for (const e of errors) {
-      if (!e.fatal) continue
+      if (!isFatal(e.code)) continue
       const at = lost.get(e.rowIndex)
       if (at) at.push(`${e.field}: ${e.reason}`)
       else lost.set(e.rowIndex, [`${e.field}: ${e.reason}`])
+    }
+
+    /**
+     * ★ 비치명 오류의 목적지 (마이그레이션 008) ★
+     *
+     * 이 갈래가 없던 동안 `fatal: false`는 `mappingErrors`에 담긴 채 함수가 끝나면
+     * 사라졌다 — 앱 표면에 한 곳도 닿지 않았다. 제외가 아니므로 별도 기록으로 가고,
+     * 어떤 카운터도 올리지 않는다.
+     *
+     * **파일 사건은 중복을 제거한다.** `mapRows`는 청크마다 새로 돌고 «컬럼당 한 번»
+     * 상태도 청크 안에서만 유지되므로, 없는 컬럼 하나가 80청크 파일에서 80번
+     * 보고된다. 그대로 넣으면 「없는 컬럼 80건」이 되어 수 자체가 거짓말이 된다.
+     *
+     * ★ 그리고 **버려진 행은 여기 들어오지 않는다** (`lost`를 먼저 만든 이유) ★
+     * 한 행이 둘 다 낼 수 있다 — 라우팅 값이 사전에 없다고 보고한 **직후** 필수
+     * 필드가 비어 그 행이 통째로 빠지는 경우다(합성 시험에서 실제로 나온다).
+     * 거르지 않으면 그 행이 「제외」와 「적재됐지만 온전하지 않은 행」에 **동시에**
+     * 서고, 뒤 문장은 그 행에 대해 거짓이다. 두 좌표가 같은 물리 행 번호라
+     * 이 대조가 성립한다.
+     *
+     * ⚠ **크기 한도는 `errors`와 같은 차수다.** 파일 전체의 행 사건이 메모리에 모인다
+     * — 8만 행이 전부 «모르는 상태값»인 파일이 오면 8만 항목이다. 오늘 그런 파일은
+     * 없고(픽스처 6종 전부 0건) `errors` 자체가 이미 같은 한도를 갖고 있어 새로
+     * 생긴 위험은 아니지만, 실제로 그런 파일이 나타나면 **청크마다 흘려보내는 것**이
+     * 처방이다(한 행의 치명 여부는 그 행의 청크 안에서 이미 정해진다).
+     */
+    const issues: IssueRecord[] = []
+    const fileSeen = new Set<string>()
+    for (const e of errors) {
+      if (isFatal(e.code)) continue
+      if (scopeOf(e.code) === "file") {
+        /**
+         * ★ 파일 사건의 `detail`은 **화면에 그대로 나간다** ★
+         * 그래서 Canonical 필드명(`fee_amount:`)을 앞에 붙이지 않는다 — 사용자가 아는
+         * 이름은 **파일의 컬럼명**이지 우리 스키마의 컬럼명이 아니다 (헌장 C-4).
+         *
+         * 사유만으로 dedupe하므로 **같은 컬럼이 여러 필드에 쓰이는 경우도 한 줄로
+         * 모인다.** 사실은 「이 컬럼이 파일에 없다」 하나이고, 그것이 몇 개의 Canonical
+         * 필드를 비게 했는지는 사용자의 처방을 바꾸지 않는다.
+         */
+        if (fileSeen.has(e.reason)) continue
+        fileSeen.add(e.reason)
+        issues.push({ code: e.code, scope: "file", rowIndex: null, detail: e.reason })
+      } else {
+        if (lost.has(e.rowIndex)) continue
+        issues.push({
+          code: e.code,
+          scope: "row",
+          rowIndex: e.rowIndex,
+          // 행 사건의 detail은 화면에 안 나온다(수만 나온다). 되짚기용이라 필드를 남긴다
+          detail: `${e.field}: ${e.reason}`,
+        })
+      }
     }
 
     await repo.addBatchLoadStats(batch.id, { inserted, updated, merged })
@@ -365,6 +424,7 @@ export async function runImport(
         detail: why.join(" · "),
       })),
     ])
+    await repo.recordIssues(batch.id, issues)
     await repo.commitBatch(batch.id, o.now)
 
     return {

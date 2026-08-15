@@ -287,6 +287,10 @@ describe("§22-4 다이제스트 한 줄 — 이 파일로 열린 것", () => {
     inserted: 128,
     updated: 0,
     merged,
+    // 마이그레이션 008. 같은 이유로 사건도 없는 배치다
+    incompleteRows: 0,
+    issuesByCode: [],
+    fileIssues: [],
   })
 
   it("제외 목록 뒤에 «이 파일로 열린 것»이 붙는다", () => {

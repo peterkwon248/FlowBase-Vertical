@@ -10,6 +10,15 @@
  */
 
 import type { Driver, Row, SqlValue } from "./driver.js"
+/**
+ * ★ 타입만 가져온다 ★ `core/import`는 이 파일을 값으로 import하므로, 값을 되가져오면
+ * 순환이 된다. `import type`은 컴파일에서 지워져 런타임 간선이 생기지 않는다.
+ *
+ * 유니온을 여기 다시 적지 않는 이유: `batch_exclusion.reason`이 그렇게 두 벌이 됐고
+ * 001의 주석이 «파이프라인과 같은 집합»이라고 사람에게 부탁하고 있다. `code`는 SQL에
+ * CHECK가 없어(008 참조) **이 타입이 유일한 잠금**이라 부탁으로 둘 수 없다.
+ */
+import type { IssueCode } from "../import/issues.js"
 
 /** 적재 가능한 Fact 테이블. 여기 없는 이름은 적재할 수 없다. */
 export const FACT_TABLES = [
@@ -125,6 +134,19 @@ export interface ExclusionRecord {
 }
 
 /**
+ * **적재된 행에 붙는 주석** — 제외가 아니다 (마이그레이션 008).
+ *
+ * `rowIndex`는 `scope === "row"`일 때만 있다. 파일 전체에 걸친 사건(없는 컬럼)에
+ * 행 번호를 지어 주면 «1행에서 일어난 일»처럼 보이는데, 실제로는 전 행이 겪는다.
+ */
+export interface IssueRecord {
+  readonly code: IssueCode
+  readonly scope: "row" | "file"
+  readonly rowIndex: number | null
+  readonly detail: string
+}
+
+/**
  * `createSkuForListings`의 결과.
  *
  * `skuId`가 `null`이면 **아무것도 만들지 않았다** — 받은 리스팅이 전부 이미
@@ -211,6 +233,20 @@ export interface BatchDigest {
   readonly inserted: number
   readonly updated: number
   readonly merged: number
+  /**
+   * **적재됐지만 온전하지 않은 행** — 중복 제거된 행 수 (마이그레이션 008).
+   *
+   * `issuesByCode`의 합이 아니다. 한 행이 사유 둘을 겪을 수 있으므로 그 합보다
+   * 작을 수 있다 — `lostRows`가 `mappingErrors.length`와 다른 것과 같은 이유다.
+   */
+  readonly incompleteRows: number
+  /** 행 단위 사건 — 사유별 **행 수**(중복 제거). 없으면 빈 배열이다. */
+  readonly issuesByCode: readonly { readonly code: string; readonly rows: number }[]
+  /**
+   * 파일 전체에 걸친 사건. 행 수로 셀 수 없어 **기록마다 한 줄**로 낸다
+   * (컬럼 둘이 없으면 두 줄이다).
+   */
+  readonly fileIssues: readonly { readonly code: string; readonly detail: string }[]
 }
 
 /** 적재할 행 하나 — 공통 컬럼을 뺀 본문만. */
@@ -847,6 +883,22 @@ export class Repository {
     })
   }
 
+  /**
+   * 비치명 사건을 남긴다 — **`excluded_count`를 올리지 않는다** (마이그레이션 008).
+   *
+   * 그것이 `recordExclusions`와의 유일하고 결정적인 차이다. 이 행들은 적재됐으므로
+   * 제외 카운터를 올리면 「신규 + 갱신 + 병합 + 제외 = 파일 행」이 그 자리에서
+   * 깨진다 — 조용한 결손을 표면화하려다 항등식을 거짓으로 만드는 꼴이다.
+   */
+  async recordIssues(batchId: string, issues: readonly IssueRecord[]): Promise<void> {
+    if (issues.length === 0) return
+    // 제외와 달리 트랜잭션이 필요 없다 — 함께 갱신할 카운터가 없다.
+    await this.db.runMany(
+      `INSERT INTO batch_issue (batch_id, code, scope, row_index, detail) VALUES (?,?,?,?,?)`,
+      issues.map((i) => [batchId, i.code, i.scope, i.rowIndex, i.detail]),
+    )
+  }
+
   async commitBatch(batchId: string, at: string): Promise<void> {
     const r = await this.db
       .prepare(`UPDATE batch SET status = 'committed', committed_at = ? WHERE id = ? AND status = 'open'`)
@@ -896,6 +948,11 @@ export class Repository {
         .prepare(`DELETE FROM row_shadow WHERE batch_id = ? OR prev_batch_id = ?`)
         .run(batchId, batchId)
       await this.db.prepare(`DELETE FROM batch_exclusion WHERE batch_id = ?`).run(batchId)
+      // 사건 기록도 함께 지운다 — 되돌린 배치에는 적재된 행이 없으므로 «그 행이
+      // 온전하지 않다»는 주석만 남을 자리가 없다. 제외와 **같은 줄에 둔다**:
+      // 되돌리기가 기록은 지우면서 `excluded_count`는 남기는 비대칭(대열 4의 선두)을
+      // 고칠 때, 두 테이블이 떨어져 있으면 한쪽만 고치게 된다.
+      await this.db.prepare(`DELETE FROM batch_issue WHERE batch_id = ?`).run(batchId)
       const r = await this.db
         .prepare(`UPDATE batch SET status = 'undone', undone_at = ?, row_count = 0 WHERE id = ?`)
         .run(at, batchId)
@@ -1230,6 +1287,33 @@ export class Repository {
       )
       .all(batchId)
 
+    /**
+     * ★ 사건은 **행 수**로 센다 — 기록 수가 아니다 (마이그레이션 008) ★
+     *
+     * 한 행이 사유 둘을 겪으면 기록은 둘이지만 온전하지 않은 행은 하나다.
+     * 그래서 사유별도 `COUNT(DISTINCT row_index)`이고, 합계는 **따로 묻는다** —
+     * 사유별 합은 겹치는 행을 두 번 세므로 총계가 되지 못한다.
+     */
+    const issueRows = await this.db
+      .prepare(
+        `SELECT code, COUNT(DISTINCT row_index) AS n FROM batch_issue
+          WHERE batch_id = ? AND scope = 'row' GROUP BY code ORDER BY n DESC, code`,
+      )
+      .all(batchId)
+    const incomplete = await this.db
+      .prepare(
+        `SELECT COUNT(DISTINCT row_index) AS n FROM batch_issue
+          WHERE batch_id = ? AND scope = 'row'`,
+      )
+      .get(batchId)
+    // 파일 사건은 수가 적다(컬럼 수가 상한이다). 뭉치지 않고 그대로 낸다.
+    const fileIssues = await this.db
+      .prepare(
+        `SELECT code, detail FROM batch_issue
+          WHERE batch_id = ? AND scope = 'file' ORDER BY code, detail`,
+      )
+      .all(batchId)
+
     return {
       id: String(b["id"]),
       sourceName: String(b["source_name"]),
@@ -1247,6 +1331,15 @@ export class Repository {
       inserted: Number(b["inserted_count"] ?? 0),
       updated: Number(b["updated_count"] ?? 0),
       merged: Number(b["merged_count"] ?? 0),
+      incompleteRows: Number(incomplete?.["n"] ?? 0),
+      issuesByCode: issueRows.map((r) => ({
+        code: String(r["code"]),
+        rows: Number(r["n"] ?? 0),
+      })),
+      fileIssues: fileIssues.map((r) => ({
+        code: String(r["code"]),
+        detail: String(r["detail"]),
+      })),
     }
   }
 

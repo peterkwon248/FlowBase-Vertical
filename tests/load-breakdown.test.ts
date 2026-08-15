@@ -96,6 +96,9 @@ run("정상 파일 — 병합은 0이고 화면은 아무 말도 안 한다", ()
       status: "committed", rowCount: 128, excludedCount: 0,
       startedAt: NOW, committedAt: NOW, exclusionsByReason: [],
       inserted: 0, updated: 0, merged: 0,
+      // 008 이전 배치도 마찬가지다 — 0은 «온전했다»가 아니라 «안 남겼다»이고,
+      // 그래서 화면은 아무 말도 하지 않는다
+      incompleteRows: 0, issuesByCode: [], fileIssues: [],
     }
     expect(digestRows(old, [])).toEqual([])
   })
