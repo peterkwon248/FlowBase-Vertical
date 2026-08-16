@@ -44,8 +44,11 @@ import { importVals, BIG_FILE_BYTES, EMPTY_WIZARD, type ImportActions, type Impo
 import { analyzeImport } from "@core/import/analyze.js"
 import { runImport } from "@core/import/run.js"
 import { loadProfiles } from "@packs/kr-marketplace/profiles/index.js"
-import { DEV_LIBRARY, DEV_PERIOD, findPriorImports, loadDevSnapshot, nowStamp, readDigest, today, writeThenReload, type LoadResult } from "./data.js"
+import { DEV_LIBRARY, findPriorImports, loadDevSnapshot, nowStamp, readDigest, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
+import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
+import { periodVals } from "./period.js"
+import type { Period } from "@core/profit/index.js"
 import type { SettlementRow } from "@core/settlement/rows.js"
 import type { OrderRow } from "@core/order/rows.js"
 import type { LinkingCard, LinkingView } from "@core/linking/view.js"
@@ -95,6 +98,21 @@ export function App(): React.JSX.Element {
   const [coverage, setCoverage] = useState<readonly ConnectionCoverage[]>([])
   const [history, setHistory] = useState<readonly HistoryRow[]>([])
   const [products, setProducts] = useState<ProductView | null>(null)
+  /**
+   * ★ 보고 있는 달 (MVP 1, 2026-08-16) ★
+   *
+   * 전에는 `DEV_PERIOD` 상수였다 — 8월 파일을 넣어도 화면이 7월을 그렸다.
+   * 이제 **조회가 결정하고 화면은 결과를 받는다**: 요청한 달에 데이터가 없으면
+   * 조회가 최신 달로 물러나므로, 상태를 «요청»이 아니라 **«실제로 본 것»**으로
+   * 들고 있어야 라벨과 숫자가 갈리지 않는다.
+   */
+  const [per, setPer] = useState<Period>(() => monthPeriod(new Date().toISOString().slice(0, 7)))
+  const [month, setMonth] = useState<Month>(() => new Date().toISOString().slice(0, 7))
+  const [months, setMonths] = useState<readonly MonthRow[]>([])
+  /** 달 목록이 펼쳐져 있나. 화면 상태라 DB에 가지 않는다. */
+  const [monthOpen, setMonthOpen] = useState(false)
+  /** 쓰기 뒤 재조회가 **보던 달**로 돌아오게 하는 참조 (`take`가 갱신한다). */
+  const monthRef = useRef<Month>(new Date().toISOString().slice(0, 7))
   /** 되돌리기·원가 정정 확인 다이얼로그. `null`이면 안 떠 있다. */
   const [confirm, setConfirm] = useState<ConfirmDialog | null>(null)
 
@@ -152,11 +170,34 @@ export function App(): React.JSX.Element {
     setCoverage(r.coverage)
     setHistory(r.history)
     setProducts(r.products)
+    // 기간은 **조회가 정한 것**을 받는다. 요청한 달이 사라졌으면 물러난 달이 온다.
+    setPer(r.period)
+    setMonth(r.month)
+    setMonths(r.months)
+    setMonthOpen(false)
+    // 쓰기 콜백들이 읽는 자리. 상태로 읽으면 그때 만들어진 클로저가 옛 달을 본다 —
+    // 원가를 넣고 화면이 다른 달로 튀는 모양이 정확히 그것이다.
+    monthRef.current = r.month
   }, [])
 
   useEffect(() => {
     void loadDevSnapshot().then(take)
   }, [take])
+
+  /**
+   * 달을 바꾼다. **다시 조회한다** — 화면 상태만 바꾸고 숫자를 그대로 두면
+   * 라벨과 값이 갈린다. 같은 달을 다시 고르면 아무 일도 하지 않는다.
+   */
+  const pickMonth = useCallback(
+    (ym: Month) => {
+      if (ym === month) {
+        setMonthOpen(false)
+        return
+      }
+      void loadDevSnapshot(ym).then(take)
+    },
+    [month, take],
+  )
 
   // ── 상품 연결 (§21-6) ────────────────────────────────────────────
   // 탭과 선택은 **화면 상태**라 여기 산다. 연결 자체는 DB에 있고, 쓰기가 끝나면
@@ -193,7 +234,7 @@ export function App(): React.JSX.Element {
     (fn: Parameters<typeof writeThenReload>[0]) => {
       if (busy.current) return
       busy.current = true
-      void writeThenReload(fn).then((r) => {
+      void writeThenReload(fn, monthRef.current).then((r) => {
         busy.current = false
         // 쓰기가 끝난 카드는 선택에 남아 있을 이유가 없다 — 다음 탭으로 갔다
         setPicked(new Set())
@@ -345,7 +386,7 @@ export function App(): React.JSX.Element {
           now: nowStamp(),
           replace,
         })
-      }).then((r) => {
+      }, monthRef.current).then((r) => {
         busy.current = false
         if (r.error) {
           console.warn("[cost] 원가 저장에 실패했다:", r.error)
@@ -471,7 +512,7 @@ export function App(): React.JSX.Element {
           batchId,
           now: stamp,
         })
-      }).then((r) => {
+      }, monthRef.current).then((r) => {
         if (r.error) {
           setWiz((w) => ({ ...w, busy: false, error: r.error }))
           return
@@ -521,7 +562,7 @@ export function App(): React.JSX.Element {
           setConfirm(null)
           void writeThenReload(async (repo) => {
             await repo.undoBatch(row.id, nowStamp())
-          }).then((r) => {
+          }, monthRef.current).then((r) => {
             take(r)
             // 실패를 삼키지 않는다 (헌장 6). 새 UI를 만들지 않고 같은 모달로 말한다.
             if (r.error) {
@@ -548,18 +589,23 @@ export function App(): React.JSX.Element {
   )
 
   const vals = shellVals(state, { go, toggleNav, closeNav, openNav, goImport, toggleTheme })
+  // 월 선택기. 기간이 걸리는 화면에서만 붙고, 고를 달이 없으면 아예 안 붙는다.
+  periodVals(vals, state.view, month, months, monthOpen, {
+    toggle: () => setMonthOpen((o) => !o),
+    pick: pickMonth,
+  })
   // 데이터가 있으면 대시보드 값을 덮어쓴다. 없으면 빈 값 그대로 —
   // 시드를 넣어 채워 보이지 않는다 (헌장 C).
   if (snap) {
-    dashboardVals(vals, snap, DEV_PERIOD, coverage)
+    dashboardVals(vals, snap, per, coverage)
     // 데이터가 들어왔으니 첫 실행 안내는 지나간다.
     vals.firstRun = false
     vals.notFirstRun = true
   }
   // 정산은 손익과 **다른 조회**라 따로 배선한다. 둘 다 같은 순간의 같은 DB를
   // 읽으므로(loadDevSnapshot이 연결을 한 번만 연다) 화면끼리 어긋나지 않는다.
-  if (setRows.length > 0) settlementVals(vals, setRows, DEV_PERIOD)
-  if (ordRows.length > 0) orderVals(vals, ordRows, DEV_PERIOD)
+  if (setRows.length > 0) settlementVals(vals, setRows, per)
+  if (ordRows.length > 0) orderVals(vals, ordRows, per)
   // 연결은 **0장도 사실**이다. 다른 화면과 달리 길이로 거르지 않는 이유는, 리스팅이
   // 하나도 없으면 "연결할 것이 없습니다"가 떠야 하기 때문이다 — 목업의 빈 상태가
   // 그 자리에 이미 있다.
@@ -586,7 +632,7 @@ export function App(): React.JSX.Element {
   historyVals(vals, history, { askUndo })
   // 상품도 **0장이 사실**이다 — SKU가 없으면 «연결된 SKU가 아직 없습니다»가 게이지에
   // 뜬다. 연결 화면과 같은 판단이고, 원가를 넣을 대상이 없다는 것 자체가 할 말이다.
-  if (products) productVals(vals, products, prodTab, drafts, today(), productActions, DEV_PERIOD)
+  if (products) productVals(vals, products, prodTab, drafts, today(), productActions, per)
   // 확인 다이얼로그는 화면이 아니라 앱 상태다 — 어느 화면에서 띄웠든 같은 모달이다.
   vals.confirm = confirm
   vals.closeConfirm = () => setConfirm(null)

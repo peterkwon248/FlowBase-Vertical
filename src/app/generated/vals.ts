@@ -16,6 +16,33 @@
  * 하나다 (단일 계산기 LOCK).
  */
 
+/**
+ * 월 선택기의 값. **손으로 더한 것**이라 변환기가 만들지 않는다 (`periodPick` 참조).
+ *
+ * 목록은 «데이터가 있는 달»뿐이다 — 그 판정은 DB가 한다
+ * (`core/profit/months.ts`). 화면은 고를 수 있는 것만 보여준다.
+ */
+export interface PeriodPick {
+  /** "2026년 7월" — 지금 보고 있는 달. */
+  readonly label: string
+  /** 목록이 펼쳐져 있나. */
+  readonly open: boolean
+  readonly toggle: () => void
+  readonly items: readonly {
+    readonly label: string
+    /**
+     * «정산만» 같은 꼬리표. 주문이 있는 평범한 달에서는 빈 문자열이다.
+     * 7월 정산 파일의 지급일이 8월로 찍혀 생기는 달이 여기 걸린다 (`period.ts`).
+     */
+    readonly sub: string
+    readonly fg: string
+    readonly bg: string
+    readonly pick: () => void
+  }[]
+  /** 목록 아래 한 줄. «왜 이 달들만 있나»를 말한다 (§22 — 부재를 설명한다). */
+  readonly note: string
+}
+
 export interface TemplateVals {
   actions: readonly any[]
   adAlloc: string
@@ -415,6 +442,16 @@ export interface TemplateVals {
   pnlEmpty: boolean
   pnlQuery: string
   pnlRows: readonly any[]
+  /**
+   * ★ 손으로 더한 자리 — 월 선택기 (MVP 1, 2026-08-16) ★
+   *
+   * 목업에는 없다. 헤더 부제가 «2026년 8월»이라는 **박힌 문자열**이었고, 앱도
+   * 기간을 상수로 들고 있어 8월 파일을 넣어도 7월만 보였다.
+   *
+   * `null`이면 그리지 않는다 — 기간이 실제로 걸리지 않는 화면(연결·기록·채널)에서
+   * 선택기를 그리면 «여기서 달을 고를 수 있다»가 거짓이 된다.
+   */
+  periodPick: PeriodPick | null
   presetItems: readonly any[]
   prevDis: string
   prevMonth: (...args: any[]) => void
@@ -930,6 +967,8 @@ export function emptyVals(): TemplateVals {
     pnlEmpty: false,
     pnlQuery: "",
     pnlRows: [],
+    // 데이터가 하나도 없으면 고를 달도 없다. 빈 목록이 아니라 **선택기 자체가 없다**.
+    periodPick: null,
     presetItems: [],
     prevDis: "",
     prevMonth: () => {},

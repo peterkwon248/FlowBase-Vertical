@@ -302,6 +302,36 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
             {vals.subtitle}
           </span>
           {" "}
+          {vals.periodPick && (
+              <span data-s21="period-picker" style={{ position: "relative", flex: "none" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", height: "24px", padding: "0 8px", borderRadius: "var(--r-sm)", border: "1px solid var(--border)", background: "var(--bg-elevated)", font: "var(--fw-semi) 12px var(--font-sans)", color: "var(--fg)", cursor: "pointer", whiteSpace: "nowrap" }} onClick={vals.periodPick.toggle} title="보는 달 바꾸기">
+                  {vals.periodPick.label}
+                  {" "}
+                  <Lic name="chevron-down" size={12} />
+                </span>
+                {" "}
+                {vals.periodPick.open && (
+                    <span style={{ position: "absolute", zIndex: "120", top: "calc(100% + 6px)", left: "0", minWidth: "160px", textAlign: "left", background: "var(--bg-elevated)", border: "1px solid var(--border-strong)", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-popover)", display: "grid", padding: "4px" }} onClick={vals.stopEvt}>
+                      {vals.periodPick.items.map((m: any, $index: number) => (
+                          <span key={$index} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", padding: "7px 9px", borderRadius: "var(--r-sm)", background: m.bg, font: "var(--fw-medium) 12px var(--font-sans)", color: m.fg, cursor: "pointer" }} onClick={m.pick}>
+                            {m.label}
+                            {" "}
+                            {m.sub && (
+                                <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)", flex: "none" }}>
+                                  {m.sub}
+                                </span>
+                            )}
+                          </span>
+                      ))}
+                      {" "}
+                      <span style={{ padding: "6px 9px 4px", font: "var(--fw-regular) 11px/1.5 var(--font-sans)", color: "var(--fg-4)", textWrap: "pretty" }}>
+                        {vals.periodPick.note}
+                      </span>
+                    </span>
+                )}
+              </span>
+          )}
+          {" "}
           <span style={{ flex: "1" }}></span>
           {" "}
           <span className="fb-head-state" style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: "6px", font: "var(--fw-medium) 12px var(--font-sans)", color: vals.syncColor, cursor: "pointer" }} onClick={vals.toggleAttn}>

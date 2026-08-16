@@ -26,6 +26,7 @@ import { loadProductRows, type ProductView } from "@core/product/rows.js"
 import { Repository, type BatchDigest } from "@core/store/repository.js"
 import { krLinkingMatcher } from "@packs/kr-marketplace/linking-matcher.js"
 import { krDocTypeResolver } from "@packs/kr-marketplace/markets/index.js"
+import { defaultMonth, loadAvailableMonths, monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
 import type { Period } from "@core/profit/index.js"
 
 declare const __PROJECT_ROOT__: string
@@ -35,8 +36,20 @@ const root = __PROJECT_ROOT__.replace(/\\/g, "/").replace(/\/$/, "")
 /** 3b-0 CLI가 만드는 DB. 실파일 3종이 들어 있다. */
 export const DEV_DB_PATH = `${root}/.tmp/pnl.sqlite`
 
-/** CLI와 같은 기간·라이브러리 — 대조가 성립하려면 같아야 한다. */
-export const DEV_PERIOD: Period = { from: "2026-07-01", to: "2026-07-31" }
+/**
+ * ★ 기간은 이제 **상수가 아니라 데이터에서 온다** (2026-08-16, MVP 1) ★
+ *
+ * 여기 `{2026-07-01, 2026-07-31}`이 박혀 있었다. 7월 파일만 넣는 동안은 그게
+ * 사실이었지만, **8월 파일을 넣는 순간 앱은 그 데이터를 영영 못 보여준다** —
+ * 가져오기는 성공하고 대시보드는 7월을 그린다. 사용자가 «넣었는데 안 나온다»를
+ * 겪는 그 자리다.
+ *
+ * 그래서 기본 기간은 **주문이 있는 가장 최근 달**이고(`defaultMonth` — «최신 달»이
+ * 아닌 이유가 거기 적혀 있다), 사용자가 헤더에서 다른 달을 고르면 그 달이 된다.
+ *
+ * 조회 층이 달을 제대로 가르는지는 붙이기 **전에** 쟀다 —
+ * `tests/month-switch.test.ts` (교차월 정산 귀속·기간집계 포함).
+ */
 export const DEV_LIBRARY = "lib-1"
 
 export interface LoadResult {
@@ -74,9 +87,23 @@ export interface LoadResult {
    * 둘이 섞인다. 섞인 것을 숨기지 않으려고 `soldQty`만 기간을 타는 것으로 못박아 뒀다.
    */
   products: ProductView | null
+  /**
+   * **이 조회가 실제로 본 기간.** 화면은 이 값으로 «2026년 7월»을 쓴다.
+   *
+   * 요청한 달을 그대로 되돌려주지 않는다 — 그 달에 데이터가 없으면 최신 달로
+   * 물러나므로, 화면이 «내가 요청한 달»을 그리면 숫자와 라벨이 갈린다.
+   */
+  period: Period
+  /** 그 기간의 달 (`YYYY-MM`). 선택기가 «지금 이것» 표시에 쓴다. */
+  month: Month
+  /** 고를 수 있는 달 — **데이터가 있는 것만**, 최신이 앞. 종류별 건수를 함께 든다. */
+  months: readonly MonthRow[]
   /** 못 읽은 이유. 숨기지 않고 화면이 말할 수 있게 들고 나간다 (헌장 6). */
   error: string | null
 }
+
+/** 오늘이 속한 달. 데이터가 하나도 없을 때의 기간이다 — 그때 화면은 어차피 빈다. */
+const thisMonth = (): Month => new Date().toISOString().slice(0, 7)
 
 /** 오늘(`YYYY-MM-DD`). 원가 입력의 기본 적용일이자 «지금 유효한 원가»의 기준일이다. */
 export const today = (): string => new Date().toISOString().slice(0, 10)
@@ -117,16 +144,30 @@ const catchUp = async (db: Parameters<typeof migrate>[0]): Promise<void> => {
  * `journal_mode`는 여전히 안 건다 — 그건 파일에 남고, 이 DB는 롤백 모드여야 한다
  * (`driver.ts`의 사고 기록). 그래서 `journal: true`를 주지 않는다.
  */
-export async function loadDevSnapshot(): Promise<LoadResult> {
+export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
   try {
     const db = await openTauriDriver(DEV_DB_PATH)
     try {
       await catchUp(db)
+
+      /**
+       * ★ 고른 달이 아직 있는지 **매번 다시 묻는다** ★
+       *
+       * 사용자가 8월을 보다가 8월 batch를 되돌리면 그 달은 사라진다. 요청을
+       * 곧이곧대로 쓰면 없는 달을 그리게 되고, 화면은 «0원»과 «데이터 없음»을
+       * 구별하지 못한다. 목록에 없으면 최신 달로 물러나고, 물러난 사실은
+       * `period`/`month`를 그대로 들고 나가는 것으로 화면에 전해진다.
+       */
+      const months = await loadAvailableMonths(db, DEV_LIBRARY)
+      const has = months.some((m) => m.ym === want)
+      const month = want !== undefined && has ? want : (defaultMonth(months) ?? thisMonth())
+      const period = monthPeriod(month)
+
       // 연결을 한 번만 연다. 화면마다 열면 같은 순간의 두 화면이 서로 다른
       // 스냅샷을 볼 수 있고, 그 차이는 아무도 모르게 쌓인다.
-      const snapshot = await loadPnlSnapshot(db, DEV_LIBRARY, DEV_PERIOD)
-      const settlement = await loadSettlementRows(db, DEV_LIBRARY, DEV_PERIOD)
-      const orders = await loadOrderRows(db, DEV_LIBRARY, DEV_PERIOD)
+      const snapshot = await loadPnlSnapshot(db, DEV_LIBRARY, period)
+      const settlement = await loadSettlementRows(db, DEV_LIBRARY, period)
+      const orders = await loadOrderRows(db, DEV_LIBRARY, period)
       const linking = await loadLinkingView(db, DEV_LIBRARY, krLinkingMatcher)
       const resolveDocType = krDocTypeResolver()
       const coverage = await loadCoverage(db, DEV_LIBRARY, resolveDocType)
@@ -147,22 +188,47 @@ export async function loadDevSnapshot(): Promise<LoadResult> {
        * 봐야 한다. 기간 끝을 기준일로 쓰면 «이 기간 판매에 붙는 원가»가 되고 셋이
        * 한 말을 한다. 그래도 8/14 원가는 사라지지 않는다 — 8월을 보면 나타난다.
        */
-      const products = await loadProductRows(db, DEV_LIBRARY, DEV_PERIOD, DEV_PERIOD.to)
-      return { snapshot, settlement, orders, linking, coverage, history, products, error: null }
+      const products = await loadProductRows(db, DEV_LIBRARY, period, period.to)
+      return {
+        snapshot,
+        settlement,
+        orders,
+        linking,
+        coverage,
+        history,
+        products,
+        period,
+        month,
+        months,
+        error: null,
+      }
     } finally {
       await db.close()
     }
   } catch (e) {
-    return {
-      snapshot: null,
-      settlement: [],
-      orders: [],
-      linking: null,
-      coverage: [],
-      history: [],
-      products: null,
-      error: e instanceof Error ? e.message : String(e),
-    }
+    return failed(e, want)
+  }
+}
+
+/**
+ * 못 읽었을 때의 결과. **화면은 이 값을 쓰지 않는다** — `App`이 `error`를 보고
+ * 화면을 그대로 두고 모달로 말한다(2026-08-16의 그 사고). 그래도 기간 자리를
+ * 비워 두지 않는 이유는 «읽기 실패»가 «기간이 없다»로 새지 않게 하려는 것이다.
+ */
+function failed(e: unknown, want?: Month): LoadResult {
+  const month = want ?? thisMonth()
+  return {
+    snapshot: null,
+    settlement: [],
+    orders: [],
+    linking: null,
+    coverage: [],
+    history: [],
+    products: null,
+    period: monthPeriod(month),
+    month,
+    months: [],
+    error: e instanceof Error ? e.message : String(e),
   }
 }
 
@@ -178,6 +244,8 @@ export async function loadDevSnapshot(): Promise<LoadResult> {
  */
 export async function writeThenReload(
   write: (repo: Repository) => Promise<void>,
+  /** 보고 있던 달. 주지 않으면 최신 달로 돌아간다 — 쓰기가 화면을 옮기게 된다. */
+  want?: Month,
 ): Promise<LoadResult> {
   try {
     const db = await openTauriDriver(DEV_DB_PATH)
@@ -189,18 +257,9 @@ export async function writeThenReload(
       await db.close()
     }
   } catch (e) {
-    return {
-      snapshot: null,
-      settlement: [],
-      orders: [],
-      linking: null,
-      coverage: [],
-      history: [],
-      products: null,
-      error: e instanceof Error ? e.message : String(e),
-    }
+    return failed(e, want)
   }
-  return loadDevSnapshot()
+  return loadDevSnapshot(want)
 }
 
 /** 쓰기 시각. 되돌리기·이력이 이 값을 본다 (ADR-004). */
