@@ -105,6 +105,37 @@ export interface LoadResult {
 /** 오늘이 속한 달. 데이터가 하나도 없을 때의 기간이다 — 그때 화면은 어차피 빈다. */
 const thisMonth = (): Month => new Date().toISOString().slice(0, 7)
 
+/**
+ * ★ 이 세션에서 아직 연 적이 없다 ★
+ *
+ * 저장 계층이 «한 번에 하나»를 불변식으로 강제한다 — 이미 임차 중이면 새 열기를
+ * **거절**한다 (`src-tauri/src/db.rs`). 그런데 웹뷰가 새로 뜨면(재실행·새로고침)
+ * 이전 세션이 들고 있던 번호는 아무도 못 쓰는데 Rust는 그걸 알 수 없다. 거절만
+ * 하면 앱이 영영 못 연다.
+ *
+ * 그 자리를 **시계로 판정하지 않는다**(「몇 초 지났으면 죽은 것」은 느린 기기에서
+ * 정상 동작을 죽었다고 부른다 — ③-b에서 «미완료» 판정에 내린 결론과 같다).
+ * 근거는 **«이 모듈이 방금 로드됐다»**는 사실 자체다: 새 세션이므로 옛 번호는
+ * 정의상 죽었다. 그래서 첫 열기만 넘겨받고, 그다음부터는 거절이 진짜 거절이다.
+ */
+let firstOpen = true
+
+/**
+ * DB를 연다. **모든 열기가 여기를 지난다** — 넘겨받기 조건이 한 곳에만 있어야
+ * «첫 열기만»이라는 규칙이 갈리지 않는다.
+ */
+async function open(): Promise<Awaited<ReturnType<typeof openTauriDriver>>> {
+  const force = firstOpen
+  firstOpen = false
+  return openTauriDriver(DEV_DB_PATH, {
+    force,
+    // 넘겨받았다는 것은 이전 세션이 **동작 중에 끝났다**는 뜻이다. 데이터 쪽
+    // 뒷정리는 이미 `abortStaleBatches`가 가져오기 시작에서 하고 다이제스트로
+    // 말한다 — 여기서 새 표면을 만들지 않고 기록만 남긴다.
+    onTakeOver: () => console.info("[data] 이전 세션의 연결이 남아 있어 넘겨받았다"),
+  })
+}
+
 /** 오늘(`YYYY-MM-DD`). 원가 입력의 기본 적용일이자 «지금 유효한 원가»의 기준일이다. */
 export const today = (): string => new Date().toISOString().slice(0, 10)
 
@@ -146,7 +177,7 @@ const catchUp = async (db: Parameters<typeof migrate>[0]): Promise<void> => {
  */
 export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
   try {
-    const db = await openTauriDriver(DEV_DB_PATH)
+    const db = await open()
     try {
       await catchUp(db)
 
@@ -248,7 +279,7 @@ export async function writeThenReload(
   want?: Month,
 ): Promise<LoadResult> {
   try {
-    const db = await openTauriDriver(DEV_DB_PATH)
+    const db = await open()
     try {
       // 쓰기가 새 컬럼을 건드릴 수 있으므로 읽기와 같은 규율로 먼저 따라잡는다.
       await catchUp(db)
@@ -281,7 +312,7 @@ export async function findPriorImports(
   hash: string,
 ): Promise<readonly { sourceName: string; at: string; undone: boolean }[]> {
   try {
-    const db = await openTauriDriver(DEV_DB_PATH)
+    const db = await open()
     try {
       await catchUp(db)
       const rows = await new Repository(db).batchesWithHash(DEV_LIBRARY, hash)
@@ -300,7 +331,7 @@ export async function findPriorImports(
 
 export async function readDigest(batchId: string): Promise<BatchDigest | null> {
   try {
-    const db = await openTauriDriver(DEV_DB_PATH)
+    const db = await open()
     try {
       return (await new Repository(db).batchDigest(batchId)) ?? null
     } finally {

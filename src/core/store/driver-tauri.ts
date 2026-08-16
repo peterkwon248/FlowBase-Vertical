@@ -41,10 +41,30 @@ async function defaultInvoke(cmd: Command, args: Record<string, unknown>): Promi
   return invoke(cmd, args)
 }
 
+/**
+ * `db_open`이 돌려주는 것. **번호가 곧 임차권**이고, 이후 모든 명령이 그것을 든다.
+ * 번호가 없는 명령은 없다 — 있으면 그 자리가 «남의 연결에서 도는» 구멍이 된다.
+ */
+export interface Opened {
+  readonly lease: number
+  /** 이전 세션의 연결이 남아 있어 넘겨받았나 (`force`로 연 첫 열기에서만 참). */
+  readonly tookOver: boolean
+}
+
 export interface TauriDriverOptions {
   invoke?: InvokeFn
   /** 연결 설정을 건다 (기본 켬). **파일을 바꾸지 않는다.** */
   pragmas?: boolean
+  /**
+   * ★ 이미 열려 있어도 **넘겨받는다** — 세션의 첫 열기만 준다 ★
+   *
+   * 기본은 거짓이고, 그때 저장 계층은 「이미 다른 동작이 쓰고 있다」로 **거절**한다
+   * (`db.rs`의 임차 계약). 웹뷰가 새로 뜨면 이전 세션의 번호를 아무도 못 쓰는데
+   * 거절만 하면 앱이 영영 못 여므로, 그 한 번만 참으로 연다.
+   */
+  force?: boolean
+  /** 넘겨받았을 때 부르는 쪽에 알린다. 조용히 치우지 않는다 (헌장 6). */
+  onTakeOver?: () => void
   /**
    * `journal_mode = WAL`까지 건다 — **그 DB 파일의 성질이 영구히 바뀐다.**
    * 앱은 켜지 않는다. 이 저장소의 개발용 DB는 OneDrive 폴더에 있어 WAL의 `-shm`이
@@ -56,14 +76,22 @@ export interface TauriDriverOptions {
 
 export async function openTauriDriver(
   path: string,
-  { invoke = defaultInvoke, pragmas = true, journal = false }: TauriDriverOptions = {},
+  {
+    invoke = defaultInvoke,
+    pragmas = true,
+    journal = false,
+    force = false,
+    onTakeOver,
+  }: TauriDriverOptions = {},
 ): Promise<Driver> {
-  await invoke("db_open", { path })
+  const opened = (await invoke("db_open", { path, force })) as Opened
+  const { lease } = opened
+  if (opened.tookOver) onTakeOver?.()
 
   let depth = 0
 
   const exec = async (sql: string): Promise<void> => {
-    await invoke("db_exec", { sql })
+    await invoke("db_exec", { lease, sql })
   }
 
   /**
@@ -109,15 +137,15 @@ export async function openTauriDriver(
    */
   const prepare = (sql: string): Statement => ({
     async run(...params: readonly SqlValue[]): Promise<RunResult> {
-      const changes = (await invoke("db_run", { sql, params })) as number
+      const changes = (await invoke("db_run", { lease, sql, params })) as number
       return { changes }
     },
     async get(...params: readonly SqlValue[]): Promise<Row | undefined> {
-      const row = (await invoke("db_get", { sql, params })) as Row | null
+      const row = (await invoke("db_get", { lease, sql, params })) as Row | null
       return row ?? undefined
     },
     async all(...params: readonly SqlValue[]): Promise<Row[]> {
-      return (await invoke("db_all", { sql, params })) as Row[]
+      return (await invoke("db_all", { lease, sql, params })) as Row[]
     },
   })
 
@@ -132,7 +160,7 @@ export async function openTauriDriver(
     async runMany(sql, rows) {
       const payload = [...rows].map((r) => [...r])
       const call = async (): Promise<RunResult> => {
-        const changes = (await invoke("db_run_many", { sql, rows: payload })) as number
+        const changes = (await invoke("db_run_many", { lease, sql, rows: payload })) as number
         return { changes }
       }
       // 이미 트랜잭션 안이면 자체 트랜잭션을 열지 않는다 — 바깥이 이미
@@ -144,7 +172,7 @@ export async function openTauriDriver(
     transaction: inTransaction,
 
     async close() {
-      await invoke("db_close", {})
+      await invoke("db_close", { lease })
     },
   }
 

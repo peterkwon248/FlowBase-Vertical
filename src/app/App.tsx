@@ -117,6 +117,51 @@ export function App(): React.JSX.Element {
   const [confirm, setConfirm] = useState<ConfirmDialog | null>(null)
 
   /**
+   * ★ **DB에 닿는 동작은 한 번에 하나** — 이 앱의 잠금은 이것 하나다 ★
+   *
+   * 2d에서 사용자가 [새 SKU로 등록]을 두 번 눌러 고아 SKU가 남았다. 근본 방어는
+   * **리포지토리의 멱등성**이고(같은 리스팅이 두 번 와도 SKU가 둘이 되지 않는다),
+   * 이건 그 위에 얹는 UX층이다 — 두 번째 클릭이 아무 일도 안 하고 조용히 지나가면
+   * 사용자는 «눌렸나?»를 알 수 없으므로, 애초에 받지 않는 편이 낫다.
+   *
+   * ─────────────────────────────────────────────────────────────
+   * ★ 잠금이 **둘이었다** (~2026-08-16) ★
+   * 이것과 위저드의 `wiz.busy`가 서로를 몰랐다. 그래서 적재가 도는 중에 원가
+   * 저장·되돌리기·달 바꾸기가 들어올 수 있었고, 그 경로가 전부 `openTauriDriver`라
+   * **전역 연결 하나**를 두고 부딪혔다 (`tests/tauri-conn-race.test.ts`가 재현).
+   *
+   * 이제 셋이 겹친다:
+   * ```
+   * 저장 계층   임차 번호 — 이미 쓰는 중이면 열기를 **거절**한다   ← 정확성
+   * 이 잠금     DB에 닿는 모든 동작이 여기를 지난다                ← 그 거절을 안 만나게
+   * wiz.busy    위저드 버튼의 «적재 중» 표시                       ← 표시 전용
+   * ```
+   * 마지막 것은 이제 **잠금이 아니다.** 화면 상태로만 남는다.
+   * ─────────────────────────────────────────────────────────────
+   *
+   * `useRef`인 이유는 상태 갱신을 기다리지 않기 때문이다. `useState`로 하면
+   * 리렌더 전에 도착한 두 번째 클릭이 옛 값을 본다 — 막으려는 그 경우를 못 막는다.
+   */
+  const busy = useRef(false)
+
+  /**
+   * 잠금을 잡는다. 못 잡으면 거짓이고, 부르는 쪽은 **아무 일도 하지 않는다.**
+   *
+   * 함수로 묶는 이유는 규칙이 한 곳에만 있어야 하기 때문이다 — 자리마다 손으로
+   * `if (busy.current)`를 적으면 새 버튼이 하나 생기는 날 그 자리만 빠진다.
+   * 실제로 위저드가 정확히 그렇게 빠져 있었다.
+   */
+  const acquire = useCallback((): boolean => {
+    if (busy.current) return false
+    busy.current = true
+    return true
+  }, [])
+
+  const release = useCallback((): void => {
+    busy.current = false
+  }, [])
+
+  /**
    * ★ 읽지 못한 것을 «없다»로 그리지 않는다 (헌장 6 · §22) ★
    *
    * ─────────────────────────────────────────────────────────────
@@ -194,9 +239,14 @@ export function App(): React.JSX.Element {
         setMonthOpen(false)
         return
       }
-      void loadDevSnapshot(ym).then(take)
+      // 읽기도 연결을 연다 — 적재가 도는 중이면 저장 계층이 거절한다.
+      // 달 바꾸기가 그 거절을 모달로 띄우는 것보다, 잠시 안 받는 편이 낫다.
+      if (!acquire()) return
+      void loadDevSnapshot(ym)
+        .then(take)
+        .finally(release)
     },
-    [month, take],
+    [acquire, month, release, take],
   )
 
   // ── 상품 연결 (§21-6) ────────────────────────────────────────────
@@ -205,18 +255,6 @@ export function App(): React.JSX.Element {
   const [linkTab, setLinkTab] = useState<LinkTab>("todo")
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set())
 
-  /**
-   * ★ 쓰기가 도는 동안 다음 쓰기를 받지 않는다 ★
-   *
-   * 2d에서 사용자가 [새 SKU로 등록]을 두 번 눌러 고아 SKU가 남았다. 근본 방어는
-   * **리포지토리의 멱등성**이고(같은 리스팅이 두 번 와도 SKU가 둘이 되지 않는다),
-   * 이건 그 위에 얹는 UX층이다 — 두 번째 클릭이 아무 일도 안 하고 조용히 지나가면
-   * 사용자는 «눌렸나?»를 알 수 없으므로, 애초에 받지 않는 편이 낫다.
-   *
-   * `useRef`인 이유는 상태 갱신을 기다리지 않기 때문이다. `useState`로 하면
-   * 리렌더 전에 도착한 두 번째 클릭이 옛 값을 본다 — 막으려는 그 경우를 못 막는다.
-   */
-  const busy = useRef(false)
 
   /**
    * 일괄 등록에서 **개별로 실패한 것들.**
@@ -232,10 +270,9 @@ export function App(): React.JSX.Element {
 
   const write = useCallback(
     (fn: Parameters<typeof writeThenReload>[0]) => {
-      if (busy.current) return
-      busy.current = true
+      if (!acquire()) return
       void writeThenReload(fn, monthRef.current).then((r) => {
-        busy.current = false
+        release()
         // 쓰기가 끝난 카드는 선택에 남아 있을 이유가 없다 — 다음 탭으로 갔다
         setPicked(new Set())
         take(r)
@@ -369,8 +406,7 @@ export function App(): React.JSX.Element {
   const saveCost = useCallback(
     (row: ProductSkuRow, draft: CostDraftState, replace: boolean) => {
       const parsed = parseCostDraft(draft)
-      if (!parsed.ok || busy.current) return
-      busy.current = true
+      if (!parsed.ok || !acquire()) return
 
       // `writeThenReload`는 쓰기 결과를 돌려주지 않으므로 클로저로 받는다 —
       // 「넣었나 / 이미 있나」를 알아야 물을지 말지를 정할 수 있다.
@@ -387,7 +423,7 @@ export function App(): React.JSX.Element {
           replace,
         })
       }, monthRef.current).then((r) => {
-        busy.current = false
+        release()
         if (r.error) {
           console.warn("[cost] 원가 저장에 실패했다:", r.error)
           return
@@ -481,7 +517,11 @@ export function App(): React.JSX.Element {
       const bytes = wizBytes.current
       const a = wiz.analysis
       const match = a?.profiles[wiz.profileIndex]
-      if (!bytes || !a || !match || wiz.busy) return
+      // ★ 위저드도 **같은 잠금**을 지난다 (2026-08-16) ★
+      // 전에는 `wiz.busy`만 봤다 — 그건 위저드 안에서 두 번 누르는 것만 막는다.
+      // 원가 저장·되돌리기·달 바꾸기는 다른 잠금을 쓰고 있어서, 적재가 도는 중에
+      // 들어와 전역 연결 하나를 두고 부딪혔다. 이제 셋 다 여기서 걸린다.
+      if (!bytes || !a || !match || wiz.busy || !acquire()) return
 
       setWiz((w) => ({ ...w, busy: true, error: null }))
       const stamp = nowStamp()
@@ -514,15 +554,19 @@ export function App(): React.JSX.Element {
         })
       }, monthRef.current).then((r) => {
         if (r.error) {
+          release()
           setWiz((w) => ({ ...w, busy: false, error: r.error }))
           return
         }
         take(r)
         // 다이제스트는 **적재 뒤에 다시 읽는다.** 넣으면서 센 것을 그대로 쓰지 않는
         // 이유는 화면이 말하는 수가 DB가 아는 수여야 하기 때문이다.
-        void readDigest(batchId).then((digest) =>
-          setWiz((w) => ({ ...w, busy: false, digest, error: null })),
-        )
+        //
+        // 잠금은 **그 조회까지 끝나고** 놓는다 — 여기서 먼저 놓으면 다이제스트
+        // 조회와 다음 동작이 겹칠 수 있고, 그게 방금 없앤 그 모양이다.
+        void readDigest(batchId)
+          .then((digest) => setWiz((w) => ({ ...w, busy: false, digest, error: null })))
+          .finally(release)
       })
     },
     reset: () => {
@@ -560,9 +604,13 @@ export function App(): React.JSX.Element {
       setConfirm(
         undoConfirm(row, () => {
           setConfirm(null)
+          // 되돌리기도 DB에 닿는 동작이다 — 적재가 도는 중에 들어오면 저장 계층이
+          // 거절한다. 잠금을 지나게 해서 그 거절을 애초에 안 만나게 한다.
+          if (!acquire()) return
           void writeThenReload(async (repo) => {
             await repo.undoBatch(row.id, nowStamp())
           }, monthRef.current).then((r) => {
+            release()
             take(r)
             // 실패를 삼키지 않는다 (헌장 6). 새 UI를 만들지 않고 같은 모달로 말한다.
             if (r.error) {
