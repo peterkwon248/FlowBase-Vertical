@@ -501,6 +501,9 @@ const ISSUE_LABEL: Record<string, string> = {
   orphan_item: "품목이 붙지 않은 주문 — 원가가 붙지 않습니다",
   missing_column: "파일에 없는 컬럼 — 이 값이 전 행에서 빕니다",
   item_key_missing: "품목을 만들지 못했습니다 — 리스팅 키 컬럼이 이 파일에 없습니다",
+  // 조용히 치우지 않는다 — 무엇을 치웠는지 이 줄이 말한다 (대열 4 ③)
+  stale_batch_aborted: "끝나지 않았던 이전 가져오기를 취소했습니다",
+  stale_batch_blocked: "끝나지 않은 이전 가져오기가 남아 있습니다 — 치우지 못했습니다",
 }
 
 /** 제외 사유 → 사람이 읽는 말. 코드값을 그대로 보이면 사용자가 알 수 없다. */

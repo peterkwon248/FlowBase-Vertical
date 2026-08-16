@@ -77,6 +77,16 @@ export const ISSUE_KINDS = {
     scope: "row",
     what: "품목이 부모 주문을 찾지 못해 버려졌다 — 주문 자체는 적재됐다",
   },
+  stale_batch_aborted: {
+    fatal: false,
+    scope: "file",
+    what: "끝나지 않았던 이전 배치를 취소하고 다시 넣었다 — 재시도가 곧 정리다",
+  },
+  stale_batch_blocked: {
+    fatal: false,
+    scope: "file",
+    what: "끝나지 않은 이전 배치가 있는데 다른 배치가 그 행을 가져가 못 치웠다",
+  },
 } as const satisfies Record<string, IssueKind>
 
 export type IssueCode = keyof typeof ISSUE_KINDS

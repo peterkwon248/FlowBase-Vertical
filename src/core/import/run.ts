@@ -103,6 +103,11 @@ export interface ImportRunResult {
   readonly sheet: SheetInfo
   /** 파서가 남긴 말 (SheetJS 경고 · fast path 거절 사유). 오늘 아무도 표시하지 않는다. */
   readonly warnings: readonly string[]
+  /**
+   * 시작 전에 치운 **미완료 배치**. 다이제스트에도 남지만(`batch_issue`) 부르는 쪽이
+   * 즉시 알 수 있게 함께 돌려준다 — 하네스·CLI는 다이제스트를 안 읽는다.
+   */
+  readonly abortedStale: readonly { readonly sourceName: string; readonly blocked: boolean }[]
 }
 
 export async function runImport(
@@ -148,6 +153,20 @@ export async function runImport(
         )
       }
     }
+
+    /**
+     * ★ 시작 전에 미완료 배치를 치운다 — **재시도가 곧 정리다** (대열 4 ③ 마지막) ★
+     *
+     * 적재가 도중에 죽으면 `open` 배치가 남고, 사용자의 자연스러운 첫 행동인
+     * 「다시 넣어 보자」가 그것을 **영영 못 치우는 상태로** 만든다(그림자가
+     * `prev_batch_id`를 남겨 LIFO 가드에 걸린다).
+     *
+     * **여기가 «시작»인 것이 요점이다.** 끝에 치우면 그림자 사슬이 이미 얽혀 복원이
+     * 새 배치를 옛 판으로 덮는다. 시작 시점에는 사슬이 없어 평범한 되돌리기로 깨끗하다.
+     *
+     * 조용히 치우지 않는다 — 아래에서 다이제스트에 남긴다 (LOCK 6).
+     */
+    const cleaned = await repo.abortStaleBatches(o.libraryId, o.connectionId, o.now)
 
     const batch: BatchOpen = {
       id: o.batchId,
@@ -414,6 +433,21 @@ export async function runImport(
       }
     }
 
+    /**
+     * ★ 치운 것을 말한다 ★ 3번이 만든 통로(`batch_issue`)를 그대로 쓴다 — 적재는
+     * 됐고 알려야 하는 것이므로 «제외»가 아니라 «사건»이다. 새 표면을 만들지 않는다.
+     */
+    for (const c of cleaned) {
+      issues.push({
+        code: c.blocked ? "stale_batch_blocked" : "stale_batch_aborted",
+        scope: "file",
+        rowIndex: null,
+        detail: c.blocked
+          ? `「${c.sourceName}」 — 이후 가져오기가 그 행을 가져가 치우지 못했습니다`
+          : `「${c.sourceName}」`,
+      })
+    }
+
     await repo.addBatchLoadStats(batch.id, { inserted, updated, merged })
 
     await repo.recordExclusions(batch.id, [
@@ -440,6 +474,7 @@ export async function runImport(
       sheet,
       // 파서가 남긴 말을 버리지 않는다 — 오늘 아무 호출부도 이걸 보지 않는다.
       warnings: [...src.warnings, ...rec.identityNotes],
+      abortedStale: cleaned.map((c) => ({ sourceName: c.sourceName, blocked: c.blocked })),
     }
   } finally {
     // 판정이 틀렸든 적재가 터졌든 파일 핸들은 닫는다.

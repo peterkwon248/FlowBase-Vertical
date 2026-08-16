@@ -420,3 +420,76 @@ run("코드 목록의 잠금은 타입이 진다 (008에 CHECK가 없는 대가)
     }
   })
 })
+
+/**
+ * ★ 재시도가 곧 정리다 — 「중간 실패 상태 3건」의 (1) (2026-08-16, 대열 4 ③ 마지막) ★
+ *
+ * 적재가 도중에 죽으면 `open` 배치와 그 행이 남는다. 그 행들은 조회에 안 보이지만
+ * (`active_*`가 `status='committed'`로 거른다) 사라진 것도 아니다.
+ *
+ * **사용자의 자연스러운 첫 행동은 「다시 넣어 보자」다.** 그런데 그렇게 하면 UPSERT가
+ * 미완료 배치의 행을 덮고 그림자가 `prev_batch_id`를 남겨 **영영 못 치우게** 됐다.
+ * 치우려는 순간 못 치우게 되는 구조였고, 방아쇠가 사용자의 첫 행동이었다.
+ */
+run("미완료 배치 — 다시 넣으면 치워지고, 치웠다고 말한다", () => {
+  it("죽은 적재가 남긴 open 배치를 재가져오기가 치운다", async () => {
+    const { db, repo } = await fresh()
+    try {
+      // ① 적재하다 죽은 세계를 만든다 — 배치를 열고 행까지 넣은 뒤 커밋하지 않는다
+      await importWith(repo, profile(), "b-dead")
+      await db.prepare(`UPDATE batch SET status='open', committed_at=NULL WHERE id='b-dead'`).run()
+      const dead = await db.prepare(`SELECT COUNT(*) AS n FROM fact_order WHERE batch_id='b-dead'`).get()
+      expect(Number(dead?.["n"]), "죽은 배치가 행을 남겼다").toBeGreaterThan(0)
+
+      // ② 사용자가 다시 넣는다
+      const r = await importWith(repo, profile(), "b-retry")
+
+      // ③ 치워졌다 — 그리고 조용히가 아니다
+      expect(r.abortedStale).toHaveLength(1)
+      expect(r.abortedStale[0]!.blocked, "막히지 않았다").toBe(false)
+      const st = await db.prepare(`SELECT status, committed_at FROM batch WHERE id='b-dead'`).get()
+      expect(st?.["status"]).toBe("undone")
+      expect(st?.["committed_at"], "커밋된 적이 없으니 «취소»다 (③-b)").toBeNull()
+
+      const left = await db.prepare(`SELECT COUNT(*) AS n FROM fact_order WHERE batch_id='b-dead'`).get()
+      expect(Number(left?.["n"]), "죽은 배치의 행이 남지 않았다").toBe(0)
+
+      // ④ ★ 이것이 없으면 조용한 정리다 ★
+      const d = (await repo.batchDigest("b-retry"))!
+      const line = digestRows(d, []).find((x) => x.label.includes("이전 가져오기를 취소"))
+      expect(line, "치웠다는 사실이 다이제스트에 서야 한다").toBeDefined()
+    } finally {
+      await db.close()
+    }
+  })
+
+  /**
+   * 옛 코드에서는 이 시나리오가 **영구 잔존물**을 만들었다: 재가져오기가 그림자를
+   * 남겨 `assertUndoable` ③에 걸리고, 그 뒤로는 손으로도 못 치웠다.
+   */
+  it("치운 뒤에는 새 배치를 되돌릴 수 있다 — 잔존물이 LIFO를 막지 않는다", async () => {
+    const { db, repo } = await fresh()
+    try {
+      await importWith(repo, profile(), "b-dead")
+      await db.prepare(`UPDATE batch SET status='open', committed_at=NULL WHERE id='b-dead'`).run()
+      await importWith(repo, profile(), "b-retry")
+
+      // 옛 코드였다면 b-dead가 차단자로 남아 이 되돌리기가 막혔다
+      await expect(repo.undoBatch("b-retry", NOW)).resolves.toBeGreaterThan(0)
+    } finally {
+      await db.close()
+    }
+  })
+
+  it("적재 도중 죽은 행은 애초에 손익에 안 잡힌다 — 데이터는 안전했다", async () => {
+    const { db, repo } = await fresh()
+    try {
+      await importWith(repo, profile(), "b-dead")
+      await db.prepare(`UPDATE batch SET status='open', committed_at=NULL WHERE id='b-dead'`).run()
+      const seen = await db.prepare(`SELECT COUNT(*) AS n FROM active_order`).get()
+      expect(Number(seen?.["n"]), "active_* 뷰가 committed만 본다").toBe(0)
+    } finally {
+      await db.close()
+    }
+  })
+})

@@ -487,6 +487,66 @@ export class Repository {
   }
 
   /**
+   * 미완료 배치를 치운다 — **재가져오기가 곧 정리다** (2026-08-16, 대열 4 ③의 마지막 조각).
+   *
+   * ─────────────────────────────────────────────────────────────
+   * ★ 왜 필요한가 — 재시도가 정리를 막고 있었다 ★
+   *
+   * 적재가 도중에 죽으면 `open` 배치와 그 배치가 넣은 fact 행이 남는다. 그 행들은
+   * 조회에 안 보이지만(`active_*`가 `status='committed'`로 거른다) 사라진 것도 아니다.
+   *
+   * 그 상태를 본 사용자의 **자연스러운 첫 행동은 「다시 넣어 보자」**다. 그런데
+   * 그렇게 하면 UPSERT가 미완료 배치의 행을 덮고, 그림자 트리거
+   * (`OLD.batch_id <> NEW.batch_id`)가 `prev_batch_id = 미완료 배치`를 남긴다 →
+   * `assertUndoable` ③이 **그 미완료 배치를 영영 못 치우게 만든다.**
+   * 치우려는 순간 못 치우게 되는 구조였고, 방아쇠가 사용자의 첫 행동이었다.
+   *
+   * ★ 그래서 **적재 «시작»에** 치운다 — 끝이 아니라 ★
+   * 끝에 치우면 그림자 사슬(원본 → 미완료 → 새 배치)이 이미 얽혀 있어, 복원이
+   * **새 배치의 데이터를 옛 판으로 덮어쓴다.** 시작 시점에는 그 사슬이 아직 없으므로
+   * 평범한 되돌리기 한 번으로 깨끗하게 정리된다.
+   *
+   * 재시도는 「아까 그거 무효, 다시」라는 의사표시다. 시스템이 그 의사대로 닫아 준다.
+   *
+   * ★ 조용히 치우지 않는다 ★ 무엇을 치웠는지 부르는 쪽이 받아서 다이제스트에 남긴다
+   * (LOCK 6). 그리고 치운 배치는 「취소됨」으로 보인다 — `committed_at`이 NULL이라
+   * 되돌리기와 갈린다 (③-b).
+   *
+   * ⚠ **전제: 한 연결에 동시 적재는 하나다.** 위저드가 `wiz.busy`로 직렬화한다.
+   * 그 전제가 깨지면(Tauri 연결이 전역 하나인 문제 — 대열에 등재) 도는 적재를
+   * 치울 수 있다. 다만 그 경우 `assertUndoable`이 막으므로 **건너뛰고 보고한다.**
+   * ─────────────────────────────────────────────────────────────
+   *
+   * @returns 치운 배치. 막혀서 못 치운 것은 `blocked: true`로 함께 돌려준다
+   */
+  async abortStaleBatches(
+    libraryId: string,
+    connectionId: string,
+    at: string,
+  ): Promise<readonly { readonly id: string; readonly sourceName: string; readonly blocked: boolean }[]> {
+    const stale = await this.db
+      .prepare(
+        `SELECT id, source_name FROM batch
+          WHERE library_id = ? AND connection_id = ? AND status = 'open'
+          ORDER BY started_at`,
+      )
+      .all(libraryId, connectionId)
+
+    const out: { id: string; sourceName: string; blocked: boolean }[] = []
+    for (const b of stale) {
+      const id = String(b["id"])
+      try {
+        await this.undoBatch(id, at)
+        out.push({ id, sourceName: String(b["source_name"]), blocked: false })
+      } catch {
+        // 막혔다 = 다른 배치가 이미 그 행을 가져갔다. 손대지 않고 알린다.
+        out.push({ id, sourceName: String(b["source_name"]), blocked: true })
+      }
+    }
+    return out
+  }
+
+  /**
    * 다음 SKU 순번 — **`COUNT(*)`로 뽑지 않는다.**
    *
    * ─────────────────────────────────────────────────────────────
