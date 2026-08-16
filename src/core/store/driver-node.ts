@@ -18,7 +18,7 @@
 
 import { createRequire } from "node:module"
 import type { Driver, Row, RunResult, SqlValue, Statement } from "./driver.js"
-import { PRAGMAS } from "./driver.js"
+import { FILE_PRAGMAS, SESSION_PRAGMAS } from "./driver.js"
 
 interface NodeStatement {
   run(...params: unknown[]): { changes: number | bigint }
@@ -63,7 +63,16 @@ function wrap(stmt: NodeStatement): Statement {
   }
 }
 
-export function openNodeDriver(path = ":memory:", { pragmas = true } = {}): Driver {
+/**
+ * @param pragmas 연결 설정을 건다 (기본 켬). **파일을 바꾸지 않는다.**
+ * @param journal `journal_mode = WAL`까지 건다 — **그 DB 파일의 성질이 영구히 바뀐다.**
+ *   내가 만들고 나만 쓰는 DB에만 켠다. 남의 DB(앱의 개발용 DB 등)에 켜면
+ *   그 파일을 여는 다음 사람이 다른 세계를 보게 된다 (`driver.ts`의 사고 기록).
+ */
+export function openNodeDriver(
+  path = ":memory:",
+  { pragmas = true, journal = false }: { pragmas?: boolean; journal?: boolean } = {},
+): Driver {
   const db = new (load().DatabaseSync)(path)
   let depth = 0
   /** SQL → 준비된 문장. 벌크 적재가 청크마다 다시 준비하지 않게 한다. */
@@ -147,6 +156,7 @@ export function openNodeDriver(path = ":memory:", { pragmas = true } = {}): Driv
   //
   // `:memory:`에는 WAL이 적용되지 않는다 — SQLite가 조용히 무시하므로
   // 별도 분기가 필요 없다.
-  if (pragmas) for (const p of PRAGMAS) db.exec(p)
+  if (journal) for (const p of FILE_PRAGMAS) db.exec(p)
+  if (pragmas) for (const p of SESSION_PRAGMAS) db.exec(p)
   return driver
 }

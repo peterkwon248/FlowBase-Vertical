@@ -50,7 +50,18 @@ const LIB = "lib-1"
  * 7,896,500원」은 그 batch가 살아 있는 한 참이고, 라이브러리 합계는 파일이 들어올
  * 때마다 바뀌는 것이 **정상**이다. 화면 대조는 아래에서 스냅샷 파생으로 한다.
  */
-const ESM_CLI = { revenue: 7_896_500, claims: 388_700, orderCount: 146 }
+/**
+ * ★ 갱신 (2026-08-16) — 이중 기록이 실데이터에 반영됐다 ★
+ *
+ * 7월 파일을 다시 넣자 ESM 클레임 9건이 `fact_order`에도 서면서 146 → 155,
+ * 총매출 7,896,500 → 8,285,200이 됐다. **회귀가 아니라 데이터가 그렇게 생긴
+ * 것이다** (조건 (a)~(f) · ADR-009 ①).
+ *
+ * 손으로 검산한 7,896,500은 사라지지 않았다 — 이제 **순매출**(총매출 − 클레임)이
+ * 그 값이고 아래에서 그 항등식으로 못박는다. 숫자만 갈아 끼우고 그 수가 어디로
+ * 갔는지 안 적으면, 다음 사람은 정답지가 흔들렸다고 읽는다.
+ */
+const ESM_CLI = { revenue: 8_285_200, claims: 388_700, orderCount: 155, net: 7_896_500 }
 
 const ready = existsSync(DB)
 const run = ready ? describe : describe.skip
@@ -86,6 +97,8 @@ run("대시보드 1단 — 화면 숫자 = CLI 숫자", () => {
       expect(Number(o["n"]), "ESM 주문 건수").toBe(ESM_CLI.orderCount)
       expect(Number(o["s"]), "ESM 매출").toBe(ESM_CLI.revenue)
       expect(Number(c["s"]), "ESM 클레임").toBe(ESM_CLI.claims)
+      // 손검산 값은 여기 살아 있다 — 표현이 바뀌었을 뿐이다
+      expect(Number(o["s"]) - Number(c["s"]), "ESM 순매출").toBe(ESM_CLI.net)
     } finally {
       await db.close()
     }

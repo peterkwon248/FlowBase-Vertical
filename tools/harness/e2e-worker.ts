@@ -43,7 +43,9 @@ const src = await parserFor(top.format).open(bytes, { chunkSize })
 const tParse = performance.now()
 
 // ── 2. 저장 준비 ──────────────────────────────────────────────
-const db = openNodeDriver(dbPath)
+// 이 DB는 이 게이트가 만들고 이 게이트만 쓴다 — 파일 성질을 바꿔도 남을 해치지
+// 않는다. 8만 행 적재라 WAL이 실제로 필요하다 (`driver.ts`의 갈래 참조).
+const db = openNodeDriver(dbPath, { journal: true })
 await migrate(db)
 const repo = new Repository(db)
 const LIB = "lib-1"

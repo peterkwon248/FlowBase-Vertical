@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest"
 import { openTauriDriver, type Command, type InvokeFn } from "../src/core/store/driver-tauri.js"
-import { PRAGMAS } from "../src/core/store/driver.js"
+import { FILE_PRAGMAS, PRAGMAS, SESSION_PRAGMAS } from "../src/core/store/driver.js"
 
 interface Call {
   cmd: Command
@@ -31,11 +31,19 @@ function fake(result: (cmd: Command) => unknown = () => 0) {
 }
 
 describe("여는 순간", () => {
-  it("DB를 열고 PRAGMA를 계약 순서대로 건다", async () => {
+  it("DB를 열고 **세션** PRAGMA만 계약 순서대로 건다", async () => {
     const f = fake()
     await openTauriDriver("app.sqlite", { invoke: f.invoke })
     expect(f.calls[0]?.cmd).toBe("db_open")
     expect(f.calls[0]?.args).toEqual({ path: "app.sqlite" })
+    // ★ `journal_mode`는 **파일에 남는다** — 기본으로 걸면 남의 DB를 영구히 바꾼다
+    expect(f.sqls()).toEqual([...SESSION_PRAGMAS])
+    expect(f.sqls()).not.toContain(FILE_PRAGMAS[0])
+  })
+
+  it("journal: true라고 이름을 불러야 파일 PRAGMA가 걸린다", async () => {
+    const f = fake()
+    await openTauriDriver("mine.sqlite", { invoke: f.invoke, journal: true })
     expect(f.sqls()).toEqual([...PRAGMAS])
   })
 

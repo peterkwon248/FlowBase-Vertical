@@ -17,7 +17,7 @@
  */
 
 import type { Driver, Row, RunResult, SqlValue, Statement } from "./driver.js"
-import { PRAGMAS } from "./driver.js"
+import { FILE_PRAGMAS, SESSION_PRAGMAS } from "./driver.js"
 
 /** Rust 쪽 커맨드 이름. `src-tauri/src/lib.rs`의 등록 목록과 1:1이다. */
 export const COMMANDS = [
@@ -43,12 +43,20 @@ async function defaultInvoke(cmd: Command, args: Record<string, unknown>): Promi
 
 export interface TauriDriverOptions {
   invoke?: InvokeFn
+  /** 연결 설정을 건다 (기본 켬). **파일을 바꾸지 않는다.** */
   pragmas?: boolean
+  /**
+   * `journal_mode = WAL`까지 건다 — **그 DB 파일의 성질이 영구히 바뀐다.**
+   * 앱은 켜지 않는다. 이 저장소의 개발용 DB는 OneDrive 폴더에 있어 WAL의 `-shm`이
+   * 열리지 않을 수 있고, 그 실패는 화면이 통째로 비는 모양으로 나타난다
+   * (`driver.ts`의 사고 기록).
+   */
+  journal?: boolean
 }
 
 export async function openTauriDriver(
   path: string,
-  { invoke = defaultInvoke, pragmas = true }: TauriDriverOptions = {},
+  { invoke = defaultInvoke, pragmas = true, journal = false }: TauriDriverOptions = {},
 ): Promise<Driver> {
   await invoke("db_open", { path })
 
@@ -142,7 +150,8 @@ export async function openTauriDriver(
 
   // PRAGMA 목록은 계약 쪽(`driver.ts`)에 있다. 드라이버가 바뀌어도 설정이
   // 따라가야 하기 때문이다 (ADR-003).
-  if (pragmas) for (const p of PRAGMAS) await exec(p)
+  if (journal) for (const p of FILE_PRAGMAS) await exec(p)
+  if (pragmas) for (const p of SESSION_PRAGMAS) await exec(p)
 
   return driver
 }

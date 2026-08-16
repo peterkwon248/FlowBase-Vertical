@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest"
-import { readdirSync, readFileSync } from "node:fs"
+import { readdirSync, readFileSync, rmSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { Repository, FACT_TABLES } from "../src/core/store/repository.js"
 import type { Driver, Row, SqlValue, Statement } from "../src/core/store/driver.js"
 import { DRIVER_SURFACE } from "../src/core/store/driver.js"
 import { openNodeDriver } from "../src/core/store/driver-node.js"
+import { tmpdir } from "node:os"
 
 const STORE_DIR = fileURLToPath(new URL("../src/core/store", import.meta.url))
 
@@ -237,5 +238,53 @@ describe("좁은 커맨드 표면 — 합격 기준 4", () => {
         { id: "o1", source_key: "K1", library_id: "다른값" } as never,
       ]),
     ).rejects.toThrow(/공통 컬럼은 직접 넘길 수 없다/)
+  })
+})
+
+/**
+ * ★ 남의 DB의 **파일 성질**을 바꾸지 않는다 (2026-08-16 사고) ★
+ *
+ * 재가져오기 도구가 개발용 DB를 `pragmas: true`로 열었고, 그 안의
+ * `PRAGMA journal_mode = WAL` 한 줄이 그 파일을 `delete` → `wal`로 **영구히**
+ * 바꿨다. 앱은 늘 `pragmas: false`로 열어 왔으므로 그 DB는 계속 롤백 모드였는데,
+ * 모드가 바뀌자 앱의 조회가 전부 실패하고 화면이 통째로 비었다.
+ *
+ * 「연결에만 사는 설정」과 「파일에 남는 설정」을 가른 것이 처방이고, 이 게이트가
+ * 그 갈래를 지킨다.
+ */
+describe("저널 모드 — 파일에 남는 것은 이름을 불러야 걸린다", () => {
+  const tmp = (): string =>
+    join(tmpdir(), `fb-journal-${process.pid}-${counter++}.sqlite`)
+  let counter = 0
+
+  it("기본으로 열면 남의 DB 저널 모드가 그대로다", async () => {
+    const path = tmp()
+    // 롤백 모드 DB를 만든다 (앱이 쓰는 그 상태)
+    const seed = openNodeDriver(path, { pragmas: false })
+    await seed.exec("PRAGMA journal_mode = DELETE")
+    await seed.exec("CREATE TABLE t (a INTEGER)")
+    await seed.close()
+
+    const db = openNodeDriver(path) // pragmas 기본 = 켬
+    const mode = await db.prepare("PRAGMA journal_mode").get()
+    await db.close()
+    expect(String(mode?.["journal_mode"]).toLowerCase(), "도구가 남의 파일을 바꿨다").toBe(
+      "delete",
+    )
+    rmSync(path, { force: true })
+  })
+
+  it("가드를 부러뜨려 확인한다 — journal: true면 실제로 바뀐다", async () => {
+    const path = tmp()
+    const seed = openNodeDriver(path, { pragmas: false })
+    await seed.exec("PRAGMA journal_mode = DELETE")
+    await seed.exec("CREATE TABLE t (a INTEGER)")
+    await seed.close()
+
+    const db = openNodeDriver(path, { journal: true })
+    const mode = await db.prepare("PRAGMA journal_mode").get()
+    await db.close()
+    expect(String(mode?.["journal_mode"]).toLowerCase()).toBe("wal")
+    for (const s of ["", "-wal", "-shm"]) rmSync(`${path}${s}`, { force: true })
   })
 })

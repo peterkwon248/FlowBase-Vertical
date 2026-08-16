@@ -98,9 +98,45 @@ export function App(): React.JSX.Element {
   /** 되돌리기·원가 정정 확인 다이얼로그. `null`이면 안 떠 있다. */
   const [confirm, setConfirm] = useState<ConfirmDialog | null>(null)
 
+  /**
+   * ★ 읽지 못한 것을 «없다»로 그리지 않는다 (헌장 6 · §22) ★
+   *
+   * ─────────────────────────────────────────────────────────────
+   * 2026-08-16, 사용자가 상품을 연결한 직후 **모든 화면이 비었다.** 데이터는
+   * 멀쩡했다 — 쓰기는 성공했고 이어진 재조회가 실패했는데, 여기가 그 실패를
+   * `console.warn` 하나로 넘기고 **빈 값을 그대로 상태에 넣었다.** 화면은
+   * "연결한 것이 다 사라졌다"고 말했다.
+   *
+   * 옛 주석은 «빈 화면이 지금의 사실이다»였다. 그것은 **데이터가 없을 때만** 참이다.
+   * 읽지 못한 것과 없는 것은 다르고, 그 둘을 가르는 것이 이 프로젝트의 §22다.
+   * ─────────────────────────────────────────────────────────────
+   *
+   * 실패하면 **화면을 건드리지 않는다.** 직전까지 보던 것이 남는 편이 통째로
+   * 비는 것보다 참에 가깝고(그 데이터는 실제로 DB에 있다), 모달이 이유를 말한다.
+   * 새 마크업은 만들지 않는다 — 되돌리기 실패가 이미 쓰는 그 모달이다.
+   */
   const take = useCallback((r: LoadResult) => {
+    if (r.error !== null) {
+      console.warn("[data] 읽지 못했다:", r.error)
+      setConfirm({
+        title: "데이터를 읽지 못했습니다",
+        body:
+          `저장된 것이 사라진 것이 아니라 **읽기가 실패**했습니다. 화면은 마지막으로 ` +
+          `읽은 것을 그대로 두었습니다.\n\n${r.error}`,
+        hasRows: false,
+        rows: [],
+        hasChoice: false,
+        choices: [],
+        hasType: false,
+        confirmLabel: "닫기",
+        btnFg: "var(--fg)",
+        btnBorder: "var(--border-strong)",
+        btnOp: "1",
+        run: () => setConfirm(null),
+      })
+      return
+    }
     if (r.snapshot) setSnap(r.snapshot)
-    else console.warn("[data] 스냅샷을 읽지 못했다 — 빈 화면이 지금의 사실이다:", r.error)
     setSetRows(r.settlement)
     setOrdRows(r.orders)
     setLinking(r.linking)
