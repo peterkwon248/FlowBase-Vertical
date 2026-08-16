@@ -165,7 +165,13 @@ export function productVals(
       // 고칠 수 있어야 하기 때문이다(목업 결함 ③). 값의 유무는 `costFilled`가 진다.
       costEmpty: true,
       costFilled: r.cost !== null,
-      cost: r.cost === null ? "" : `${won(r.cost)}원 · ${fromLabel(r.costFrom ?? "")}`,
+      /**
+       * ★ 금액과 적용일을 **갈라서 준다** (2026-08-16) ★
+       * 한 문자열(`5,400원 · 1/1부터`)이면 화면이 둘에 다른 무게를 줄 수 없다.
+       * 금액은 이 칸의 값이고 적용일은 그 값의 **단서**라 위계가 다르다.
+       */
+      cost: r.cost === null ? "" : `${won(r.cost)}원`,
+      costSince: r.cost === null ? "" : fromLabel(r.costFrom ?? ""),
 
       // ── 새 구간(`data-s21="cost-input"`)이 읽는 값 ──
       costDraft: d.amount,

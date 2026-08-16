@@ -94,10 +94,18 @@ describe("원가 입력칸", () => {
 
   it("★ 원가가 있는 행에도 입력칸이 남는다 — 정정 경로가 있어야 한다 ★", () => {
     const vals = wire(view([row({ cost: 12_000, costFrom: "2026-08-01", costEntries: 1 })]))
-    const r = (vals.skuRows as { costEmpty: boolean; costFilled: boolean; cost: string }[])[0]!
+    const r = (vals.skuRows as {
+      costEmpty: boolean; costFilled: boolean; cost: string; costSince: string
+    }[])[0]!
     expect(r.costEmpty, "«입력칸을 그린다»로 재해석했다").toBe(true)
     expect(r.costFilled).toBe(true)
-    expect(r.cost, "지금 값과 **언제부터**를 함께 말한다").toBe("12,000원 · 8/1부터")
+    /**
+     * ★ 갈라서 준다 (2026-08-16) ★ 전에는 `"12,000원 · 8/1부터"` 한 문자열이었는데,
+     * 그러면 화면이 금액과 적용일에 **다른 무게**를 줄 수 없다. 금액은 이 칸의 값이고
+     * 적용일은 그 값의 단서다 — 사용자가 「디자인이 정돈되지 않았다」고 지적한 자리.
+     */
+    expect(r.cost, "값은 금액이다").toBe("12,000원")
+    expect(r.costSince, "적용일은 단서로 따로 준다").toBe("8/1부터")
   })
 
   it("이력이 둘 이상이면 그 사실을 말한다 — 덮은 줄 알고 있으면 오해가 반대로 생긴다", () => {
@@ -182,7 +190,9 @@ describe("화면이 렌더된다 — «준비 중»이 아니라 목록이다", 
     const out = html(wire(view([row({ cost: 12_000, costFrom: "2026-08-01", channels: ["11번가"] })])))
     expect(out).toContain("SKU-0001")
     expect(out).toContain("머그컵 · 블루")
-    expect(out).toContain("12,000원 · 8/1부터")
+    // 한 문자열이 아니라 두 조각으로 그려진다 — 위계가 다르기 때문이다
+    expect(out).toContain("12,000원")
+    expect(out).toContain("8/1부터")
     // 임시물이 지워졌다는 증거 — 배선된 화면이 계속 «준비 중»이라고 말하면 안 된다
     expect(out).not.toContain("상품 화면은 아직 만들지 않았습니다")
   })

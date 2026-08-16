@@ -2407,17 +2407,21 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                                 {s.saveWhy}
                                               </span>
                                           )}
+                                          {s.costFilled && (
+                                              <span style={{ display: "inline-flex", alignItems: "baseline", gap: "5px" }}>
+                                                <span style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg)" }}>
+                                                  {s.cost}
+                                                </span>
+                                                <span style={{ font: "var(--fw-regular) 10px var(--font-sans)", color: "var(--fg-4)" }}>
+                                                  {s.costSince}
+                                                </span>
+                                              </span>
+                                          )}
                                           {s.histNote !== "" && (
                                               <span style={{ font: "var(--fw-regular) 10px/1.4 var(--font-sans)", color: "var(--fg-4)" }}>
                                                 {s.histNote}
                                               </span>
                                           )}
-                                        </span>
-                                    )}
-                                    {" "}
-                                    {s.costFilled && (
-                                        <span>
-                                          {s.cost}
                                         </span>
                                     )}
                                   </td>

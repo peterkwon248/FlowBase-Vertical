@@ -41,6 +41,19 @@ const generated = readFileSync(GENERATED, "utf8")
  */
 const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[] = [
   {
+    field: "holes",
+    from: ["s.costFilled", "s.cost"],
+    to: [],
+    why:
+      "★ 매입원가 칸 — 목업의 **읽기 전용 원가 텍스트가 교체 구간 안으로 들어갔다** " +
+      "(2026-08-16). 목업은 값이 있으면 입력칸 대신 텍스트를 그렸고(그래서 «채운 뒤엔 " +
+      "못 고친다»가 결함 ③이었다), 우리 교체는 **입력칸과 현재값을 함께** 보인다 — " +
+      "고칠 수 있어야 하기 때문이다. 두 조각이 한 구간(`data-s21=\"cost-input\"`) 안에 " +
+      "있어야 정렬이 하나가 된다: 밖에 두었더니 입력 묶음은 오른쪽, 현재값은 왼쪽으로 " +
+      "갈려 사용자가 «간격이 이상하다»고 지적했다. 그 자리에서 금액(12px·fg)과 " +
+      "적용일(10px·fg-4)의 위계도 함께 준다 — 한 문자열이면 둘이 같은 무게가 된다",
+  },
+  {
     field: "texts",
     from: ["데이터 신선도"],
     to: ["이 숫자가 담지 못한 것"],
