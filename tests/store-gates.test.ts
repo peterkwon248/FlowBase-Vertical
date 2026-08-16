@@ -127,7 +127,19 @@ describe("합격 기준 1 — 적재 → 되돌리기 → 행수 원복", () => 
     expect(row?.batch_id).toBe("b-2")
   })
 
-  it("제외 행이 사유와 함께 남고 되돌리기로 함께 사라진다", async () => {
+  /**
+   * ★ 결정이 뒤집혔다 (2026-08-16, 대열 4 ③-a) ★
+   *
+   * 옛 이름은 「…되돌리기로 함께 사라진다」였고 `COUNT = 0`을 단언했다. 그런데
+   * 되돌리기는 `excluded_count`는 **남기고** 있었다 — 총계는 남고 명세는 사라지는
+   * 비대칭이었고, 실측하면 「0행 적재 · 2행 제외」라고 말하면서 사유 목록은 0줄이었다.
+   *
+   * 둘 다 «그때»의 사실이므로 **둘 다 남긴다.** 되돌리기는 Fact를 되돌리는 것이지
+   * «그 파일을 넣었을 때 무슨 일이 있었나»를 지우는 것이 아니다 — 되돌린 뒤 다시
+   * 넣는 것이 정상 경로인데(ADR-004), 기록을 지우면 「지난번엔 2건, 이번엔 5건」이
+   * 영영 대조 불가능해진다.
+   */
+  it("제외 행이 사유와 함께 남고 **되돌려도 남는다** — 그때의 사실이다", async () => {
     const b = batch("b-1")
     await repo.openBatch(b)
     await repo.recordExclusions("b-1", [
@@ -138,7 +150,13 @@ describe("합격 기준 1 — 적재 → 되돌리기 → 행수 원복", () => 
     await repo.commitBatch("b-1", "t")
     await repo.undoBatch("b-1", "t")
     const n = await db.prepare(`SELECT COUNT(*) AS n FROM batch_exclusion WHERE batch_id='b-1'`).get()
-    expect(Number(n?.n)).toBe(0)
+    expect(Number(n?.n), "명세가 남아야 총계와 시제가 맞는다").toBe(2)
+
+    // ★ 총계와 명세가 **같은 시제**를 말한다 — 이 짝이 어긋난 것이 결함이었다 ★
+    const st = await repo.batchStatus("b-1")
+    expect(st?.excluded_count, "총계도 그대로다").toBe(2)
+    expect(st?.row_count, "적재 당시 센 행도 그대로다 — 0으로 밀지 않는다").toBe(0)
+    expect(st?.status, "«지금»은 상태가 말한다").toBe("undone")
   })
 })
 

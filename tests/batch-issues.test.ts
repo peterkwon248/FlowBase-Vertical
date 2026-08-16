@@ -388,7 +388,19 @@ run("코드 목록의 잠금은 타입이 진다 (008에 CHECK가 없는 대가)
     }
   })
 
-  it("되돌리면 사건 기록도 사라진다 — 적재된 행이 없으면 붙을 자리가 없다", async () => {
+  /**
+   * ★ 하루 만에 뒤집힌 결정 (2026-08-16, 대열 4 ③-a) ★
+   *
+   * 어제는 「되돌린 배치에는 적재된 행이 없으므로 «그 행이 온전하지 않다»는 주석이
+   * 남을 자리가 없다」고 적고 제외와 나란히 지웠다. **그 논증이 반쪽이었다** —
+   * 「지금 그 행이 있는가」로 물으면 맞지만, `batch`는 **이력 테이블**이고 그 질문의
+   * 자리는 이미 따로 있다(`ownedRows`). 여기 남는 것은 «그때 그 파일을 넣었을 때
+   * 무슨 일이 있었나»이고, 그건 되돌려도 변하지 않은 사실이다.
+   *
+   * 어제 「제외와 같은 줄에 둔다」고 쓴 것은 결과적으로 맞았다 — 한 줄이었기에
+   * 오늘 한 번에 뒤집혔다.
+   */
+  it("되돌려도 사건 기록이 남는다 — «그때 무슨 일이 있었나»는 안 변한다", async () => {
     const { db, repo } = await fresh()
     try {
       const p = profile() as unknown as {
@@ -400,8 +412,9 @@ run("코드 목록의 잠금은 타입이 진다 (008에 CHECK가 없는 대가)
 
       await repo.undoBatch("b1", NOW)
       const d = (await repo.batchDigest("b1"))!
-      expect(d.incompleteRows).toBe(0)
-      expect(d.issuesByCode).toEqual([])
+      expect(d.incompleteRows, "그때 146행이 온전하지 않았다는 것은 여전히 사실이다").toBe(146)
+      expect(d.issuesByCode).toHaveLength(1)
+      expect(d.status, "«지금»은 상태가 말한다").toBe("undone")
     } finally {
       await db.close()
     }

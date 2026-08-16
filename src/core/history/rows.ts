@@ -72,8 +72,12 @@ export async function loadHistoryRows(
       at: b.committedAt ?? b.startedAt,
       batchStatus: b.status,
       fetched: b.rowCount,
-      // 신규 = 적재한 것 중 **덮어쓴 것을 뺀** 나머지. 음수가 나올 수는 없지만
-      // 되돌린 배치는 `row_count`가 0이 되므로 방어한다.
+      // 신규 = 적재한 것 중 **덮어쓴 것을 뺀** 나머지.
+      //
+      // `max(0, …)`는 이제 순수한 방어다. 전에는 되돌린 배치의 `row_count`가 0으로
+      // 밀려 음수가 실제로 나올 수 있었는데, 되돌리기가 더 이상 그 값을 건드리지
+      // 않는다(2026-08-16). 즉 이 칸도 이제 **적재 당시의 사실**이고, 되돌렸다는
+      // 것은 `undo`/`undoneAt`이 말한다.
       created: Math.max(0, b.rowCount - b.restoresRows),
       updated: b.restoresRows,
       failed: b.excludedCount,

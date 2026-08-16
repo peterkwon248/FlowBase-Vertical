@@ -190,7 +190,16 @@ export interface BatchHistoryRow {
   readonly startedAt: string
   readonly committedAt: string | null
   readonly undoneAt: string | null
-  /** 적재 당시 센 행. 되돌리면 0이 된다. */
+  /**
+   * **적재 당시** 센 행 — 되돌려도 안 변한다 (2026-08-16 정정).
+   *
+   * 옛 주석은 「적재 당시 센 행. 되돌리면 0이 된다」였는데 그 둘은 동시에 참일 수
+   * 없다. «지금 몇 행인가»는 `ownedRows`가 답한다.
+   *
+   * ⚠ **이 정정 이전에 되돌려진 배치는 0으로 밀려 있다.** 그 0은 「가져온 행이
+   * 없었다」가 아니라 **「옛 코드가 지웠다」**이고, 되찾을 수 없다 —
+   * 007 이전 배치의 분해 카운터가 셋 다 0인 것과 같은 계열이다.
+   */
   readonly rowCount: number
   readonly excludedCount: number
   /** **지금** 이 배치가 소유한 fact 행 — 되돌리면 사라질 수. */
@@ -1005,14 +1014,38 @@ export class Repository {
       await this.db
         .prepare(`DELETE FROM row_shadow WHERE batch_id = ? OR prev_batch_id = ?`)
         .run(batchId, batchId)
-      await this.db.prepare(`DELETE FROM batch_exclusion WHERE batch_id = ?`).run(batchId)
-      // 사건 기록도 함께 지운다 — 되돌린 배치에는 적재된 행이 없으므로 «그 행이
-      // 온전하지 않다»는 주석만 남을 자리가 없다. 제외와 **같은 줄에 둔다**:
-      // 되돌리기가 기록은 지우면서 `excluded_count`는 남기는 비대칭(대열 4의 선두)을
-      // 고칠 때, 두 테이블이 떨어져 있으면 한쪽만 고치게 된다.
-      await this.db.prepare(`DELETE FROM batch_issue WHERE batch_id = ?`).run(batchId)
+      /**
+       * ★ 여기서 **기록을 지우지 않는다** (2026-08-16, 대열 4 ③-a) ★
+       *
+       * ─────────────────────────────────────────────────────────────
+       * 전에는 `batch_exclusion`·`batch_issue` 행을 지우고 `row_count = 0`으로
+       * 밀었다. 그런데 `excluded_count`는 남겼다. 실측하면 이렇게 나온다:
+       *
+       * ```
+       * 되돌린 뒤:  제목 「0행 적재 · 2행 제외」   ← 총계는 남았다
+       *             다이제스트 0줄                 ← 그 2가 무엇이었는지는 사라졌다
+       * ```
+       *
+       * **총계와 명세가 서로 다른 시제를 갖게 됐다.** 둘 다 «그때»인데 하나만 지운
+       * 것이고, 그것이 진짜 결함이다 — 「카운터가 남는다」가 아니라.
+       *
+       * ★ 그래서 어느 시제로 통일하나 — «그때»다 ★
+       *
+       *  1. `batch`는 이미 **이력 테이블**이다. `status`·`undone_at`을 갖는다.
+       *  2. «지금»을 묻는 자리는 **따로 있다** — `ownedRows`(지금 이 배치가 소유한
+       *     fact 행)가 조회 때마다 라이브로 계산된다. 즉 «지금»의 자리가 이미 있는데
+       *     «그때»의 자리를 «지금»으로 덮고 있었다.
+       *  3. **되돌린 뒤 다시 넣는 것이 정상 경로다** (ADR-004). 기록을 지우면
+       *     「지난번엔 제외 2건이었는데 이번엔 5건」이라는 대조가 영영 불가능해진다.
+       *     되돌리기는 **Fact를 되돌리는 것**이지 «그 파일을 넣었을 때 무슨 일이
+       *     있었나»를 지우는 것이 아니다.
+       *
+       * 그래서 여기서 지우는 것은 **Fact 행과 그림자뿐**이다. `row_count`·
+       * `excluded_count`·분해 카운터·제외 명세·사건 명세는 전부 남는다.
+       * ─────────────────────────────────────────────────────────────
+       */
       const r = await this.db
-        .prepare(`UPDATE batch SET status = 'undone', undone_at = ?, row_count = 0 WHERE id = ?`)
+        .prepare(`UPDATE batch SET status = 'undone', undone_at = ? WHERE id = ?`)
         .run(at, batchId)
       // `assertUndoable`이 같은 트랜잭션 안에서 존재를 이미 확인했으므로 여기 걸릴
       // 일은 없다. 그래도 남겨 둔다 — 위 검사를 누가 옮기거나 지우면 여기가 잡는다.
