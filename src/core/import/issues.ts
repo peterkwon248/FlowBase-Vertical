@@ -77,6 +77,16 @@ export const ISSUE_KINDS = {
     scope: "row",
     what: "품목이 부모 주문을 찾지 못해 버려졌다 — 주문 자체는 적재됐다",
   },
+  sign_normalized: {
+    fatal: false,
+    scope: "row",
+    what: "음수를 선언(signPolicy=magnitude)대로 절대값으로 바꿔 저장했다 — 값을 바꿨으므로 말한다",
+  },
+  sign_undeclared: {
+    fatal: false,
+    scope: "row",
+    what: "음수인데 부호 규칙 선언이 없다 — 값을 그대로 두고 사람에게 넘긴다",
+  },
   stale_batch_aborted: {
     fatal: false,
     scope: "file",

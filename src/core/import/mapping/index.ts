@@ -36,6 +36,23 @@ export interface FieldMapping {
    * 모르는 상태가 새로 생겼다는 뜻이고, 그건 사람이 봐야 한다 (헌장 A-5).
    */
   readonly valueMap?: Readonly<Record<string, RawCell>>
+  /**
+   * ★ 음수를 어떻게 다루나 — **선언이 집행을 정한다** (ADR-009 ②) ★
+   *
+   * `"magnitude"`: 저장은 **절대값**이고 부호가 뜻하던 것(공제냐 환불이냐)은
+   * 타입이 진다. 프로파일 11곳이 이걸 선언해 뒀는데 **읽는 코드가 0곳이었다** —
+   * 오늘까지 집행자가 없었다.
+   *
+   * ★ 집행하되 **조용히 뒤집지 않는다** ★
+   * `abs`는 값을 바꾸는 일이다. 바꿨다는 사실을 남기지 않으면 사용자는 파일의
+   * -12,345를 앱에서 12,345로 보고 «내가 잘못 봤나»가 된다. 그래서 바꿀 때마다
+   * 비치명 사건으로 표면화한다 (`sign_normalized`).
+   *
+   * ★ 선언이 없으면 **바꾸지 않는다** ★
+   * 음수의 뜻을 모르는 채 절대값을 씌우면 반품이 판매가 되고 손실이 이익이 된다.
+   * 값은 그대로 두고 «부호 규칙이 선언되지 않았다»고 말한다 (`sign_undeclared`).
+   */
+  readonly signPolicy?: "magnitude"
 }
 
 export type { ListingRule } from "./listing.js"
@@ -717,6 +734,32 @@ export function mapRows(
             }
           } else if (col < chunk.width) {
             value = coerce(chunk.values[base + col] ?? null, chunk.raws[base + col] ?? null, m.kind)
+
+            /**
+             * ★ 음수 — 선언이 있으면 집행하고, 없으면 **손대지 않고 말한다** ★
+             *
+             * 오늘 픽스처 4종에 음수 금액은 0건이다(실측). 즉 이 분기는 실파일이
+             * 아니라 **합성으로만** 확인할 수 있다 (ADR-007 경계).
+             */
+            if (typeof value === "number" && value < 0) {
+              if (m.signPolicy === "magnitude") {
+                errors.push({
+                  rowIndex,
+                  field: m.target,
+                  reason: `${value} → ${Math.abs(value)}`,
+                  code: "sign_normalized",
+                })
+                value = Math.abs(value)
+              } else {
+                errors.push({
+                  rowIndex,
+                  field: m.target,
+                  reason: `${value}`,
+                  code: "sign_undeclared",
+                })
+              }
+            }
+
             if (m.valueMap && value !== null) {
               const mappedValue = m.valueMap[String(value)]
               if (mappedValue === undefined) {
