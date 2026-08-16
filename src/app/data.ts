@@ -102,9 +102,24 @@ const catchUp = async (db: Parameters<typeof migrate>[0]): Promise<void> => {
   await migrated
 }
 
+/**
+ * ★ 앱이 **세션 PRAGMA를 건다** (2026-08-16) ★
+ *
+ * 네 호출부가 전부 `pragmas: false`였고 **왜 껐는지 기록이 없었다**(git 이력 확인).
+ * 그 상태에서 앱은 `foreign_keys`가 **꺼진 채** 돌고 있었다 — 되돌리기의 삭제 순서
+ * 방어(`DELETE_ORDER`)는 「FK가 켜져 있으면 부모를 먼저 못 지운다」를 전제로 잡은
+ * 것인데, **앱에서는 그 전제가 서 있지 않았다.** 테스트 세계(FK 켜짐)와 앱
+ * 세계(꺼짐)의 비대칭이 DB 설정 층에서 재발한 것이다.
+ *
+ * 켜기 전에 쟀다: `PRAGMA foreign_key_check` — **실기기 DB와 그 백업 모두 위반 0건.**
+ * 그래서 켜도 기존 데이터가 터지지 않는다.
+ *
+ * `journal_mode`는 여전히 안 건다 — 그건 파일에 남고, 이 DB는 롤백 모드여야 한다
+ * (`driver.ts`의 사고 기록). 그래서 `journal: true`를 주지 않는다.
+ */
 export async function loadDevSnapshot(): Promise<LoadResult> {
   try {
-    const db = await openTauriDriver(DEV_DB_PATH, { pragmas: false })
+    const db = await openTauriDriver(DEV_DB_PATH)
     try {
       await catchUp(db)
       // 연결을 한 번만 연다. 화면마다 열면 같은 순간의 두 화면이 서로 다른
@@ -165,7 +180,7 @@ export async function writeThenReload(
   write: (repo: Repository) => Promise<void>,
 ): Promise<LoadResult> {
   try {
-    const db = await openTauriDriver(DEV_DB_PATH, { pragmas: false })
+    const db = await openTauriDriver(DEV_DB_PATH)
     try {
       // 쓰기가 새 컬럼을 건드릴 수 있으므로 읽기와 같은 규율로 먼저 따라잡는다.
       await catchUp(db)
@@ -207,7 +222,7 @@ export async function findPriorImports(
   hash: string,
 ): Promise<readonly { sourceName: string; at: string; undone: boolean }[]> {
   try {
-    const db = await openTauriDriver(DEV_DB_PATH, { pragmas: false })
+    const db = await openTauriDriver(DEV_DB_PATH)
     try {
       await catchUp(db)
       const rows = await new Repository(db).batchesWithHash(DEV_LIBRARY, hash)
@@ -226,7 +241,7 @@ export async function findPriorImports(
 
 export async function readDigest(batchId: string): Promise<BatchDigest | null> {
   try {
-    const db = await openTauriDriver(DEV_DB_PATH, { pragmas: false })
+    const db = await openTauriDriver(DEV_DB_PATH)
     try {
       return (await new Repository(db).batchDigest(batchId)) ?? null
     } finally {
