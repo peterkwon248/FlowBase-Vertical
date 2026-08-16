@@ -23,6 +23,36 @@ import type { DocTypeResolver } from "../coverage/load.js"
  */
 export type UndoState = "can" | "blocked" | "undone"
 
+/**
+ * 이 배치가 **어떻게 끝났나** — 버튼 상태(`UndoState`)와 다른 축이다.
+ *
+ * ─────────────────────────────────────────────────────────────
+ * ★ 「적재 중 초록 영구」와 「abort ≠ undo」가 한 축의 두 얼굴이었다 ★
+ *
+ * 화면은 `batchStatus === "committed" ? "완료" : "적재 중"` 한 줄로 판정하고 있었다.
+ * 그래서 **적재하다 죽은 배치가 영원히 「적재 중」이고 색은 초록**이었다 — 끝나지
+ * 않은 일이 완료와 같은 색을 쓴 것이다.
+ *
+ * 그리고 `open` 배치를 되돌리면 `undone`이 되어 「되돌림」이라 표시됐다. 실제로는
+ * **취소**다 — 손익에 반영된 적이 없는 것을 물린 것이라 무게가 다르다.
+ *
+ * ★ 새 컬럼이 필요 없다 ★
+ * ADR-004는 「`aborted_at`을 따로 두는 것은 구분해 보여줄 필요가 생긴 뒤에 한다」고
+ * 미뤄 뒀다. 그 필요가 생겼는데, **`committed_at`이 이미 그 사실을 갖고 있다** —
+ * 커밋된 적이 없는 배치의 `undone`은 «취소»이고, 있는 것은 «되돌리기»다.
+ * 저장을 먼저 짓고 필요를 나중에 찾지 않는다 (§21-5).
+ * ─────────────────────────────────────────────────────────────
+ */
+export type BatchOutcome =
+  /** 완료됐고 지금도 살아 있다. */
+  | "done"
+  /** 손익에 반영됐던 것을 물렸다. */
+  | "undone"
+  /** **커밋된 적이 없다** — 적재하다 만 것을 치웠다. */
+  | "aborted"
+  /** 아직 `open`이다. 적재가 끝나지 않았다는 뜻이고, **완료가 아니다.** */
+  | "unfinished"
+
 export interface HistoryRow {
   readonly id: string
   readonly channel: string
@@ -42,6 +72,8 @@ export interface HistoryRow {
   /** 지금 소유한 테이블별 행 — ESM 한 파일이 주문·클레임으로 갈린 것이 여기 보인다. */
   readonly ownedByTable: Readonly<Record<string, number>>
   readonly undo: UndoState
+  /** 어떻게 끝났나. 화면의 상태 칸이 이걸 읽는다 — 문구는 화면이 만든다. */
+  readonly outcome: BatchOutcome
   readonly undoneAt: string | null
   /**
    * 잠근 배치. **id를 담지 않는다** — 화면이 내부 키를 내보내지 않기 때문이다
@@ -63,6 +95,20 @@ export async function loadHistoryRows(
     const undo: UndoState =
       b.status === "undone" ? "undone" : b.takenOverRows > 0 ? "blocked" : "can"
 
+    /**
+     * ★ 판정은 여기서 한다 — 화면이 `status`를 다시 해석하지 않는다 ★
+     * 「커밋된 적이 없다」가 취소와 되돌리기를 가르는 사실이고, 그것은 저장이 아는
+     * 것이지 화면이 추론할 것이 아니다.
+     */
+    const outcome: BatchOutcome =
+      b.status === "committed"
+        ? "done"
+        : b.status === "undone"
+          ? b.committedAt === null
+            ? "aborted"
+            : "undone"
+          : "unfinished"
+
     return {
       id: b.id,
       channel: b.channel,
@@ -83,6 +129,7 @@ export async function loadHistoryRows(
       failed: b.excludedCount,
       ownedByTable: b.ownedByTable,
       undo,
+      outcome,
       undoneAt: b.undoneAt,
       blockedBy:
         b.blockedBy === null ? null : { sourceName: b.blockedBy.sourceName, at: b.blockedBy.at },

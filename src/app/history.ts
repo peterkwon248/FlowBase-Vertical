@@ -62,7 +62,13 @@ export function entityLabel(byTable: Readonly<Record<string, number>>): string {
  */
 export function statusText(r: HistoryRow): { text: string; color: string } {
   if (r.undo === "undone") {
-    return { text: r.undoneAt === null ? "되돌림" : `되돌림 · ${stamp(r.undoneAt)}`, color: DIM }
+    /**
+     * ★ 취소와 되돌리기를 가른다 ★
+     * `aborted`는 **커밋된 적이 없는** 배치를 치운 것이다 — 손익에 반영된 적이 없어
+     * 무게가 다르다. 같은 말로 부르면 사용자가 「내 숫자가 바뀌었나」를 묻게 된다.
+     */
+    const what = r.outcome === "aborted" ? "취소됨" : "되돌림"
+    return { text: r.undoneAt === null ? what : `${what} · ${stamp(r.undoneAt)}`, color: DIM }
   }
   if (r.undo === "blocked") {
     const who = r.blockedBy?.sourceName ?? ""
@@ -71,7 +77,21 @@ export function statusText(r: HistoryRow): { text: string; color: string } {
       color: WARN,
     }
   }
-  return { text: r.batchStatus === "committed" ? "완료" : "적재 중", color: GREEN }
+  /**
+   * ★ 「적재 중」이 초록으로 영원히 남던 자리 (2026-08-16, 대열 4 ③-b) ★
+   *
+   * 옛 판정은 `batchStatus === "committed" ? "완료" : "적재 중"` 한 줄이었고 색은
+   * **늘 초록**이었다. 적재하다 죽은 배치가 영원히 「적재 중」이고, 끝나지 않은 일이
+   * 완료와 같은 색을 썼다.
+   *
+   * `open`은 진행이 아니라 **미완료**다 — 진행 중인 적재는 위저드 화면에 있지 이
+   * 목록에 있지 않다. 그래서 색도 초록이 아니다. 시계에 기대지 않는 판정이다
+   * (「몇 분 지났나」로 정하면 느린 기기에서 정상 적재가 경고로 뜬다).
+   */
+  if (r.outcome === "unfinished") {
+    return { text: "미완료 — 적재가 끝나지 않았습니다", color: WARN }
+  }
+  return { text: "완료", color: GREEN }
 }
 
 /**
@@ -141,12 +161,22 @@ export function historyVals(
  * 사라지는 것과 128행이 사라지는 것을 같은 무게로 결정하게 된다.
  */
 export function undoConfirm(r: HistoryRow, run: () => void): ConfirmDialog {
+  /**
+   * ★ 미완료 배치를 치우는 것은 «되돌리기»가 아니라 «취소»다 ★
+   * 그 행들은 애초에 손익에 잡힌 적이 없다 — 조회는 `committed`만 보기 때문이다
+   * (`active_*` 뷰). 「이전 판으로 돌아갑니다」라고 말하면 있지도 않았던 변화를
+   * 되돌리는 것처럼 들린다.
+   */
+  const aborting = r.outcome === "unfinished"
   return {
-    title: "이 가져오기를 되돌릴까요",
-    body:
-      `${r.channel} · ${stamp(r.at)}에 들어온 「${r.sourceName}」입니다. ` +
-      `이 배치가 넣은 행만 사라지고, 덮어썼던 행은 이전 판으로 돌아갑니다. ` +
-      `직접 입력한 원가와 상품 연결은 그대로 남습니다.`,
+    title: aborting ? "적재하다 만 것을 치울까요" : "이 가져오기를 되돌릴까요",
+    body: aborting
+      ? `${r.channel} · ${stamp(r.at)}에 시작한 「${r.sourceName}」입니다. ` +
+        `이 가져오기는 **끝나지 않았습니다** — 그 행들은 손익에 잡힌 적이 없고, ` +
+        `치우면 목록에서도 사라집니다.`
+      : `${r.channel} · ${stamp(r.at)}에 들어온 「${r.sourceName}」입니다. ` +
+        `이 배치가 넣은 행만 사라지고, 덮어썼던 행은 이전 판으로 돌아갑니다. ` +
+        `직접 입력한 원가와 상품 연결은 그대로 남습니다.`,
     hasRows: true,
     rows: [
       { k: "사라질 행", v: `${won(r.created)}건` },
@@ -158,7 +188,7 @@ export function undoConfirm(r: HistoryRow, run: () => void): ConfirmDialog {
     hasChoice: false,
     choices: [],
     hasType: false,
-    confirmLabel: "되돌리기",
+    confirmLabel: aborting ? "치우기" : "되돌리기",
     btnFg: NEG,
     btnBorder: NEG,
     btnOp: "1",

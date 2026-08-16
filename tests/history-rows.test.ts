@@ -173,6 +173,7 @@ describe("화면 문구", () => {
     failed: 2,
     ownedByTable: { fact_settlement: 128 },
     undo: "can",
+    outcome: "done",
     undoneAt: null,
     blockedBy: null,
     ...over,
@@ -233,5 +234,96 @@ describe("화면 문구", () => {
     expect(s.canUndo).toBe(false)
     expect(s.undone).toBe(false)
     expect(s.status, "버튼이 없는 대신 사유가 보인다").toContain("잠김")
+  })
+})
+
+/**
+ * ★ 대열 4 ③-b — 「적재 중 초록 영구」와 「abort ≠ undo」 ★
+ *
+ * 옛 판정은 `batchStatus === "committed" ? "완료" : "적재 중"` 한 줄이었고 색은 늘
+ * 초록이었다. 그래서 **적재하다 죽은 배치가 영원히 「적재 중」**이고, 끝나지 않은
+ * 일이 완료와 같은 색을 썼다. 그리고 `open`을 되돌리면 「되돌림」이라 표시됐는데
+ * 그것은 취소다 — 손익에 반영된 적이 없다.
+ */
+describe("배치가 어떻게 끝났나 — 완료 · 되돌림 · 취소 · 미완료", () => {
+  const row = (over: Partial<HistoryRow>): HistoryRow => ({
+    id: "b-1", channel: "11번가", sourceName: "7월.xls", sheetName: null, docType: null,
+    at: "2026-08-16T01:00:00", batchStatus: "committed", fetched: 128, created: 128,
+    updated: 0, failed: 0, ownedByTable: {}, undo: "can", outcome: "done",
+    undoneAt: null, blockedBy: null,
+    ...over,
+  })
+
+  it("미완료는 초록이 아니다 — 끝나지 않은 일이 완료와 같은 색을 쓰지 않는다", () => {
+    const done = statusText(row({ outcome: "done" }))
+    const open = statusText(row({ outcome: "unfinished", batchStatus: "open" }))
+    expect(done.text).toBe("완료")
+    expect(open.text, "「적재 중」이라고 말하지 않는다").toContain("미완료")
+    expect(open.color, "완료와 같은 색이면 구분이 사라진다").not.toBe(done.color)
+  })
+
+  it("취소와 되돌림을 가른다 — 손익에 반영된 적이 있었나가 다르다", () => {
+    const undone = statusText(row({ undo: "undone", outcome: "undone", undoneAt: "2026-08-16T02:00:00" }))
+    const aborted = statusText(row({ undo: "undone", outcome: "aborted", undoneAt: "2026-08-16T02:00:00" }))
+    expect(undone.text).toContain("되돌림")
+    expect(aborted.text).toContain("취소됨")
+    expect(aborted.text).not.toContain("되돌림")
+  })
+
+  it("미완료를 치우는 확인 문구는 «되돌리기»라고 말하지 않는다", () => {
+    const d = undoConfirm(row({ outcome: "unfinished", batchStatus: "open" }), () => {})
+    expect(d.title).toContain("치울까요")
+    expect(d.confirmLabel).toBe("치우기")
+    // 있지도 않았던 변화를 되돌리는 것처럼 들리면 안 된다
+    expect(d.body).not.toContain("이전 판으로 돌아갑니다")
+    expect(d.body).toContain("손익에 잡힌 적이 없")
+  })
+})
+
+/**
+ * 위 문구 게이트는 `outcome`을 손으로 준다. 그 값이 **실제 경로에서** 그렇게
+ * 나오는지는 여기서 잰다 — 저장을 거쳐야 「커밋된 적이 없다」가 확인된다.
+ */
+describe("outcome은 저장이 파생한다 — `committed_at`이 취소와 되돌리기를 가른다", () => {
+  let db: Driver
+  let repo: Repository
+  const NOW = "2026-08-16T01:00:00"
+  const open = (id: string): BatchOpen => ({
+    id, libraryId: "lib-1", connectionId: "conn-1", sourceName: `${id}.xls`,
+    sourceBytes: 1, containerFormat: "biff", mappingVersion: "m@1", startedAt: NOW,
+  })
+
+  beforeEach(async () => {
+    db = openNodeDriver()
+    await migrate(db)
+    await db.prepare(`INSERT INTO library (id, name, created_at) VALUES (?,?,?)`).run("lib-1", "기본", NOW)
+    await db.prepare(
+      `INSERT INTO connection (id, library_id, pack_id, marketplace_key, display_name, state, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+    ).run("conn-1", "lib-1", "kr-marketplace", "mk-a", "11번가", "CONNECTED", NOW, NOW)
+    repo = new Repository(db)
+  })
+
+  const outcomeOf = async (id: string): Promise<string> => {
+    const rows = await loadHistoryRows(db, "lib-1", () => null)
+    return rows.find((r) => r.id === id)!.outcome
+  }
+
+  it("적재하다 만 배치는 «미완료»다", async () => {
+    await repo.openBatch(open("b-open"))
+    expect(await outcomeOf("b-open")).toBe("unfinished")
+  })
+
+  it("커밋한 적 없는 배치를 치우면 «취소»다", async () => {
+    await repo.openBatch(open("b-abort"))
+    await repo.undoBatch("b-abort", NOW)
+    expect(await outcomeOf("b-abort"), "새 컬럼 없이 committed_at으로 갈린다").toBe("aborted")
+  })
+
+  it("커밋한 배치를 물리면 «되돌림»이다 — 같은 함수인데 뜻이 다르다", async () => {
+    await repo.openBatch(open("b-undo"))
+    await repo.commitBatch("b-undo", NOW)
+    await repo.undoBatch("b-undo", NOW)
+    expect(await outcomeOf("b-undo")).toBe("undone")
   })
 })
