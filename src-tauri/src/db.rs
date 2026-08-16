@@ -33,7 +33,7 @@ use tauri::State;
 /// (`busy.current` / `wiz.busy`) 서로를 몰라서, 적재가 도는 중에 원가 저장이
 /// 들어오면:
 ///
-/// ```
+/// ```text
 /// ① 남의 close가 도는 적재의 연결을 가져간다  → 「DB가 열려 있지 않다」
 /// ② 닫지 않아도 **교체**만으로 적재가 남의 연결에서 돈다
 ///    → 적재의 BEGIN 안에 남의 쓰기가 들어간다 (더 무겁다)
@@ -148,8 +148,11 @@ fn with_conn<T>(
 /// 세션이 들고 있던 번호는 아무도 쓸 수 없는데, 거절만 하면 앱이 영영 못 연다.
 /// 그 자리를 시계로 판정하지 않는다(느린 기기에서 정상 동작이 «오래됐다»가
 /// 된다) — **«새 세션이 시작됐다»는 사실 자체**가 근거다.
-#[tauri::command]
-pub fn db_open(db: State<'_, Db>, path: String, force: bool) -> Result<Opened, String> {
+///
+/// ★ 커맨드에서 알맹이를 꺼내 둔 이유는 **시험** 때문이다 ★ Tauri 런타임 없이
+/// 임차 계약(거절·넘겨받기·남의 것 안 닫기)을 그대로 잴 수 있다. TS 쪽 가짜
+/// `invoke`는 «어댑터가 계약을 이렇게 안다»를 재고, 여기는 **계약 자체**를 잰다.
+fn open_conn(db: &Db, path: &str, force: bool) -> Result<Opened, String> {
     let mut guard = db.0.lock().map_err(|e| format!("연결 잠금 실패: {e}"))?;
 
     let mut took_over = false;
@@ -168,11 +171,16 @@ pub fn db_open(db: State<'_, Db>, path: String, force: bool) -> Result<Opened, S
         let _ = prev.conn.close();
     }
 
-    let conn = Connection::open(&path).map_err(|e| format!("{path} 열기 실패: {e}"))?;
+    let conn = Connection::open(path).map_err(|e| format!("{path} 열기 실패: {e}"))?;
     guard.issued += 1;
     let lease = guard.issued;
     guard.open = Some(Open { conn, lease });
     Ok(Opened { lease, took_over })
+}
+
+#[tauri::command]
+pub fn db_open(db: State<'_, Db>, path: String, force: bool) -> Result<Opened, String> {
+    open_conn(&db, &path, force)
 }
 
 /// 닫는다. **자기 번호일 때만.**
@@ -180,8 +188,7 @@ pub fn db_open(db: State<'_, Db>, path: String, force: bool) -> Result<Opened, S
 /// 번호가 다르면 «내 것은 이미 없다»이므로 할 일이 없다 — 오류가 아니다. 그리고
 /// 여기서 남의 것을 닫지 않는 것이 결함 ①(도는 적재의 연결을 남의 close가
 /// 가져간다)을 구조적으로 없앤다.
-#[tauri::command]
-pub fn db_close(db: State<'_, Db>, lease: u64) -> Result<(), String> {
+fn close_conn(db: &Db, lease: u64) -> Result<(), String> {
     let mut guard = db.0.lock().map_err(|e| format!("연결 잠금 실패: {e}"))?;
     let mine = guard.open.as_ref().is_some_and(|o| o.lease == lease);
     if !mine {
@@ -191,6 +198,11 @@ pub fn db_close(db: State<'_, Db>, lease: u64) -> Result<(), String> {
         open.conn.close().map_err(|(_, e)| format!("닫기 실패: {e}"))?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn db_close(db: State<'_, Db>, lease: u64) -> Result<(), String> {
+    close_conn(&db, lease)
 }
 
 /// DDL·PRAGMA. 파라미터를 받지 않는다 (`driver.ts`의 `exec`).
@@ -285,4 +297,85 @@ pub fn db_run_many(
         }
         Ok(changes)
     })
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 임차 계약 — **여기가 「한 번에 하나」의 실제 판정이다**
+// ═══════════════════════════════════════════════════════════════
+//
+// TS 쪽 시험(`tests/tauri-conn-race.test.ts`)은 가짜 `invoke`로 «어댑터가 계약을
+// 이렇게 안다»를 잰다. 그 가짜가 진짜와 어긋나면 둘 다 초록인 채로 앱만 깨진다 —
+// 이 저장소가 이미 아는 모양이다(테스트 세계와 앱 세계의 비대칭). 그래서 계약
+// 자체는 여기서 잰다. 창을 띄우지 않아도 되는 순수 판정이라 값이 싸다.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 파일을 만들지 않는 연결. 계약 판정에 실제 파일이 필요 없다.
+    const MEM: &str = ":memory:";
+
+    #[test]
+    fn 이미_임차_중이면_거절한다() {
+        let db = Db::new();
+        let first = open_conn(&db, MEM, false).expect("첫 열기는 된다");
+        let refused = open_conn(&db, MEM, false);
+        assert!(refused.is_err(), "두 번째 열기가 통과했다");
+
+        // ★ 거절은 «아무 일도 일어나지 않았다»여야 한다 ★
+        // 되돌려 놓지 않으면 거절하면서 남의 연결을 없애는 셈이 된다.
+        with_conn(&db, first.lease, |_| Ok(())).expect("첫 연결이 그대로 살아 있어야 한다");
+    }
+
+    #[test]
+    fn force는_넘겨받고_그_사실을_말한다() {
+        let db = Db::new();
+        let first = open_conn(&db, MEM, false).unwrap();
+        let second = open_conn(&db, MEM, true).expect("새 세션의 첫 열기는 넘겨받는다");
+
+        assert!(second.took_over, "넘겨받고도 말하지 않으면 조용한 정리다");
+        assert_ne!(first.lease, second.lease, "번호가 같으면 옛 것이 계속 통한다");
+    }
+
+    #[test]
+    fn 넘겨받을_것이_없으면_말하지_않는다() {
+        let db = Db::new();
+        let opened = open_conn(&db, MEM, true).unwrap();
+        assert!(!opened.took_over, "0이면 말하지 않는다");
+    }
+
+    #[test]
+    fn 옛_번호로는_명령이_돌지_않는다() {
+        let db = Db::new();
+        let stale = open_conn(&db, MEM, false).unwrap();
+        let fresh = open_conn(&db, MEM, true).unwrap();
+
+        // 이것이 재현됐던 결함 ②를 막는 문이다 — 옛 드라이버가 남의 연결에서
+        // 돌면 트랜잭션 경계가 통째로 섞인다.
+        assert!(with_conn(&db, stale.lease, |_| Ok(())).is_err());
+        assert!(with_conn(&db, fresh.lease, |_| Ok(())).is_ok());
+    }
+
+    #[test]
+    fn 남의_것은_닫지_않는다() {
+        let db = Db::new();
+        let mine = open_conn(&db, MEM, false).unwrap();
+
+        // 결함 ①: 남의 close가 도는 적재의 연결을 가져갔다. 이제 무시된다.
+        close_conn(&db, mine.lease + 999).expect("남의 번호로 닫아도 오류는 아니다");
+        with_conn(&db, mine.lease, |_| Ok(())).expect("내 연결이 살아 있어야 한다");
+
+        // 자기 번호면 닫힌다. 그 뒤에는 «열려 있지 않다»가 된다.
+        close_conn(&db, mine.lease).unwrap();
+        assert!(with_conn(&db, mine.lease, |_| Ok(())).is_err());
+    }
+
+    #[test]
+    fn 닫은_뒤에는_다시_열_수_있다() {
+        // 정상 경로가 막히면 처방이 병보다 나쁘다.
+        let db = Db::new();
+        let a = open_conn(&db, MEM, false).unwrap();
+        close_conn(&db, a.lease).unwrap();
+        let b = open_conn(&db, MEM, false).expect("직렬화된 다음 동작은 그냥 된다");
+        assert_ne!(a.lease, b.lease);
+    }
 }
