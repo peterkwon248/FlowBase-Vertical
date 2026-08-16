@@ -250,3 +250,73 @@ describe("연결 쓰기 (§21-6)", () => {
     expect(purged.skus, "원가가 붙은 SKU는 고아가 아니다").toBe(0)
   })
 })
+
+/**
+ * ★ SKU 순번 — **번호에 구멍이 생겨도 새 SKU가 만들어진다** (2026-08-16 사고) ★
+ *
+ * 사용자가 연결 세션 도중 이것에 막혔다:
+ *
+ * ```
+ * UNIQUE constraint failed: product.id
+ * SKU COUNT = 61 → 다음 순번 62 · 그런데 이미 있는 최대 번호도 62
+ * ```
+ *
+ * 순번을 `COUNT(*) + 1`로 뽑고 있었는데 그것은 «번호에 구멍이 없다»를 전제한다.
+ * 구멍은 **정상 동작으로 생긴다** — `purgeOrphanSkus`가 고아를 치우면 그 번호가
+ * 빈다. 그 뒤로 COUNT는 영원히 이미 쓰인 번호를 가리킨다.
+ */
+describe("SKU 순번은 COUNT가 아니라 «비어 있는 자리»다", () => {
+  let db: Driver
+  let repo: Repository
+
+  beforeEach(async () => {
+    db = openNodeDriver(":memory:")
+    await seed(db)
+    repo = new Repository(db)
+  })
+
+  /** 고아 정리가 중간 번호를 비운 세계를 만든다 — 실기기가 그 상태였다. */
+  it("고아를 치워 번호에 구멍이 나도 새 SKU가 만들어진다", async () => {
+    await repo.upsertListings(LIB, CONN, [L("k1", "가"), L("k2", "나"), L("k3", "다")], NOW)
+    const all = await db.prepare(`SELECT id FROM marketplace_listing ORDER BY listing_key`).all()
+    const ids = all.map((r) => String(r["id"]))
+
+    const a = await repo.createSkuForListings(LIB, [ids[0]!], "가", NOW)
+    const b = await repo.createSkuForListings(LIB, [ids[1]!], "나", NOW)
+    expect(a.skuId).not.toBe(b.skuId)
+
+    // 가운데 것을 고아로 만들고 치운다 → 번호 1이 빈다. COUNT는 1, 최대 번호는 2
+    await repo.unlinkListings([ids[0]!], NOW)
+    const purged = await repo.purgeOrphanSkus(LIB)
+    expect(purged.skus, "고아 하나가 치워진다").toBe(1)
+
+    const before = await db.prepare(`SELECT COUNT(*) AS n FROM sku`).get()
+    expect(Number(before?.["n"]), "COUNT는 1인데 이미 쓰인 최대 번호는 2다").toBe(1)
+
+    // ★ 여기서 옛 코드가 터졌다 — COUNT(1) + 1 = 2 = 이미 있는 번호 ★
+    const c = await repo.createSkuForListings(LIB, [ids[2]!], "다", NOW)
+    expect(c.skuId, "새 SKU가 만들어져야 한다").not.toBeNull()
+    expect(c.linked).toBe(1)
+
+    const codes = (await db.prepare(`SELECT code FROM sku ORDER BY code`).all()).map((r) =>
+      String(r["code"]),
+    )
+    expect(new Set(codes).size, "코드가 겹치지 않는다").toBe(codes.length)
+  })
+
+  /**
+   * 코드는 사람이 바꿀 수 있다 (§14-2 — 기준 데이터는 편집 가능). 그래서 순번을
+   * **코드**에서 읽으면 사람이 이름을 고치는 날 다시 틀린다. `id`에서 읽는 이유다.
+   */
+  it("사람이 코드를 바꿔도 다음 순번이 어긋나지 않는다", async () => {
+    await repo.upsertListings(LIB, CONN, [L("k1", "가"), L("k2", "나")], NOW)
+    const ids = (await db.prepare(`SELECT id FROM marketplace_listing ORDER BY listing_key`).all())
+      .map((r) => String(r["id"]))
+
+    await repo.createSkuForListings(LIB, [ids[0]!], "가", NOW)
+    await db.prepare(`UPDATE sku SET code = ?`).run("감성무드등")
+
+    const b = await repo.createSkuForListings(LIB, [ids[1]!], "나", NOW)
+    expect(b.skuId, "코드가 순번 형식이 아니어도 만들어진다").not.toBeNull()
+  })
+})

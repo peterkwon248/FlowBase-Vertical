@@ -455,10 +455,7 @@ export class Repository {
 
       // 코드는 순번으로 뽑는다. 사람이 읽는 이름은 `name`이고, 코드는 나중에
       // 상품 화면에서 바꾼다 (기준 데이터는 편집 가능 · §14-2).
-      const r = await this.db
-        .prepare(`SELECT COUNT(*) AS n FROM sku WHERE library_id = ?`)
-        .get(libraryId)
-      const seq = Number(r?.["n"] ?? 0) + 1
+      const seq = await this.nextSeq(libraryId)
       const code = `SKU-${String(seq).padStart(4, "0")}`
       const productId = `prd-${libraryId}-${seq}`
       const skuId = `sku-${libraryId}-${seq}`
@@ -478,6 +475,67 @@ export class Repository {
       await this.linkListingsInternal(fresh, skuId, now)
       return { skuId, linked: fresh.length, alreadyLinked: already.size }
     })
+  }
+
+  /**
+   * 다음 SKU 순번 — **`COUNT(*)`로 뽑지 않는다.**
+   *
+   * ─────────────────────────────────────────────────────────────
+   * ★ 2026-08-16, 사용자가 연결 세션 도중 이것에 막혔다 ★
+   *
+   * ```
+   * UNIQUE constraint failed: product.id
+   * SKU COUNT = 61 → 다음 순번 62 · 그런데 이미 있는 최대 번호도 62
+   * ```
+   *
+   * `COUNT(*) + 1`은 **번호에 구멍이 없다**를 전제한다. 그런데 구멍은 정상 동작으로
+   * 생긴다 — `purgeOrphanSkus`가 고아를 치우면 그 번호가 빈다. 그 뒤로 COUNT는
+   * 영원히 «이미 쓰인 번호»를 가리키고, 새 SKU를 만들 때마다 터진다.
+   *
+   * ★ 코드가 아니라 **id**에서 번호를 읽는다 ★
+   * `code`는 사람이 바꿀 수 있다(§14-2 — 기준 데이터는 편집 가능). 사람이 코드를
+   * 「감성무드등」으로 고치는 순간 코드 기반 MAX는 다시 틀린다. `id`는 아무도
+   * 안 바꾸므로 그쪽이 진짜 근거다.
+   *
+   * 그리고 MAX를 뽑고도 **비어 있는지 한 번 더 본다.** 두 테이블의 id 형식이
+   * 언젠가 갈릴 수 있고, 그때 조용히 충돌하는 것보다 한 번 더 묻는 편이 싸다.
+   * ─────────────────────────────────────────────────────────────
+   */
+  private async nextSeq(libraryId: string): Promise<number> {
+    const maxOf = async (table: "sku" | "product", prefix: string): Promise<number> => {
+      const r = await this.db
+        .prepare(
+          `SELECT MAX(CAST(SUBSTR(id, ?) AS INTEGER)) AS m FROM ${table}
+            WHERE library_id = ? AND id LIKE ?`,
+        )
+        .get(prefix.length + 1, libraryId, `${prefix}%`)
+      return Number(r?.["m"] ?? 0)
+    }
+    let seq =
+      Math.max(
+        await maxOf("sku", `sku-${libraryId}-`),
+        await maxOf("product", `prd-${libraryId}-`),
+      ) + 1
+
+    // 형식이 어긋난 id가 섞여 있어도 여기서 걸린다. 상한은 폭주 방지용이다 —
+    // 여기 걸릴 만큼 도는 것은 그 자체가 사고이므로 조용히 넘기지 않고 던진다.
+    for (let guard = 0; guard < 10_000; guard++) {
+      const taken = await this.db
+        .prepare(
+          `SELECT 1 AS x FROM sku WHERE id = ?
+            UNION ALL SELECT 1 FROM product WHERE id = ?
+            UNION ALL SELECT 1 FROM sku WHERE library_id = ? AND code = ?`,
+        )
+        .get(
+          `sku-${libraryId}-${seq}`,
+          `prd-${libraryId}-${seq}`,
+          libraryId,
+          `SKU-${String(seq).padStart(4, "0")}`,
+        )
+      if (!taken) return seq
+      seq++
+    }
+    throw new Error(`빈 SKU 순번을 찾지 못했다 (${libraryId})`)
   }
 
   /**

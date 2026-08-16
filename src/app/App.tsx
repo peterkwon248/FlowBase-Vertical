@@ -118,11 +118,20 @@ export function App(): React.JSX.Element {
   const take = useCallback((r: LoadResult) => {
     if (r.error !== null) {
       console.warn("[data] 읽지 못했다:", r.error)
+      /**
+       * ★ 문구 정정 (2026-08-16) ★
+       * 처음엔 「읽기가 실패했습니다」라고 못박았는데, `writeThenReload`는 **쓰기
+       * 실패도 같은 자리로 돌려준다.** 실제로 SKU 등록이 터졌을 때 화면이
+       * 「읽지 못했습니다」라고 말했다 — 사용자가 원인을 엉뚱한 데서 찾게 된다.
+       *
+       * 어느 쪽인지 모르면 **모른다고 말하지 않는다** — 아는 것만 말한다:
+       * 「사라진 게 아니다 · 화면은 그대로 뒀다 · 원문은 이것이다」.
+       */
       setConfirm({
-        title: "데이터를 읽지 못했습니다",
+        title: "이 동작을 마치지 못했습니다",
         body:
-          `저장된 것이 사라진 것이 아니라 **읽기가 실패**했습니다. 화면은 마지막으로 ` +
-          `읽은 것을 그대로 두었습니다.\n\n${r.error}`,
+          `저장된 것이 사라진 것은 아닙니다. 화면은 마지막으로 읽은 것을 ` +
+          `그대로 두었습니다.\n\n${r.error}`,
         hasRows: false,
         rows: [],
         hasChoice: false,
@@ -168,16 +177,57 @@ export function App(): React.JSX.Element {
    */
   const busy = useRef(false)
 
+  /**
+   * 일괄 등록에서 **개별로 실패한 것들.**
+   *
+   * 쓰기 콜백은 값을 돌려줄 자리가 없다(`writeThenReload`가 주는 것은 `LoadResult`다).
+   * 그래서 여기로 받아, **다시 읽기가 끝난 뒤에** 말한다 — 그래야 「되긴 됐다」와
+   * 「이건 안 됐다」를 사용자가 같은 화면에서 본다.
+   */
+  const bulkFailures = useRef<{
+    total: number
+    failed: { title: string; why: string }[]
+  } | null>(null)
+
   const write = useCallback(
     (fn: Parameters<typeof writeThenReload>[0]) => {
       if (busy.current) return
       busy.current = true
       void writeThenReload(fn).then((r) => {
         busy.current = false
-        if (r.error) console.warn("[linking] 쓰기에 실패했다:", r.error)
         // 쓰기가 끝난 카드는 선택에 남아 있을 이유가 없다 — 다음 탭으로 갔다
         setPicked(new Set())
         take(r)
+
+        /**
+         * ★ 부분 성공을 **부분 성공이라고 말한다** ★
+         * 「N개 중 M개 등록」에서 멈추고 아무 말도 안 하면 사용자는 전부 됐다고
+         * 믿고 다음으로 간다. `take`가 화면을 갱신한 뒤에 말해야, 남은 카드가
+         * 이미 보이는 상태에서 이유를 읽는다.
+         */
+        const b = bulkFailures.current
+        bulkFailures.current = null
+        if (b && r.error === null) {
+          setConfirm({
+            title: `${b.total - b.failed.length}개 등록 · ${b.failed.length}개 실패`,
+            body: [
+              "실패한 카드는 목록에 그대로 남아 있습니다 — 다시 시도할 수 있습니다.",
+              "",
+              ...b.failed.slice(0, 5).map((f) => `· ${f.title.slice(0, 40)} — ${f.why}`),
+              ...(b.failed.length > 5 ? [`… 외 ${b.failed.length - 5}개`] : []),
+            ].join("\n"),
+            hasRows: false,
+            rows: [],
+            hasChoice: false,
+            choices: [],
+            hasType: false,
+            confirmLabel: "닫기",
+            btnFg: "var(--fg)",
+            btnBorder: "var(--border-strong)",
+            btnOp: "1",
+            run: () => setConfirm(null),
+          })
+        }
       })
     },
     [take],
@@ -213,8 +263,28 @@ export function App(): React.JSX.Element {
       // ★ **각각** 새 SKU다 — 하나로 합치지 않는다 (§21-6 ②) ★
       // 합치는 것은 서로 다른 상품을 한 SKU로 만드는 되돌리기 어려운 행위이고,
       // 그건 카드마다 사람이 봐야 한다 (작업 리듬 12).
+      //
+      /**
+       * ★ 하나가 터졌다고 나머지를 멈추지 않는다 (2026-08-16) ★
+       *
+       * 전에는 `for … await`가 첫 실패에서 예외로 빠져나갔다. 사용자가 「모두
+       * 선택 → 새 SKU로 등록」을 눌렀을 때 **114개 중 37개만 처리되고 멈췄고**,
+       * 화면은 왜 멈췄는지 말하지 않았다.
+       *
+       * 카드는 서로 독립이다 — A가 실패할 이유가 B를 막지 않는다. 그래서 카드마다
+       * 잡고 계속 간 뒤, **끝에 한 번 사람 말로 보고한다.** 조용히 넘기면 사용자는
+       * 「전부 됐다」고 믿고 다음으로 간다 (LOCK 6).
+       */
       write(async (repo) => {
-        for (const c of cards) await repo.createSkuForListings(DEV_LIBRARY, ids(c), c.title, nowStamp())
+        const failed: { title: string; why: string }[] = []
+        for (const c of cards) {
+          try {
+            await repo.createSkuForListings(DEV_LIBRARY, ids(c), c.title, nowStamp())
+          } catch (e) {
+            failed.push({ title: c.title, why: e instanceof Error ? e.message : String(e) })
+          }
+        }
+        if (failed.length > 0) bulkFailures.current = { total: cards.length, failed }
       })
     },
   }
