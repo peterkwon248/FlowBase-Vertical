@@ -149,6 +149,14 @@ export interface TemplateVals {
   contribMargin: string
   costChanges: string
   costDonut: string
+  /**
+   * ★ 손으로 더한 자리 — 도넛이 **거짓말하지 않는가** (2026-08-16) ★
+   *
+   * 참이면 도넛, 거짓이면 가로 막대다. 판정은 데이터가 한다 —
+   * 「일곱 항 + 기여이익 = 매출」이 성립할 때만 도넛이 사실을 그린다
+   * (`dashboard.ts`의 `partitionsRevenue`).
+   */
+  costDonutOk: boolean
   costDraft: string
   /**
    * §21 신설 (`data-s21="cost-gauge"`) — 원가 입력 진척. **분모는 SKU 수**다.
@@ -705,6 +713,8 @@ export function emptyVals(): TemplateVals {
     contribMargin: "",
     costChanges: "",
     costDonut: "",
+    // 데이터가 없으면 도넛도 막대도 그릴 게 없다. 판정은 배선이 채운다.
+    costDonutOk: false,
     costDraft: "",
     costGauge: { color: "", costed: 0, note: "", pctWidth: "0%", text: "", total: 0 },
     costMissColor: "",

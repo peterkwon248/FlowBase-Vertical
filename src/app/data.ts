@@ -17,6 +17,7 @@
 import { openTauriDriver } from "@core/store/driver-tauri.js"
 import { migrate } from "@core/store/migrate-web.js"
 import { loadPnlSnapshot, type PnlSnapshot } from "@core/profit/snapshot.js"
+import { loadChannelRows, loadProfitRows, type ChannelRow, type ProfitRow } from "@core/profit/rows.js"
 import { loadSettlementRows, type SettlementRow } from "@core/settlement/rows.js"
 import { loadOrderRows, type OrderRow } from "@core/order/rows.js"
 import { loadLinkingView, type LinkingView } from "@core/linking/view.js"
@@ -87,6 +88,13 @@ export interface LoadResult {
    * 둘이 섞인다. 섞인 것을 숨기지 않으려고 `soldQty`만 기간을 타는 것으로 못박아 뒀다.
    */
   products: ProductView | null
+  /**
+   * 대시보드의 **상품별 손익**. 기간 안 판매를 SKU로 묶은 것이다 —
+   * 못 채우는 칸(수수료·배송비·광고비)이 무엇이고 왜인지는 `core/profit/rows.ts`.
+   */
+  profitRows: readonly ProfitRow[]
+  /** 대시보드의 **채널별 손익**. 연결 단위로 같은 계산을 다시 묶는다. */
+  channelRows: readonly ChannelRow[]
   /**
    * **이 조회가 실제로 본 기간.** 화면은 이 값으로 «2026년 7월»을 쓴다.
    *
@@ -220,6 +228,8 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
        * 한 말을 한다. 그래도 8/14 원가는 사라지지 않는다 — 8월을 보면 나타난다.
        */
       const products = await loadProductRows(db, DEV_LIBRARY, period, period.to)
+      const profitRows = await loadProfitRows(db, DEV_LIBRARY, period)
+      const channelRows = await loadChannelRows(db, DEV_LIBRARY, period)
       return {
         snapshot,
         settlement,
@@ -228,6 +238,8 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
         coverage,
         history,
         products,
+        profitRows,
+        channelRows,
         period,
         month,
         months,
@@ -256,6 +268,8 @@ function failed(e: unknown, want?: Month): LoadResult {
     coverage: [],
     history: [],
     products: null,
+    profitRows: [],
+    channelRows: [],
     period: monthPeriod(month),
     month,
     months: [],

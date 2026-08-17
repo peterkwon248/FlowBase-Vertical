@@ -1305,6 +1305,44 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                 </span>
                                 {" "}
                                 <span data-s21="cost-bars" style={{ display: "grid", gap: "10px", position: "relative", minWidth: "0" }}>
+                                  {vals.costDonutOk && (
+                                      <span style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: "0" }}>
+                                        <span style={{ width: "112px", height: "112px", flex: "none", borderRadius: "50%", position: "relative", background: vals.costDonut }}>
+                                          <span style={{ position: "absolute", inset: "21px", borderRadius: "50%", background: "var(--bg-app)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1px" }}>
+                                            <span style={{ font: "var(--fw-medium) 9px var(--font-sans)", color: "var(--fg-4)" }}>
+                                              기여이익률
+                                            </span>
+                                            {" "}
+                                            <span className="v-num" style={{ font: "var(--fw-semi) 17px var(--font-sans)", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em", color: vals.contribColor }}>
+                                              {vals.contribMargin}
+                                            </span>
+                                          </span>
+                                        </span>
+                                        {" "}
+                                        <span style={{ flex: "1", display: "grid", gap: "6px", minWidth: "0" }}>
+                                          {vals.costMix.map((m: any, $index: number) => (
+                                              <span key={$index} style={{ display: "flex", alignItems: "baseline", gap: "6px", minWidth: "0" }}>
+                                                <span style={{ width: "7px", height: "7px", borderRadius: "2px", background: m.color, flex: "none", transform: "translateY(-1px)" }}></span>
+                                                {" "}
+                                                <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                                  {m.label}
+                                                </span>
+                                                {" "}
+                                                <span style={{ flex: "1" }}></span>
+                                                {" "}
+                                                <span className="v-num" style={{ font: "var(--fw-medium) 11px var(--font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--fg-4)", whiteSpace: "nowrap" }}>
+                                                  {m.amount}
+                                                </span>
+                                                {" "}
+                                                <span className="v-num" style={{ font: "var(--fw-semi) 11px var(--font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--fg-2)", whiteSpace: "nowrap", minWidth: "44px", textAlign: "right" }}>
+                                                  {m.pct}
+                                                </span>
+                                              </span>
+                                          ))}
+                                        </span>
+                                      </span>
+                                  )}
+                                  {!vals.costDonutOk && (
                                   <span style={{ display: "grid", gap: "10px", minWidth: "0" }}>
                                     {vals.costMix.map((m: any, $index: number) => (
                                         <span key={$index} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: "10px", rowGap: "5px", alignItems: "baseline", minWidth: "0" }}>
@@ -1332,6 +1370,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                         </span>
                                     ))}
                                   </span>
+                                  )}
                                 </span>
                               </span>
                             </div>

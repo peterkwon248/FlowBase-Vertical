@@ -19,6 +19,7 @@ import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import type { Period } from "@core/profit/index.js"
 import { pnlGaps } from "@core/profit/gaps.js"
 import type { ConnectionCoverage } from "@core/coverage/load.js"
+import type { ChannelRow, ProfitRow } from "@core/profit/rows.js"
 import type { TemplateVals } from "./generated/vals.js"
 import { compact, pct, signed, won } from "./format.js"
 
@@ -30,8 +31,13 @@ const MIX_COLORS = {
   shipping: "#F2994A",
   claims: "#E879B9",
   discount: "#F2C94C",
+  /** 목업 범례의 「운영비」 회색. 우리 목록에 그 항이 빠져 있었다 (아래 `costMix`). */
+  ops: "#828282",
   contribution: "#4CB782",
 } as const
+
+/** 채널 줄의 색 점. 의미색이 아니라 **구분색**이라 순서대로 돌린다 (§21-4). */
+const CH_COLORS = ["#4C8DFF", "#4CB782", "#BB6BD9", "#F2994A", "#E879B9", "#F2C94C"] as const
 
 const GREEN = "var(--pnl-pos, #4CB782)"
 const RED = "var(--pnl-neg, #EB5757)"
@@ -50,12 +56,43 @@ function costMix(snap: PnlSnapshot): { label: string; v: number; color: string }
   return [
     { label: "매출원가", v: p.cogs, color: MIX_COLORS.cogs },
     { label: "수수료", v: p.fee + p.vat, color: MIX_COLORS.fee },
-    { label: "광고비", v: p.adDirect + p.adUnallocated, color: MIX_COLORS.ad },
+    { label: "직접 광고비", v: p.adDirect, color: MIX_COLORS.ad },
     { label: "배송비", v: p.shipping, color: MIX_COLORS.shipping },
     { label: "클레임", v: p.claims, color: MIX_COLORS.claims },
     { label: "할인", v: p.discount, color: MIX_COLORS.discount },
+    { label: "운영비", v: p.ops, color: MIX_COLORS.ops },
     { label: "기여이익", v: Math.max(0, p.productContribution), color: MIX_COLORS.contribution },
   ].filter((m) => m.v !== 0)
+}
+
+/**
+ * ★ 이 목록은 **매출을 나눈 것**이어야 한다 (2026-08-16) ★
+ *
+ * 손익 계산기가 정의한 분해가 곧 이 목록이다:
+ *
+ * ```
+ * 기여이익 = 매출 − 할인 − 수수료 − VAT − 배송비 − 클레임 − 매입원가 − 직접광고비 − 운영비
+ * ```
+ *
+ * 그래서 **일곱 항 + 기여이익 = 매출**이 항등식이다. 그런데 이식본은 두 곳에서
+ * 그 항등식을 깨고 있었다:
+ *
+ * ```
+ * 광고비에 미배분을 더했다   → 합이 매출을 **넘는다** (미배분은 기여이익 아래 칸이다)
+ * 운영비를 빠뜨렸다          → 합이 매출에 **못 미친다**
+ * ```
+ *
+ * 오늘 둘 다 0이라 우연히 안 틀리고 있었다. 막대는 합이 안 맞아도 티가 안 나지만
+ * **도넛은 그 합을 원으로 정규화하므로 즉시 거짓말이 된다** — 도넛을 되살리는
+ * 지금이 이 자리를 바로잡아야 하는 때다.
+ *
+ * 미배분 광고비가 이 그림에서 빠지는 것은 **누락이 아니라 층**이다. 히어로 문구가
+ * *"기여이익에서 전사 광고비 N원과 고정비 M원을 뺀 값입니다"*로 이미 말한다.
+ */
+function partitionsRevenue(snap: PnlSnapshot, mixTotal: number): boolean {
+  // 기여이익이 음수면 `max(0, …)`으로 잘리므로 합이 매출을 넘는다 — 그 상태가
+  // 곧 «비용이 매출을 먹었다»이고, 도넛은 그것을 그릴 수 없다 (§21-4의 198.8%).
+  return snap.pnl.productContribution >= 0 && mixTotal === snap.pnl.revenue
 }
 
 /** 기간 라벨. "2026년 7월"처럼 읽히게 한다. */
@@ -103,6 +140,10 @@ export function dashboardVals(
   snap: PnlSnapshot,
   period: Period,
   coverage: readonly ConnectionCoverage[] = [],
+  rows: { products: readonly ProfitRow[]; channels: readonly ChannelRow[] } = {
+    products: [],
+    channels: [],
+  },
 ): void {
   const p = snap.pnl
   const mix = costMix(snap)
@@ -174,8 +215,6 @@ export function dashboardVals(
     pct: `${((m.v / den) * 100).toFixed(1)}%`,
     amount: `${won(m.v)}원`,
     barW: `${((m.v / barDen) * 100).toFixed(1)}%`,
-    // 도넛 조각(clip)은 채우지 않는다 — §21이 도넛을 없앴다. 값은 남아 있지만
-    // 히어로에서 그것을 읽던 마크업이 사라졌고, 사이드 카드는 pct만 쓴다.
     clip: "",
     op: "1",
     align: "center",
@@ -184,6 +223,141 @@ export function dashboardVals(
       { label: "매출 대비", value: `${((m.v / den) * 100).toFixed(1)}%` },
     ],
   }))
+
+  /**
+   * ★ 상품별 손익 — 표가 **처음으로 채워진다** (2026-08-16) ★
+   *
+   * 마크업은 처음부터 있었는데 채우는 코드가 0곳이라 늘 「합계」 한 줄만 그렸다.
+   * 사용자가 그걸 보고 «상품이 없다»로 읽었다 — §22가 가르는 「부재 vs 미구현」이
+   * 이 자리에서 안 갈리고 있었다.
+   *
+   * ★ 못 채우는 칸을 **0으로 채우지 않는다** ★
+   * 수수료·배송비는 주문 단위, 광고비는 캠페인 단위라 품목에 붙는 근거가 오늘
+   * 없다(`core/profit/rows.ts`). 0을 넣으면 «수수료가 0원인 상품»이라는 거짓이
+   * 표에 앉으므로 «—»를 넣고, 아래 한 줄이 그 이유를 말한다. 그래서 이 표의
+   * 이익 칸 이름도 「순이익」이 아니라 **「기여이익(부분)」**이다.
+   */
+  const prod = rows.products
+  vals.sortCols = [
+    { label: "상품", align: "flex-start", color: "var(--fg-3)", showArrow: false, arrow: "", pick: () => {} },
+    ...["수량", "매출", "할인", "수수료", "배송비", "매입원가", "광고비", "기여이익(부분)", "마진"].map(
+      (label) => ({
+        label,
+        align: "flex-end",
+        color: "var(--fg-3)",
+        showArrow: false,
+        arrow: "",
+        pick: () => {},
+      }),
+    ),
+  ]
+  /**
+   * ★ 이 표의 합이 총매출과 다른 것은 **정상이다** — 그러니 그렇게 말한다 ★
+   *
+   * 실측(7월): 상품 합 86,909,220원 · 총매출 87,297,920원 · 차이 **388,700원**.
+   * 그 차이는 클레임 9건이다 — 이중 기록으로 `fact_order`에는 섰지만 **품목을
+   * 만들지 않으므로**(order-item 조건 ③) 상품으로 나뉠 수 없다.
+   *
+   * 말하지 않으면 사용자가 두 숫자를 나란히 보고 «어디서 새는 거지»를 겪는다.
+   * 0이면 아무 말도 하지 않는다 (0이면 말하지 않는다의 그 규율).
+   */
+  const prodRev = prod.reduce((a, r) => a + r.revenue, 0)
+  const outside = p.revenue - prodRev
+  vals.sortNote =
+    prod.length === 0
+      ? ""
+      : `매출 큰 순 · ${prod.length}개` +
+        (outside > 0 ? ` · 품목이 없는 ${won(outside)}원은 이 표에 없습니다` : "") +
+        " · 수수료·배송비·광고비는 상품에 배분되지 않습니다"
+  vals.pnlRows = prod.map((r) => {
+    const net = r.revenue - r.discount - r.cogs
+    const linked = r.skuId !== null
+    return {
+      name: linked ? r.name : "SKU에 연결되지 않은 판매",
+      sku: r.code,
+      isSku: linked,
+      isProduct: false,
+      isOpen: false,
+      isClosed: false,
+      indent: "0px",
+      nameFont: "var(--fw-medium) 12px",
+      nameColor: linked ? "var(--fg-2)" : "var(--fg-4)",
+      bg: "transparent",
+      click: () => {},
+      qty: `${r.qty.toLocaleString()}개`,
+      rev: `${won(r.revenue)}원`,
+      disc: r.discount === 0 ? "—" : `${won(r.discount)}원`,
+      // 품목에 붙는 근거가 없는 칸 — 0이 아니라 «모른다»다 (§22).
+      fee: "—",
+      ship: "—",
+      ad: "—",
+      cogs: r.noCostQty > 0 && r.cogs === 0 ? "미입력" : `${won(r.cogs)}원`,
+      net: `${signed(net)}원`,
+      netColor: net >= 0 ? GREEN : RED,
+      margin: pct(net, r.revenue),
+      marginBar: `${Math.min(100, Math.max(0, (net / (r.revenue || 1)) * 100)).toFixed(1)}%`,
+    }
+  })
+  vals.pnlEmpty = prod.length === 0
+  vals.emptyTitle = "이 기간에 팔린 품목이 없습니다"
+  vals.emptyHint = "주문 파일을 넣으면 상품별로 나뉩니다."
+
+  /**
+   * ★ 채널별 손익 ★
+   *
+   * 막대는 **매출 크기**, 오른쪽 숫자는 기여이익이다. 한 줄이 두 질문에 답하지
+   * 않게 길이와 숫자를 갈라 둔 것은 비용 구성 막대와 같은 규율이다 (§21-4).
+   */
+  const chDen = Math.max(...rows.channels.map((c) => c.revenue), 1)
+  vals.chRows = rows.channels.map((c, i) => {
+    const net = c.revenue - c.cogs - c.claims - c.fee
+    return {
+      name: c.name,
+      srcLine: `주문 ${c.orderCount.toLocaleString()}건 · 매출 ${compact(c.revenue)}원`,
+      net: `${signed(net)}원`,
+      margin: pct(net, c.revenue),
+      netColor: net >= 0 ? GREEN : RED,
+      color: CH_COLORS[i % CH_COLORS.length],
+      barW: `${((c.revenue / chDen) * 100).toFixed(1)}%`,
+      barBg: "var(--bg-elevated-2)",
+      rowBg: "transparent",
+      click: () => {},
+    }
+  })
+
+  /**
+   * ★ 도넛이 돌아왔다 — 단, **거짓말하지 않을 때만** (2026-08-16) ★
+   *
+   * §21-4는 도넛을 폐기했고 그 근거는 실측이었다: 매출 7,896,500원에 광고비
+   * 15,700,534원(**198.8%**)이던 순간, 도넛은 조각 합을 원으로 정규화하느라
+   * «비용이 매출을 넘었다»를 그리지 못했다.
+   *
+   * 그 근거는 **지금도 유효하다.** 다만 그것이 참인 것은 «합이 매출을 넘을 때»뿐이고,
+   * 그 조건은 **데이터에서 판정된다.** 그러니 도넛을 영구히 금지할 이유가 아니라
+   * **조건으로 가를 이유**다:
+   *
+   * ```
+   * 일곱 항 + 기여이익 = 매출   →  도넛 (구성을 한눈에)
+   * 비용이 매출을 먹었다        →  가로 막대 + 「198.8%」를 숫자로
+   * ```
+   *
+   * 사람이 다시 켤 일이 없다는 것이 요점이다 — 8월에 광고비가 매출을 넘는 날
+   * 화면이 **스스로** 막대로 내려간다.
+   *
+   * 조각은 `conic-gradient` 한 줄로 만든다. 목업은 조각마다 `clip-path` 겹침을
+   * 두어 호버 툴팁을 붙였는데, 그건 옮기지 않는다 — 금액을 범례에 **인라인으로**
+   * 두면 호버 없이 읽히고(§9), 그러면 툴팁이 답할 질문이 남지 않는다.
+   */
+  vals.costDonutOk = partitionsRevenue(snap, mixTotal)
+  let at = 0
+  vals.costDonut = `conic-gradient(${mix
+    .map((m) => {
+      const from = (at / (mixTotal || 1)) * 100
+      at += m.v
+      const to = (at / (mixTotal || 1)) * 100
+      return `${m.color} ${from.toFixed(2)}% ${to.toFixed(2)}%`
+    })
+    .join(", ")})`
 
   // ★ 이 숫자가 담지 못한 것 ★
   //
