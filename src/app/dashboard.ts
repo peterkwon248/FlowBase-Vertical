@@ -19,7 +19,7 @@ import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import type { Period } from "@core/profit/index.js"
 import { pnlGaps } from "@core/profit/gaps.js"
 import type { ConnectionCoverage } from "@core/coverage/load.js"
-import type { ChannelRow, ProfitRow } from "@core/profit/rows.js"
+import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
 import type { TemplateVals } from "./generated/vals.js"
 import { compact, pct, signed, won } from "./format.js"
 
@@ -140,10 +140,11 @@ export function dashboardVals(
   snap: PnlSnapshot,
   period: Period,
   coverage: readonly ConnectionCoverage[] = [],
-  rows: { products: readonly ProfitRow[]; channels: readonly ChannelRow[] } = {
-    products: [],
-    channels: [],
-  },
+  rows: {
+    products: readonly ProfitRow[]
+    channels: readonly ChannelRow[]
+    daily?: DailySeries
+  } = { products: [], channels: [] },
 ): void {
   const p = snap.pnl
   const mix = costMix(snap)
@@ -214,6 +215,10 @@ export function dashboardVals(
     color: m.color,
     pct: `${((m.v / den) * 100).toFixed(1)}%`,
     amount: `${won(m.v)}원`,
+    // 도넛 범례는 폭이 좁다(도넛 112px을 빼고 남는 자리). 원 단위 금액을 그대로
+    // 넣으면 **라벨이 밀려 «클.»이 된다** — 실제로 그렇게 렌더됐다. 짧은 표기로
+    // 자리를 만들고, 원 단위는 막대 판이 그대로 보여준다.
+    short: `${compact(m.v)}원`,
     barW: `${((m.v / barDen) * 100).toFixed(1)}%`,
     clip: "",
     op: "1",
@@ -324,6 +329,33 @@ export function dashboardVals(
       click: () => {},
     }
   })
+
+  /**
+   * ★ 일별 매출 — **그릴 수 있는 것만 그리고, 못 그린 것을 말한다** (2026-08-16) ★
+   *
+   * 이 차트는 배선된 적이 없었다(`netTrend`를 채우는 코드가 0곳). 그런데 그냥
+   * 채우면 안 되는 이유가 데이터에 있다: 쿠팡 제트는 **기간 집계**로만 와서
+   * 날짜가 없다 — 실측 7월 총매출 87,297,920원 중 **73,740,340원(84%)**이 그렇다.
+   *
+   * ```
+   * 기간집계를 넣으면   7월 1일 하나에 7,374만원이 솟는 **가짜 봉우리**
+   * 그냥 빼면           일별 합이 월 숫자와 다른데 **아무도 이유를 모른다**
+   * ```
+   *
+   * 그래서 빼되 **얼마를 뺐는지 제목 옆에 적는다.** 차트가 스스로 자기 한계를
+   * 말하는 것이 §22가 요구하는 모양이고, 그 문구는 8월에 제트 파일이 안 들어오면
+   * 스스로 사라진다.
+   */
+  const daily = rows.daily
+  vals.netTrend = (daily?.points ?? []).map((d) => ({
+    // 축 라벨은 «7/3»처럼 짧게 — 31칸이 서므로 «2026-07-03»은 겹친다.
+    k: `${Number(d.day.slice(5, 7))}/${Number(d.day.slice(8, 10))}`,
+    v: d.revenue,
+  }))
+  vals.scopeLine =
+    daily === undefined || daily.periodOnly === 0
+      ? `${period.from} ~ ${period.to} · 전 채널`
+      : `${period.from} ~ ${period.to} · 날짜가 없는 기간 집계 ${won(daily.periodOnly)}원은 빠졌습니다`
 
   /**
    * ★ 도넛이 돌아왔다 — 단, **거짓말하지 않을 때만** (2026-08-16) ★
@@ -453,6 +485,4 @@ export function dashboardVals(
   // 스파크라인이 빠지면서(§21-4) KPI 카드가 한 줄 짧아진다. 비교가 없으면
   // "변화" 줄도 없으므로 한 줄 더 짧다 — 빈 칸을 남기지 않는다.
   vals.kpiRows = snap.hasPriorPeriod ? "15px 26px 15px 14px" : "15px 26px 14px"
-
-  vals.scopeLine = `${period.from} ~ ${period.to} · 전 채널`
 }

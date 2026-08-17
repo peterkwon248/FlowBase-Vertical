@@ -47,7 +47,7 @@ import { loadProfiles } from "@packs/kr-marketplace/profiles/index.js"
 import { DEV_LIBRARY, findPriorImports, loadDevSnapshot, nowStamp, readDigest, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
-import type { ChannelRow, ProfitRow } from "@core/profit/rows.js"
+import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
 import { periodVals } from "./period.js"
 import type { Period } from "@core/profit/index.js"
 import type { SettlementRow } from "@core/settlement/rows.js"
@@ -128,6 +128,7 @@ export function App(): React.JSX.Element {
   /** 대시보드의 두 표 — 상품별·채널별 손익. 조회가 준 것을 그대로 든다. */
   const [profitRows, setProfitRows] = useState<readonly ProfitRow[]>([])
   const [channelRows, setChannelRows] = useState<readonly ChannelRow[]>([])
+  const [daily, setDaily] = useState<DailySeries>({ points: [], periodOnly: 0 })
   /**
    * ★ 보고 있는 달 (MVP 1, 2026-08-16) ★
    *
@@ -247,6 +248,7 @@ export function App(): React.JSX.Element {
     setProducts(r.products)
     setProfitRows(r.profitRows)
     setChannelRows(r.channelRows)
+    setDaily(r.daily)
     // 기간은 **조회가 정한 것**을 받는다. 요청한 달이 사라졌으면 물러난 달이 온다.
     setPer(r.period)
     setMonth(r.month)
@@ -711,7 +713,11 @@ export function App(): React.JSX.Element {
   // 데이터가 있으면 대시보드 값을 덮어쓴다. 없으면 빈 값 그대로 —
   // 시드를 넣어 채워 보이지 않는다 (헌장 C).
   if (snap) {
-    dashboardVals(vals, snap, per, coverage, { products: profitRows, channels: channelRows })
+    dashboardVals(vals, snap, per, coverage, {
+      products: profitRows,
+      channels: channelRows,
+      daily,
+    })
     // 데이터가 들어왔으니 첫 실행 안내는 지나간다.
     vals.firstRun = false
     vals.notFirstRun = true

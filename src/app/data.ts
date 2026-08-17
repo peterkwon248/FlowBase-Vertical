@@ -17,7 +17,14 @@
 import { openTauriDriver } from "@core/store/driver-tauri.js"
 import { migrate } from "@core/store/migrate-web.js"
 import { loadPnlSnapshot, type PnlSnapshot } from "@core/profit/snapshot.js"
-import { loadChannelRows, loadProfitRows, type ChannelRow, type ProfitRow } from "@core/profit/rows.js"
+import {
+  loadChannelRows,
+  loadDailySeries,
+  loadProfitRows,
+  type ChannelRow,
+  type DailySeries,
+  type ProfitRow,
+} from "@core/profit/rows.js"
 import { loadSettlementRows, type SettlementRow } from "@core/settlement/rows.js"
 import { loadOrderRows, type OrderRow } from "@core/order/rows.js"
 import { loadLinkingView, type LinkingView } from "@core/linking/view.js"
@@ -95,6 +102,8 @@ export interface LoadResult {
   profitRows: readonly ProfitRow[]
   /** 대시보드의 **채널별 손익**. 연결 단위로 같은 계산을 다시 묶는다. */
   channelRows: readonly ChannelRow[]
+  /** 일별 매출 + **그 차트가 담지 못한 기간 집계 금액**. */
+  daily: DailySeries
   /**
    * **이 조회가 실제로 본 기간.** 화면은 이 값으로 «2026년 7월»을 쓴다.
    *
@@ -230,6 +239,7 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
       const products = await loadProductRows(db, DEV_LIBRARY, period, period.to)
       const profitRows = await loadProfitRows(db, DEV_LIBRARY, period)
       const channelRows = await loadChannelRows(db, DEV_LIBRARY, period)
+      const daily = await loadDailySeries(db, DEV_LIBRARY, period)
       return {
         snapshot,
         settlement,
@@ -240,6 +250,7 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
         products,
         profitRows,
         channelRows,
+        daily,
         period,
         month,
         months,
@@ -270,6 +281,7 @@ function failed(e: unknown, want?: Month): LoadResult {
     products: null,
     profitRows: [],
     channelRows: [],
+    daily: { points: [], periodOnly: 0 },
     period: monthPeriod(month),
     month,
     months: [],

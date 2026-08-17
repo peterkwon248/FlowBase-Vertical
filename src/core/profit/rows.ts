@@ -111,6 +111,70 @@ export async function loadProfitRows(
   }))
 }
 
+export interface DailyPoint {
+  /** `YYYY-MM-DD`. */
+  readonly day: string
+  /** 그날 주문의 매출. **일별로 쪼갤 수 있는 것만** 들어온다 (아래 참조). */
+  readonly revenue: number
+}
+
+export interface DailySeries {
+  readonly points: readonly DailyPoint[]
+  /**
+   * ★ 이 차트가 **담지 못한 매출** ★
+   *
+   * 쿠팡 제트(로켓그로스)는 옵션×기간 집계로만 온다 — 행마다 날짜가 없고 기간은
+   * 파일명에만 있다(마이그레이션 005). 그 행들은 월 합계에는 온전히 들어가지만
+   * **일별로 분해할 수 없다.**
+   *
+   * 실측(7월): 총매출 87,297,920원 중 **73,740,340원(84%)**이 그렇다. 이 값을
+   * 함께 들고 나가지 않으면 사용자는 일별 합이 월 숫자와 다른 것을 보고 어느
+   * 쪽이 틀렸는지 알 수 없다 (§22 — 부재는 일급 데이터다).
+   */
+  readonly periodOnly: number
+}
+
+/**
+ * 일별 매출 — **날짜가 있는 주문만.**
+ *
+ * `date_precision = 'period'`인 행을 **빼는** 것이 이 조회의 요점이다. 그 행의
+ * `ordered_at`은 기간 시작일이라, 넣으면 7월 1일 하나에 73,740,340원이 솟는
+ * **가짜 봉우리**가 생긴다. 빼되 얼마를 뺐는지 함께 돌려준다.
+ */
+export async function loadDailySeries(
+  db: Driver,
+  libraryId: string,
+  period: Period,
+): Promise<DailySeries> {
+  const rows = await db
+    .prepare(
+      `SELECT substr(ordered_at, 1, 10) AS day, COALESCE(SUM(total_amount), 0) AS revenue
+         FROM active_order
+        WHERE library_id = ? AND ordered_at >= ? AND ordered_at < date(?, '+1 day')
+          AND (date_precision IS NULL OR date_precision <> 'period')
+        GROUP BY day
+        ORDER BY day`,
+    )
+    .all(libraryId, period.from, period.to)
+
+  const spread = await db
+    .prepare(
+      `SELECT COALESCE(SUM(total_amount), 0) AS amt
+         FROM active_order
+        WHERE library_id = ? AND ordered_at >= ? AND ordered_at < date(?, '+1 day')
+          AND date_precision = 'period'`,
+    )
+    .get(libraryId, period.from, period.to)
+
+  return {
+    points: rows.map((r) => ({
+      day: String(r["day"] ?? ""),
+      revenue: Number(r["revenue"] ?? 0),
+    })),
+    periodOnly: Number(spread?.["amt"] ?? 0),
+  }
+}
+
 export interface ChannelRow {
   readonly connectionId: string
   /** 사람이 읽는 채널 이름. 내부 키를 화면에 내보내지 않는다 (헌장 C-4). */
