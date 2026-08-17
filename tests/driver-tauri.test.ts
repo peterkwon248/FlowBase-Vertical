@@ -24,11 +24,14 @@ interface Call {
  */
 const OPENED = { lease: 1, tookOver: false }
 
-function fake(result: (cmd: Command) => unknown = (cmd) => (cmd === "db_open" ? OPENED : 0)) {
+function fake(result: (cmd: Command) => unknown = () => 0) {
   const calls: Call[] = []
   const invoke: InvokeFn = async (cmd, args) => {
     calls.push({ cmd, args })
-    return result(cmd)
+    // 여는 것만은 **가짜가 고를 수 없다.** 진짜 Rust는 언제나 임차 번호를 준다 —
+    // 그러지 않는 것은 «옛 실행 파일»이라는 다른 사실이고, 그 시험은 따로 있다
+    // (`tauri-conn-race.test.ts`의 «옛 실행 파일을 이름으로 부른다»).
+    return cmd === "db_open" ? OPENED : result(cmd)
   }
   /** `db_exec`로 나간 SQL만 순서대로. 트랜잭션 흐름을 이걸로 읽는다. */
   const sqls = (): string[] =>

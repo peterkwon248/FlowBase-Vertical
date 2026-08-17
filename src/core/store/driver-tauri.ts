@@ -84,7 +84,29 @@ export async function openTauriDriver(
     onTakeOver,
   }: TauriDriverOptions = {},
 ): Promise<Driver> {
-  const opened = (await invoke("db_open", { path, force })) as Opened
+  const opened = (await invoke("db_open", { path, force })) as Opened | null
+
+  /**
+   * ★ 실행 파일이 프론트엔드보다 **오래됐을 때** 여기서 걸린다 (2026-08-16) ★
+   *
+   * 실제로 일어났다. 사용자가 나흘 전에 빌드된 `target/debug/app.exe`를 켰는데,
+   * 그것은 개발 서버(`devUrl`)에서 **오늘의 프론트엔드**를 받아 온다. 옛 Rust의
+   * `db_open`은 아무것도 돌려주지 않으므로(`Result<(), String>` → `null`) 여기서
+   * `opened.lease`가 터졌고, 화면에는
+   * *"Cannot destructure property 'lease' of 'opened' as it is null"*이 떴다.
+   *
+   * 그 문구는 **사용자가 할 일을 하나도 알려주지 않는다.** 원인이 「옛 실행
+   * 파일」인데 읽는 사람은 데이터가 깨진 줄 안다. 그래서 그 조합을 이름으로
+   * 불러 준다 — 문구가 «그래서 뭘 해야 하는데»까지 답해야 한다 (§22-3).
+   */
+  if (opened === null || typeof opened.lease !== "number") {
+    throw new Error(
+      "앱 실행 파일이 화면보다 오래됐습니다 — 옛 실행 파일이 새 저장 계약(임차 번호)을 " +
+        "모릅니다. 앱을 완전히 닫고 최신 빌드로 다시 여세요 " +
+        "(바탕화면 「FlowBase 손익」 · src-tauri/target/release/app.exe).",
+    )
+  }
+
   const { lease } = opened
   if (opened.tookOver) onTakeOver?.()
 

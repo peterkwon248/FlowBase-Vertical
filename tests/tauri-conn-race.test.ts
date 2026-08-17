@@ -151,6 +151,28 @@ describe("[합성] 한 번에 하나 — 저장 계층이 거부한다", () => {
     expect(quiet).toBe(0)
   })
 
+  /**
+   * ★ 실측에서 온 시험 (2026-08-16) ★
+   *
+   * 사용자가 나흘 전에 빌드된 `target/debug/app.exe`를 켰다. 그 실행 파일은
+   * 개발 서버에서 **오늘의 프론트엔드**를 받아 오므로 «옛 Rust + 새 JS»가 된다.
+   * 옛 `db_open`은 `null`을 돌려주고, 화면에는 *"Cannot destructure property
+   * 'lease' of 'opened' as it is null"*이 떴다 — 사용자가 할 일이 하나도 없는 문구다.
+   */
+  it("★ 옛 실행 파일(`db_open`이 null)을 **이름으로 부른다** ★", async () => {
+    const oldRust = async (cmd: string): Promise<unknown> => (cmd === "db_open" ? null : 0)
+    await expect(
+      openTauriDriver("pnl.sqlite", { invoke: oldRust }),
+    ).rejects.toThrow("앱 실행 파일이 화면보다 오래됐습니다")
+  })
+
+  it("번호가 숫자가 아니어도 같은 자리에서 걸린다 — 계약이 어긋난 것은 매한가지다", async () => {
+    const weird = async (cmd: string): Promise<unknown> => (cmd === "db_open" ? {} : 0)
+    await expect(openTauriDriver("pnl.sqlite", { invoke: weird })).rejects.toThrow(
+      "오래됐습니다",
+    )
+  })
+
   it("직렬화하면 아무 일도 없다 — 정상 경로가 막히지 않는다", async () => {
     const rust = fakeRust()
     const a = await openTauriDriver("pnl.sqlite", { invoke: rust.invoke })
