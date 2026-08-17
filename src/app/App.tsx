@@ -60,6 +60,32 @@ import { shellStateFor, shellVals, type NavKey, type ShellState } from "./shell.
 /** 목업 L3908과 같은 기준. 사이드바가 서랍이 되는 폭이다. */
 const NARROW = "(max-width: 1023px)"
 
+/**
+ * 잠금을 못 잡았을 때의 문구. **«아무 일도 안 일어남»의 자리를 메운다.**
+ *
+ * 이 말이 뜨면 그 자체가 진단이다 — 다른 동작이 진짜로 도는 중이거나, 끝났는데
+ * 잠금이 안 풀린 것이다. 후자면 앱을 다시 켜는 것이 확실한 복구이므로 그렇게 적는다.
+ */
+const BUSY_WHY =
+  "다른 동작이 DB를 쓰고 있어 시작하지 못했습니다. 진행 중인 것이 없다면 " +
+  "앱을 껐다 켜고 다시 눌러 주세요."
+
+/** 말만 하는 모달 하나. 되돌리기 실패가 쓰던 모양 그대로다 — 새 마크업 0줄. */
+const sayConfirm = (title: string, body: string, close: () => void): ConfirmDialog => ({
+  title,
+  body,
+  hasRows: false,
+  rows: [],
+  hasChoice: false,
+  choices: [],
+  hasType: false,
+  confirmLabel: "닫기",
+  btnFg: "var(--fg)",
+  btnBorder: "var(--border-strong)",
+  btnOp: "1",
+  run: close,
+})
+
 export function App(): React.JSX.Element {
   // 첫 렌더부터 폭에 맞는 상태여야 한다. 좁은 화면에서 서랍이 열린 채로
   // 한 프레임이라도 뜨면 본문을 덮는다 (목업 L3690과 같은 판단).
@@ -271,44 +297,48 @@ export function App(): React.JSX.Element {
   const write = useCallback(
     (fn: Parameters<typeof writeThenReload>[0]) => {
       if (!acquire()) return
-      void writeThenReload(fn, monthRef.current).then((r) => {
-        release()
-        // 쓰기가 끝난 카드는 선택에 남아 있을 이유가 없다 — 다음 탭으로 갔다
-        setPicked(new Set())
-        take(r)
+      // ★ 잠금은 **`finally`로만 푼다** (2026-08-16) ★
+      // `.then` 안에서 풀면 그 뒤가 던졌을 때 잠금이 영영 남고, 그때부터 이 앱의
+      // 모든 버튼이 «눌러도 아무 일 없음»이 된다 — 사용자가 신고한 바로 그 모양이다.
+      void writeThenReload(fn, monthRef.current)
+        .then((r) => {
+          // 쓰기가 끝난 카드는 선택에 남아 있을 이유가 없다 — 다음 탭으로 갔다
+          setPicked(new Set())
+          take(r)
 
-        /**
-         * ★ 부분 성공을 **부분 성공이라고 말한다** ★
-         * 「N개 중 M개 등록」에서 멈추고 아무 말도 안 하면 사용자는 전부 됐다고
-         * 믿고 다음으로 간다. `take`가 화면을 갱신한 뒤에 말해야, 남은 카드가
-         * 이미 보이는 상태에서 이유를 읽는다.
-         */
-        const b = bulkFailures.current
-        bulkFailures.current = null
-        if (b && r.error === null) {
-          setConfirm({
-            title: `${b.total - b.failed.length}개 등록 · ${b.failed.length}개 실패`,
-            body: [
-              "실패한 카드는 목록에 그대로 남아 있습니다 — 다시 시도할 수 있습니다.",
-              "",
-              ...b.failed.slice(0, 5).map((f) => `· ${f.title.slice(0, 40)} — ${f.why}`),
-              ...(b.failed.length > 5 ? [`… 외 ${b.failed.length - 5}개`] : []),
-            ].join("\n"),
-            hasRows: false,
-            rows: [],
-            hasChoice: false,
-            choices: [],
-            hasType: false,
-            confirmLabel: "닫기",
-            btnFg: "var(--fg)",
-            btnBorder: "var(--border-strong)",
-            btnOp: "1",
-            run: () => setConfirm(null),
-          })
-        }
-      })
+          /**
+           * ★ 부분 성공을 **부분 성공이라고 말한다** ★
+           * 「N개 중 M개 등록」에서 멈추고 아무 말도 안 하면 사용자는 전부 됐다고
+           * 믿고 다음으로 간다. `take`가 화면을 갱신한 뒤에 말해야, 남은 카드가
+           * 이미 보이는 상태에서 이유를 읽는다.
+           */
+          const b = bulkFailures.current
+          bulkFailures.current = null
+          if (b && r.error === null) {
+            setConfirm({
+              title: `${b.total - b.failed.length}개 등록 · ${b.failed.length}개 실패`,
+              body: [
+                "실패한 카드는 목록에 그대로 남아 있습니다 — 다시 시도할 수 있습니다.",
+                "",
+                ...b.failed.slice(0, 5).map((f) => `· ${f.title.slice(0, 40)} — ${f.why}`),
+                ...(b.failed.length > 5 ? [`… 외 ${b.failed.length - 5}개`] : []),
+              ].join("\n"),
+              hasRows: false,
+              rows: [],
+              hasChoice: false,
+              choices: [],
+              hasType: false,
+              confirmLabel: "닫기",
+              btnFg: "var(--fg)",
+              btnBorder: "var(--border-strong)",
+              btnOp: "1",
+              run: () => setConfirm(null),
+            })
+          }
+        })
+        .finally(release)
     },
-    [take],
+    [acquire, release, take],
   )
 
   const ids = (c: LinkingCard): string[] => c.listings.map((l) => l.id)
@@ -422,45 +452,46 @@ export function App(): React.JSX.Element {
           now: nowStamp(),
           replace,
         })
-      }, monthRef.current).then((r) => {
-        release()
-        if (r.error) {
-          console.warn("[cost] 원가 저장에 실패했다:", r.error)
-          return
-        }
-        take(r)
+      }, monthRef.current)
+        .then((r) => {
+          if (r.error) {
+            console.warn("[cost] 원가 저장에 실패했다:", r.error)
+            return
+          }
+          take(r)
 
-        const got = outcome as { inserted: boolean; replaced: boolean; previous: number | null } | null
-        if (got && !got.inserted && !got.replaced && got.previous !== null) {
-          // 같은 날짜가 이미 있다 → 묻는다. 초안은 **남겨 둔다** — 사용자가 아니오를
-          // 눌렀을 때 방금 친 값이 사라지면 다시 쳐야 한다.
-          setConfirm({
-            title: "이 날짜의 원가를 고칠까요",
-            body:
-              `${parsed.effectiveFrom}부터 적용되는 원가가 이미 있습니다. ` +
-              `새 줄로 쌓이지 않고 그 값을 **덮어씁니다** — 되돌릴 수 없습니다. ` +
-              `«이날부터 값이 바뀐다»를 남기려면 적용 시작일을 다른 날로 바꿔 저장하세요.`,
-            hasRows: true,
-            rows: replaceConfirmRows(row, got.previous, parsed.amount, parsed.effectiveFrom),
-            hasChoice: false,
-            choices: [],
-            hasType: false,
-            confirmLabel: "덮어쓰기",
-            btnFg: "var(--pnl-neg, #EB5757)",
-            btnBorder: "var(--pnl-neg, #EB5757)",
-            btnOp: "1",
-            run: () => {
-              setConfirm(null)
-              saveCost(row, draft, true)
-            },
-          })
-          return
-        }
-        // 저장됐다 — 초안을 비운다. 값은 이제 DB가 갖고 있고 목록이 그걸 다시 읽었다.
-        dropDraft(row.skuId)
-      })
+          const got = outcome as { inserted: boolean; replaced: boolean; previous: number | null } | null
+          if (got && !got.inserted && !got.replaced && got.previous !== null) {
+            // 같은 날짜가 이미 있다 → 묻는다. 초안은 **남겨 둔다** — 사용자가 아니오를
+            // 눌렀을 때 방금 친 값이 사라지면 다시 쳐야 한다.
+            setConfirm({
+              title: "이 날짜의 원가를 고칠까요",
+              body:
+                `${parsed.effectiveFrom}부터 적용되는 원가가 이미 있습니다. ` +
+                `새 줄로 쌓이지 않고 그 값을 **덮어씁니다** — 되돌릴 수 없습니다. ` +
+                `«이날부터 값이 바뀐다»를 남기려면 적용 시작일을 다른 날로 바꿔 저장하세요.`,
+              hasRows: true,
+              rows: replaceConfirmRows(row, got.previous, parsed.amount, parsed.effectiveFrom),
+              hasChoice: false,
+              choices: [],
+              hasType: false,
+              confirmLabel: "덮어쓰기",
+              btnFg: "var(--pnl-neg, #EB5757)",
+              btnBorder: "var(--pnl-neg, #EB5757)",
+              btnOp: "1",
+              run: () => {
+                setConfirm(null)
+                saveCost(row, draft, true)
+              },
+            })
+            return
+          }
+          // 저장됐다 — 초안을 비운다. 값은 이제 DB가 갖고 있고 목록이 그걸 다시 읽었다.
+          dropDraft(row.skuId)
+        })
+        .finally(release)
     },
-    [take, dropDraft],
+    [acquire, dropDraft, release, take],
   )
 
   const productActions: ProductActions = {
@@ -517,11 +548,36 @@ export function App(): React.JSX.Element {
       const bytes = wizBytes.current
       const a = wiz.analysis
       const match = a?.profiles[wiz.profileIndex]
-      // ★ 위저드도 **같은 잠금**을 지난다 (2026-08-16) ★
-      // 전에는 `wiz.busy`만 봤다 — 그건 위저드 안에서 두 번 누르는 것만 막는다.
-      // 원가 저장·되돌리기·달 바꾸기는 다른 잠금을 쓰고 있어서, 적재가 도는 중에
-      // 들어와 전역 연결 하나를 두고 부딪혔다. 이제 셋 다 여기서 걸린다.
-      if (!bytes || !a || !match || wiz.busy || !acquire()) return
+      /**
+       * ★ 안 되면 **왜 안 되는지 말한다** (2026-08-16, 사용자 신고) ★
+       *
+       * 사용자가 [확인하고 가져오기]를 눌렀는데 **아무 일도 일어나지 않았다.**
+       * 실측: 그 시각에 `batch` 행이 하나도 안 생겼다 → 적재는 시작조차 안 했고,
+       * 이 가드가 조용히 `return`한 것이다. 조건이 다섯인데 **다섯이 한 줄에서
+       * 똑같이 침묵**했으니 사용자도 우리도 무엇이 막았는지 알 수 없었다 (LOCK 6).
+       *
+       * 문구를 모달로 띄운다 — 위저드의 오류 칸은 긴 매핑표 **위**에 있어서,
+       * 표 끝의 버튼을 누른 사람의 화면에는 보이지 않는다. 새 마크업은 만들지
+       * 않는다: 되돌리기 실패가 이미 쓰는 그 모달이다.
+       */
+      const stop = (why: string): void => {
+        setWiz((w) => ({ ...w, error: why }))
+        setConfirm(sayConfirm("가져오기를 시작하지 못했습니다", why, () => setConfirm(null)))
+      }
+      if (!bytes || !a || !match || wiz.busy) {
+        stop(
+          !bytes
+            ? "고른 파일의 내용이 남아 있지 않습니다 — 파일을 다시 골라 주세요."
+            : !a || !match
+              ? "이 파일에 맞는 양식을 찾지 못했습니다 — 파일을 다시 골라 주세요."
+              : "이미 가져오는 중입니다.",
+        )
+        return
+      }
+      if (!acquire()) {
+        stop(BUSY_WHY)
+        return
+      }
 
       setWiz((w) => ({ ...w, busy: true, error: null }))
       const stamp = nowStamp()
@@ -530,44 +586,60 @@ export function App(): React.JSX.Element {
       const batchId = `batch-${stamp.replace(/[^0-9]/g, "")}`
       const connId = `conn-${match.profile.marketplaceKey}`
 
-      void writeThenReload(async (repo) => {
-        await repo.ensureLibrary(DEV_LIBRARY, "기본", stamp)
-        await repo.ensureConnection(
-          {
-            id: connId,
+      /**
+       * ★ «가져오는 중»을 **그리고 나서** 시작한다 (2026-08-16, 사용자 신고) ★
+       *
+       * 파싱은 메인 스레드에서 돈다(Worker 이관은 MVP 후로 잘렸다). 8만 행짜리
+       * 광고 리포트는 그 동안 창을 통째로 잠그는데, `setWiz(busy)` 직후에 바로
+       * 시작하면 **그 상태가 한 번도 그려지지 않는다** — 버튼은 「확인하고
+       * 가져오기」인 채 얼고, 사용자에게는 «눌러도 아무 일 없음»과 똑같이 보인다.
+       *
+       * 한 프레임 양보하면 브라우저가 「가져오는 중…」을 먼저 칠하고, 그다음
+       * 잠긴다. 잠기는 것은 그대로지만 **잠겼다는 사실이 화면에 남는다.**
+       * 시간을 재는 게 아니라 «한 번 그릴 틈»을 주는 것이라 기기 속도와 무관하다.
+       */
+      const start = (): void => {
+        void writeThenReload(async (repo) => {
+          await repo.ensureLibrary(DEV_LIBRARY, "기본", stamp)
+          await repo.ensureConnection(
+            {
+              id: connId,
+              libraryId: DEV_LIBRARY,
+              packId: match.profile.packId,
+              marketplaceKey: match.profile.marketplaceKey,
+              displayName: match.profile.displayName,
+            },
+            stamp,
+          )
+          await runImport(repo, {
+            bytes,
+            fileName: a.fileName,
+            profile: match.profile,
+            sheetIndex: a.sheetIndex,
             libraryId: DEV_LIBRARY,
-            packId: match.profile.packId,
-            marketplaceKey: match.profile.marketplaceKey,
-            displayName: match.profile.displayName,
-          },
-          stamp,
-        )
-        await runImport(repo, {
-          bytes,
-          fileName: a.fileName,
-          profile: match.profile,
-          sheetIndex: a.sheetIndex,
-          libraryId: DEV_LIBRARY,
-          connectionId: connId,
-          batchId,
-          now: stamp,
+            connectionId: connId,
+            batchId,
+            now: stamp,
+          })
+        }, monthRef.current).then((r) => {
+          if (r.error) {
+            setWiz((w) => ({ ...w, busy: false, error: r.error }))
+            // 인라인 오류 칸은 **매핑표 위**에 있다. 표 끝의 버튼을 누른 사람은
+            // 그것을 못 보고 «아무 일도 없었다»로 읽는다 — 같은 말을 모달로도 한다.
+            setConfirm(sayConfirm("가져오지 못했습니다", r.error, () => setConfirm(null)))
+            return
+          }
+          take(r)
+          // 다이제스트는 **적재 뒤에 다시 읽는다.** 넣으면서 센 것을 그대로 쓰지 않는
+          // 이유는 화면이 말하는 수가 DB가 아는 수여야 하기 때문이다. 잠금은 그
+          // 조회까지 **한 사슬**로 묶여 있어 아래 `finally` 하나가 전부 책임진다.
+          return readDigest(batchId).then((digest) =>
+            setWiz((w) => ({ ...w, busy: false, digest, error: null })),
+          )
         })
-      }, monthRef.current).then((r) => {
-        if (r.error) {
-          release()
-          setWiz((w) => ({ ...w, busy: false, error: r.error }))
-          return
-        }
-        take(r)
-        // 다이제스트는 **적재 뒤에 다시 읽는다.** 넣으면서 센 것을 그대로 쓰지 않는
-        // 이유는 화면이 말하는 수가 DB가 아는 수여야 하기 때문이다.
-        //
-        // 잠금은 **그 조회까지 끝나고** 놓는다 — 여기서 먼저 놓으면 다이제스트
-        // 조회와 다음 동작이 겹칠 수 있고, 그게 방금 없앤 그 모양이다.
-        void readDigest(batchId)
-          .then((digest) => setWiz((w) => ({ ...w, busy: false, digest, error: null })))
           .finally(release)
-      })
+      }
+      requestAnimationFrame(() => setTimeout(start, 0))
     },
     reset: () => {
       wizBytes.current = null
@@ -609,31 +681,19 @@ export function App(): React.JSX.Element {
           if (!acquire()) return
           void writeThenReload(async (repo) => {
             await repo.undoBatch(row.id, nowStamp())
-          }, monthRef.current).then((r) => {
-            release()
-            take(r)
-            // 실패를 삼키지 않는다 (헌장 6). 새 UI를 만들지 않고 같은 모달로 말한다.
-            if (r.error) {
-              setConfirm({
-                title: "되돌리지 못했습니다",
-                body: r.error,
-                hasRows: false,
-                rows: [],
-                hasChoice: false,
-                choices: [],
-                hasType: false,
-                confirmLabel: "닫기",
-                btnFg: "var(--fg)",
-                btnBorder: "var(--border-strong)",
-                btnOp: "1",
-                run: () => setConfirm(null),
-              })
-            }
-          })
+          }, monthRef.current)
+            .then((r) => {
+              take(r)
+              // 실패를 삼키지 않는다 (헌장 6). 새 UI를 만들지 않고 같은 모달로 말한다.
+              if (r.error) {
+                setConfirm(sayConfirm("되돌리지 못했습니다", r.error, () => setConfirm(null)))
+              }
+            })
+            .finally(release)
         }),
       )
     },
-    [take],
+    [acquire, release, take],
   )
 
   const vals = shellVals(state, { go, toggleNav, closeNav, openNav, goImport, toggleTheme })
