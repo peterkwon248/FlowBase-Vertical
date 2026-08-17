@@ -1585,7 +1585,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                             </span>
                           </div>
                           {" "}
-                          <div className="db-table-wrap">
+                          <div className="db-table-wrap fb-pnl-scroll">
                             <table className="db-table">
                               <thead>
                                 <tr>

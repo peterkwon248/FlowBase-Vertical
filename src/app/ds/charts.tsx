@@ -22,6 +22,25 @@ export interface LineProps {
   area?: boolean
 }
 
+/**
+ * ★ 라벨은 **솎는다** — 목업에 없던 판단이다 (2026-08-17) ★
+ *
+ * 목업의 기간은 8/1~8/8 **8일**이라 라벨 8개가 편히 들어갔다. 우리는 달 단위로
+ * 조회하므로 31개가 서고, 실제로 «7/17/27/37/4…»처럼 **겹쳐 뭉개졌다**(실측).
+ *
+ * 점은 다 찍고 **라벨만** 줄인다 — 추세의 해상도를 낮추지 않으면서 축을 읽히게
+ * 하는 유일한 방법이다. 간격은 기간 길이에서 자동으로 나오므로 주 단위로 보면
+ * 7개가 그대로 다 뜬다(사용자가 «주간이면 딱 맞는다»고 한 그 상태).
+ *
+ * 처음과 **마지막**은 언제나 남긴다. 축의 양 끝이 없으면 «언제부터 언제까지»가
+ * 사라진다.
+ */
+function showLabel(i: number, n: number): boolean {
+  if (n <= 10) return true
+  const step = Math.ceil(n / 7)
+  return i === 0 || i === n - 1 || i % step === 0
+}
+
 /** 목업 `charts.jsx` L28~38 그대로. 좌표 계산과 토큰을 손대지 않았다. */
 function Line({ data, area }: LineProps): React.JSX.Element {
   const W = 460
@@ -54,9 +73,11 @@ function Line({ data, area }: LineProps): React.JSX.Element {
       {data.map((d, i) => (
         <g key={i}>
           <circle cx={x(i)} cy={y(d.v)} r="2.5" fill={PAL[0]} />
-          <text x={x(i)} y={H - 8} textAnchor="middle" className="ins-axis">
-            {d.k}
-          </text>
+          {showLabel(i, data.length) && (
+            <text x={x(i)} y={H - 8} textAnchor="middle" className="ins-axis">
+              {d.k}
+            </text>
+          )}
         </g>
       ))}
     </svg>

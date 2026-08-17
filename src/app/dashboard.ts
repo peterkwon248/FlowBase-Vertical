@@ -144,6 +144,9 @@ export function dashboardVals(
     products: readonly ProfitRow[]
     channels: readonly ChannelRow[]
     daily?: DailySeries
+    /** 지금 호버 중인 일자 index. -1이면 안 떠 있다 (화면 상태라 App이 갖는다). */
+    trendIdx?: number
+    onTrend?: (i: number) => void
   } = { products: [], channels: [] },
 ): void {
   const p = snap.pnl
@@ -304,6 +307,27 @@ export function dashboardVals(
     }
   })
   vals.pnlEmpty = prod.length === 0
+
+  /**
+   * 합계 행. **표가 스크롤돼도 늘 보인다** — 아래쪽에 고정된다(`fb-total-row`).
+   * 60행을 훑는 동안 합계가 화면 밖으로 사라지면 그 표가 답하는 질문이 반쪽이 된다.
+   */
+  const totQty = prod.reduce((a, r) => a + r.qty, 0)
+  const totRev = prod.reduce((a, r) => a + r.revenue, 0)
+  const totDisc = prod.reduce((a, r) => a + r.discount, 0)
+  const totCogs = prod.reduce((a, r) => a + r.cogs, 0)
+  const totNet = totRev - totDisc - totCogs
+  vals.tot = {
+    qty: `${totQty.toLocaleString()}개`,
+    rev: `${won(totRev)}원`,
+    disc: totDisc === 0 ? "—" : `${won(totDisc)}원`,
+    fee: "—",
+    ship: "—",
+    ad: "—",
+    cogs: `${won(totCogs)}원`,
+    net: `${signed(totNet)}원`,
+    margin: pct(totNet, totRev),
+  }
   vals.emptyTitle = "이 기간에 팔린 품목이 없습니다"
   vals.emptyHint = "주문 파일을 넣으면 상품별로 나뉩니다."
 
@@ -347,11 +371,57 @@ export function dashboardVals(
    * 스스로 사라진다.
    */
   const daily = rows.daily
+  /**
+   * ★ 카드가 「일별 기여이익 · 단위 백만원」이라고 말한다 — 그대로 그린다 ★
+   *
+   * 처음 배선했을 때 **매출을 원 단위로** 그려 놓고 제목은 기여이익이라고 적었다.
+   * 모양은 그럴듯한데 라벨이 거짓말을 하는 상태였고, 사용자가 «호버도 안 되고
+   * 날짜도 빼곡하다»고 짚어 준 자리를 파다 드러났다. 목업도 `net / 1,000,000`을
+   * 그린다 — 단위 표기는 그때부터 백만원이었다.
+   */
   vals.netTrend = (daily?.points ?? []).map((d) => ({
-    // 축 라벨은 «7/3»처럼 짧게 — 31칸이 서므로 «2026-07-03»은 겹친다.
+    // 축 라벨은 «7/3»처럼 짧게. 31칸이 서면 그래도 겹치므로 **솎는 것은 차트가**
+    // 한다 (`ds/charts.tsx` — 기간 길이에서 자동으로 정한다).
     k: `${Number(d.day.slice(5, 7))}/${Number(d.day.slice(8, 10))}`,
-    v: d.revenue,
+    v: Number((d.contribution / 1_000_000).toFixed(2)),
   }))
+
+  /**
+   * ★ 호버 — **목업에 있던 것을 되살린다** ★
+   *
+   * 마크업은 처음부터 있었다(열 단위 투명 오버레이 + 툴팁). `trendCols`가 빈
+   * 배열이라 잡을 것이 없었을 뿐이다. 툴팁은 그날의 분해를 원 단위로 준다 —
+   * 차트가 백만원으로 반올림하므로, 정확한 값은 여기서만 읽힌다.
+   */
+  const hover = rows.trendIdx ?? -1
+  vals.trendCols = (daily?.points ?? []).map((_, i) => ({
+    enter: () => rows.onTrend?.(i),
+    leave: () => rows.onTrend?.(-1),
+    bg: hover === i ? "var(--bg-hover)" : "transparent",
+  }))
+  const hot = hover >= 0 ? daily?.points[hover] : undefined
+  vals.trendTip =
+    hot === undefined
+      ? null
+      : {
+          head: `${hot.day} · 주문 ${hot.orderCount.toLocaleString()}건`,
+          left: `clamp(0px, calc(${(((hover + 0.5) / Math.max(1, daily?.points.length ?? 1)) * 100).toFixed(2)}% - 90px), calc(100% - 180px))`,
+          rows: [
+            { name: "매출", val: `${won(hot.revenue)}원`, color: "var(--fg)" },
+            { name: "매입원가", val: `${won(hot.cogs)}원`, color: "var(--fg-2)" },
+            ...(hot.fee + hot.shipping > 0
+              ? [{ name: "수수료·배송", val: `${won(hot.fee + hot.shipping)}원`, color: "var(--fg-2)" }]
+              : []),
+            ...(hot.claims > 0
+              ? [{ name: "클레임", val: `${won(hot.claims)}원`, color: RED }]
+              : []),
+            {
+              name: "기여이익",
+              val: `${signed(hot.contribution)}원`,
+              color: hot.contribution >= 0 ? GREEN : RED,
+            },
+          ],
+        }
   vals.scopeLine =
     daily === undefined || daily.periodOnly === 0
       ? `${period.from} ~ ${period.to} · 전 채널`

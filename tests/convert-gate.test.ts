@@ -83,6 +83,28 @@ const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[
       "«여기서 달을 고를 수 있다»가 거짓이 된다",
   },
 
+  {
+    field: "classes",
+    // `db-table-wrap`은 여덟 곳에 있다 — 앞 항목을 붙여 대시보드의 그 표로 좁힌다.
+    from: ["rp-keep", "db-table-wrap"],
+    to: ["rp-keep", "db-table-wrap fb-pnl-scroll"],
+    why:
+      "상품별 손익 표에 **세로 스크롤**을 준다 (2026-08-17). 실측 60행이 카드 밖으로 " +
+      "흘러 채널별 손익을 화면 아래로 밀어냈다. 목업에는 세로 스크롤이 없는데(전체에서 " +
+      "`max-height`는 드롭다운 하나뿐) **시드에 상품이 몇 개 없어 드러나지 않았을 뿐**이다. " +
+      "규칙은 CSS에 두고 여기서는 클래스만 더한다. 헤더는 `th`가 이미 `sticky; top: 0`이라 " +
+      "스크롤 상자만 주면 붙고, 합계는 CSS가 `tbody tr:last-child`로 **구조로** 짚어 " +
+      "바닥에 고정한다 — 마크업을 더 건드리지 않으려는 선택이다",
+  },
+
+  {
+    field: "attrs",
+    // `attrs`는 속성 원문도 따로 세므로 위 `classes` 선언과 **짝으로** 간다.
+    from: ["size=12", "class=db-table-wrap"],
+    to: ["size=12", "class=db-table-wrap fb-pnl-scroll"],
+    why: "위 «상품별 손익 표 세로 스크롤»의 속성 쪽 짝",
+  },
+
   // ── §21-4 «KPI 카드 — 스파크라인 제거» ────────────────────────────────
   // "값 · 변화 · 분모만 남긴다. 추세는 아래의 큰 차트가 말한다."
   {

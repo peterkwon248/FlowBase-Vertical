@@ -129,6 +129,8 @@ export function App(): React.JSX.Element {
   const [profitRows, setProfitRows] = useState<readonly ProfitRow[]>([])
   const [channelRows, setChannelRows] = useState<readonly ChannelRow[]>([])
   const [daily, setDaily] = useState<DailySeries>({ points: [], periodOnly: 0 })
+  /** 일별 차트에서 호버 중인 칸. -1이면 안 떠 있다 — 화면 상태라 DB에 가지 않는다. */
+  const [trendIdx, setTrendIdx] = useState(-1)
   /**
    * ★ 보고 있는 달 (MVP 1, 2026-08-16) ★
    *
@@ -717,6 +719,8 @@ export function App(): React.JSX.Element {
       products: profitRows,
       channels: channelRows,
       daily,
+      trendIdx,
+      onTrend: setTrendIdx,
     })
     // 데이터가 들어왔으니 첫 실행 안내는 지나간다.
     vals.firstRun = false

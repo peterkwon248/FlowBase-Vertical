@@ -188,3 +188,23 @@
   position: fixed; inset: 0; z-index: 260; background: var(--bg-app);
   display: grid; grid-template-rows: auto minmax(0, 1fr);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   상품별 손익 — 표 안에서 스크롤하고, 합계는 바닥에 붙는다 (2026-08-17)
+   ═══════════════════════════════════════════════════════════════
+   실측 60행이 카드 밖으로 흘러 채널별 손익을 화면 아래로 밀어냈다. 목업에는
+   세로 스크롤이 없는데(전체에서 max-height는 드롭다운 하나뿐) 그건 시드에
+   상품이 몇 개 없어 드러나지 않았을 뿐이다 — 실데이터에서는 필요하다.
+
+   헤더는 `.db-table th`가 이미 `position: sticky; top: 0`이라 스크롤 상자만
+   주면 저절로 붙는다. 합계는 같은 방식으로 **바닥**에 붙인다: 60행을 훑는
+   동안 합계가 화면 밖으로 사라지면 그 표가 답하는 질문이 반쪽이 된다. */
+.fb-pnl-scroll { max-height: 380px; overflow-y: auto; }
+/* 합계는 **구조로** 짚는다 — `tbody`의 마지막 행이 합계다. 클래스를 더하면
+   동결 목업과의 대조에 이탈 선언이 하나 더 생기는데, 그 값이 이 규칙 하나만큼
+   크지 않다. 행이 늘어나도 «마지막»의 뜻은 변하지 않는다. */
+.fb-pnl-scroll .db-table tbody tr:last-child td {
+  position: sticky; bottom: 0; z-index: 1;
+  background: var(--bg-subtle);
+  border-top: 1px solid var(--border-strong);
+}

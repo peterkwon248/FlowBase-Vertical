@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest"
 import { existsSync } from "node:fs"
 import { openNodeDriver } from "../src/core/store/driver-node.js"
-import { loadChannelRows, loadProfitRows } from "../src/core/profit/rows.js"
+import { loadChannelRows, loadDailySeries, loadProfitRows } from "../src/core/profit/rows.js"
 import { loadPnlSnapshot } from "../src/core/profit/snapshot.js"
 import type { Period } from "../src/core/profit/index.js"
 import { DEV_SNAPSHOT } from "./dev-db.js"
@@ -76,5 +76,43 @@ run("상품별 손익 — 대시보드와 같은 답을 낸다", () => {
     const fee = channels.reduce((a, c) => a + c.fee, 0)
     // 스냅샷의 «조인된 정산»과 같은 규칙이라 합이 같아야 한다.
     expect(fee).toBe(snap.settlement.joined.fee + snap.settlement.joined.vat)
+  })
+})
+
+run("일별 차트 — 제목이 말하는 것을 그린다", () => {
+  async function daily() {
+    const db = openNodeDriver(DEV_SNAPSHOT, { pragmas: false })
+    try {
+      return {
+        series: await loadDailySeries(db, LIB, PERIOD),
+        snap: await loadPnlSnapshot(db, LIB, PERIOD),
+      }
+    } finally {
+      await db.close()
+    }
+  }
+
+  it("★ 값은 **기여이익**이다 — 매출이 아니다 ★ (제목이 「일별 기여이익」이다)", async () => {
+    const { series } = await daily()
+    expect(series.points.length).toBeGreaterThan(0)
+    for (const p of series.points) {
+      // 항등식: 기여이익 = 매출 − 수수료 − 배송 − 클레임 − 매입원가
+      expect(p.contribution).toBe(p.revenue - p.fee - p.shipping - p.claims - p.cogs)
+      // 매출과 같으면 비용이 하나도 안 붙은 것이다 — 원가가 들어온 지금 그럴 수 없다.
+      if (p.cogs > 0) expect(p.contribution).not.toBe(p.revenue)
+    }
+  })
+
+  it("★ 기간 집계는 **빼고**, 뺀 금액을 들고 나온다 ★", async () => {
+    const { series, snap } = await daily()
+    const dated = series.points.reduce((a, p) => a + p.revenue, 0)
+    // 일별 합 + 기간집계 = 총매출. 이 항등식이 «얼마를 못 그렸나»의 근거다.
+    expect(dated + series.periodOnly).toBe(snap.pnl.revenue)
+    expect(series.periodOnly).toBe(snap.periodAggregated.amount)
+  })
+
+  it("가짜 봉우리가 없다 — 어느 하루도 기간집계 금액을 통째로 이고 있지 않다", async () => {
+    const { series } = await daily()
+    for (const p of series.points) expect(p.revenue).toBeLessThan(series.periodOnly || Infinity)
   })
 })

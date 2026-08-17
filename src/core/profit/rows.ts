@@ -116,6 +116,20 @@ export interface DailyPoint {
   readonly day: string
   /** 그날 주문의 매출. **일별로 쪼갤 수 있는 것만** 들어온다 (아래 참조). */
   readonly revenue: number
+  readonly orderCount: number
+  readonly cogs: number
+  readonly claims: number
+  /** 그날 **주문**에 이어 붙은 정산 수수료(+VAT). 정산일이 아니라 주문일 기준이다. */
+  readonly fee: number
+  readonly shipping: number
+  /**
+   * ★ 이 차트가 그리는 값 ★ `매출 − 수수료 − 배송비 − 클레임 − 매입원가`.
+   *
+   * 스냅샷의 `productContribution`과 **같은 항**을 쓴다(운영비만 빠진다 — 그건
+   * 월 단위 기준값이라 날짜에 붙지 않는다). 카드 제목이 「일별 기여이익」이므로
+   * 여기서 매출을 그리면 **제목이 거짓말을 한다** — 실제로 한 번 그랬다.
+   */
+  readonly contribution: number
 }
 
 export interface DailySeries {
@@ -146,16 +160,68 @@ export async function loadDailySeries(
   libraryId: string,
   period: Period,
 ): Promise<DailySeries> {
+  /** 기간 집계 행을 뺀 «날짜가 있는 주문»만. 이 조건이 세 조회에 똑같이 걸린다. */
+  const DATED = "(o.date_precision IS NULL OR o.date_precision <> 'period')"
+
   const rows = await db
     .prepare(
-      `SELECT substr(ordered_at, 1, 10) AS day, COALESCE(SUM(total_amount), 0) AS revenue
-         FROM active_order
-        WHERE library_id = ? AND ordered_at >= ? AND ordered_at < date(?, '+1 day')
-          AND (date_precision IS NULL OR date_precision <> 'period')
+      `SELECT substr(o.ordered_at, 1, 10) AS day,
+              COALESCE(SUM(o.total_amount), 0) AS revenue,
+              COUNT(*) AS orders
+         FROM active_order o
+        WHERE o.library_id = ? AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')
+          AND ${DATED}
         GROUP BY day
         ORDER BY day`,
     )
     .all(libraryId, period.from, period.to)
+
+  const cogsByDay = await db
+    .prepare(
+      `SELECT substr(o.ordered_at, 1, 10) AS day,
+              COALESCE(SUM(oi.quantity * ${COST}), 0) AS cogs
+       ${ITEM_JOIN}
+        WHERE oi.library_id = ? AND ${SOLD} AND ${DATED}
+          AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')
+        GROUP BY day`,
+    )
+    .all(libraryId, period.from, period.to)
+
+  /** 클레임은 **자기 날짜**로 붙는다 — 주문일이 아니라 클레임 발생일이다. */
+  const claimsByDay = await db
+    .prepare(
+      `SELECT substr(claimed_at, 1, 10) AS day, COALESCE(SUM(amount), 0) AS amt
+         FROM active_claim
+        WHERE library_id = ? AND claimed_at >= ? AND claimed_at < date(?, '+1 day')
+        GROUP BY day`,
+    )
+    .all(libraryId, period.from, period.to)
+
+  /** 수수료·배송비는 **주문 귀속**이다 (ADR-009 ①) — 정산일이 아니라 주문일로 묶는다. */
+  const feeByDay = await db
+    .prepare(
+      `SELECT substr(o.ordered_at, 1, 10) AS day,
+              COALESCE(SUM(s.fee_amount + s.vat_amount), 0) AS fee,
+              COALESCE(SUM(s.shipping_amount), 0) AS ship
+         FROM active_settlement s
+         JOIN active_order o ON o.source_key = s.order_source_key
+        WHERE s.library_id = ? AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')
+          AND ${DATED}
+        GROUP BY day`,
+    )
+    .all(libraryId, period.from, period.to)
+
+  const byDay = <T>(list: readonly Record<string, unknown>[], pick: (r: Record<string, unknown>) => T) => {
+    const m = new Map<string, T>()
+    for (const r of list) m.set(String(r["day"] ?? ""), pick(r))
+    return m
+  }
+  const cogsMap = byDay(cogsByDay, (r) => Number(r["cogs"] ?? 0))
+  const claimMap = byDay(claimsByDay, (r) => Number(r["amt"] ?? 0))
+  const feeMap = byDay(feeByDay, (r) => ({
+    fee: Number(r["fee"] ?? 0),
+    ship: Number(r["ship"] ?? 0),
+  }))
 
   const spread = await db
     .prepare(
@@ -167,10 +233,24 @@ export async function loadDailySeries(
     .get(libraryId, period.from, period.to)
 
   return {
-    points: rows.map((r) => ({
-      day: String(r["day"] ?? ""),
-      revenue: Number(r["revenue"] ?? 0),
-    })),
+    points: rows.map((r) => {
+      const day = String(r["day"] ?? "")
+      const revenue = Number(r["revenue"] ?? 0)
+      const cogs = cogsMap.get(day) ?? 0
+      const claims = claimMap.get(day) ?? 0
+      const { fee, ship } = feeMap.get(day) ?? { fee: 0, ship: 0 }
+      return {
+        day,
+        revenue,
+        orderCount: Number(r["orders"] ?? 0),
+        cogs,
+        claims,
+        fee,
+        shipping: ship,
+        // 스냅샷의 `productContribution`과 같은 항 (운영비만 제외 — 월 기준값이다).
+        contribution: revenue - fee - ship - claims - cogs,
+      }
+    }),
     periodOnly: Number(spread?.["amt"] ?? 0),
   }
 }
