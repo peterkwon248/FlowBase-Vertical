@@ -26,6 +26,11 @@ import { migrate } from "../src/core/store/migrate-node.js"
 import { Repository, type FileSightingRecord } from "../src/core/store/repository.js"
 import { describeColumns, SAMPLE_MAX } from "../src/core/import/columns.js"
 import type { RawRow } from "../src/core/import/types.js"
+import { readFileSync, existsSync } from "node:fs"
+import { analyzeImport } from "../src/core/import/analyze.js"
+import { runImport } from "../src/core/import/run.js"
+import type { MappingProfile } from "../src/core/import/mapping/index.js"
+import { FIXTURES, fixturePath, CLEAN_DIR } from "./fixtures.js"
 
 const LIB = "lib-1"
 const CONN = "conn-1"
@@ -271,5 +276,108 @@ describe("recordFileSighting — 적재와 무관하게 남는다", () => {
     expect(rows.map((r) => r["column_count"]).sort((a, b) => Number(a) - Number(b))).toEqual([
       61, 63,
     ])
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════
+/**
+ * 실파일 관통 — **배선된 두 자리가 진짜로 남기는지.**
+ *
+ * 위의 단위 테스트는 「저장 계층이 옳다」를 본다. 여기는 「가져오기가 실제로
+ * 그걸 부른다」를 본다. 둘은 다른 질문이고, 후자가 빠지면 표만 있고 아무도
+ * 안 쓰는 상태가 조용히 유지된다 — 배선 게이트(`npm run wiring`)를 만든 이유와 같다.
+ */
+const FIX = FIXTURES.find((f) => f.id === 6)!
+const FIX_PATH = fixturePath(FIX, CLEAN_DIR)
+const PROFILE_PATH = "src/packs/kr-marketplace/profiles/11st-settlement@1.json"
+const FIX_CONN = "conn-11st"
+
+const ready = existsSync(FIX_PATH)
+const run = ready ? describe : describe.skip
+if (!ready) console.warn("[file-columns] fixtures/clean이 없어 관통 검증을 건너뛴다")
+
+run("실파일 관통 — 열 이름이 실제로 남는다", () => {
+  let db: Driver
+  let repo: Repository
+  const bytes = (): Uint8Array => new Uint8Array(readFileSync(FIX_PATH))
+  const profile = (): MappingProfile =>
+    JSON.parse(readFileSync(PROFILE_PATH, "utf-8")) as MappingProfile
+
+  beforeEach(async () => {
+    db = openNodeDriver()
+    await seed(db)
+    repo = new Repository(db)
+  })
+
+  it("★ 프로파일이 하나도 없어도 열은 서술된다 — 「넣을 수 없다」의 반대편", async () => {
+    // 프로파일 목록을 **비워서** 부른다. 미지의 양식을 만난 상황 그대로다.
+    const a = await analyzeImport(bytes(), FIX.file, [])
+    expect(a.profiles).toHaveLength(0)
+    expect(a.columns.length).toBeGreaterThan(0)
+    expect(a.columns.every((c) => typeof c.kind === "string")).toBe(true)
+  })
+
+  it("★ runImport가 목격을 남긴다 — 배치·프로파일이 붙는다", async () => {
+    const p = profile()
+    await repo.ensureConnection(
+      {
+        id: FIX_CONN,
+        libraryId: LIB,
+        packId: p.packId,
+        marketplaceKey: p.marketplaceKey,
+        displayName: p.displayName,
+      },
+      AT,
+    )
+    await runImport(repo, {
+      bytes: bytes(),
+      fileName: FIX.file,
+      profile: p,
+      sheetIndex: 0,
+      libraryId: LIB,
+      connectionId: FIX_CONN,
+      batchId: "b-run",
+      now: AT,
+    })
+
+    const rows = await repo.fileSightings(LIB)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.["batch_id"]).toBe("b-run")
+    expect(rows[0]?.["profile_id"]).toBe(p.id)
+    expect(rows[0]?.["source_name"]).toBe(FIX.file)
+  })
+
+  it("★ 매핑되지 않은 열의 **이름**이 남는다 — 지금까지 수 하나로 뭉개지던 것", async () => {
+    const p = profile()
+    await repo.ensureConnection(
+      {
+        id: FIX_CONN,
+        libraryId: LIB,
+        packId: p.packId,
+        marketplaceKey: p.marketplaceKey,
+        displayName: p.displayName,
+      },
+      AT,
+    )
+    const r = await runImport(repo, {
+      bytes: bytes(),
+      fileName: FIX.file,
+      profile: p,
+      sheetIndex: 0,
+      libraryId: LIB,
+      connectionId: FIX_CONN,
+      batchId: "b-run",
+      now: AT,
+    })
+
+    const [seen] = await repo.fileSightings(LIB)
+    const cols = await repo.fileColumns(Number(seen?.["id"]))
+
+    // 파일이 가진 열 전부가 남는다 — 매핑된 소수가 아니라.
+    expect(cols.length).toBe(r.header.columns.length)
+    // 그리고 그 수는 「매핑 안 된 열 수」보다 크다. 이 부등식이 곧 이번 작업이다:
+    // 예전에는 이름 없이 **수만** 알았다.
+    expect(cols.length).toBeGreaterThan(r.unmappedColumnCount)
+    expect(cols.every((c) => typeof c["header"] === "string")).toBe(true)
   })
 })
