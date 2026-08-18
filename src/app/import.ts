@@ -48,6 +48,46 @@ const NEG = "var(--pnl-neg)"
  */
 export const BIG_FILE_BYTES = 4 * 1024 * 1024
 
+/**
+ * 맞는 양식이 없을 때 **앱이 아는 만큼만** 말한다 (2026-08-18).
+ *
+ * ─────────────────────────────────────────────────────────────
+ * ★ 이 자리에 있던 문장은 거짓이었다 ★
+ *
+ *   "맞는 매핑 프로파일이 없습니다 — 이 **파일**은 넣을 수 없습니다"
+ *
+ * 앱이 아는 것은 「이 **시트**에서 못 찾았다」뿐이었는데 파일 전체를 단정했다.
+ * 사용자의 실파일 두 장이 그 문장 때문에 막혀 있었고 — 그 안의 시트 5·11은
+ * **확신도 100%로 맞았다.** 데이터가 틀리게 저장되는 게 아니라 **말이 틀렸고**,
+ * 그 말 때문에 되는 일을 안 된다고 믿게 만들었다 (LOCK 6 계열).
+ *
+ * 이제 판정이 전 시트를 훑으므로(`analyze.ts`) 세 경우가 갈린다:
+ *
+ *   ① 다른 시트에 답이 있다   → **어느 시트인지 말한다**. 이게 대부분이다
+ *   ② 어느 시트에서도 못 찾았다 → 그제서야 «이 파일은»이라고 말해도 참이다
+ *   ③ 시트가 하나뿐이다       → 「시트」를 말하는 게 오히려 헷갈린다
+ * ─────────────────────────────────────────────────────────────
+ */
+export function noMatchLine(a: ImportAnalysis): string {
+  const hit =
+    a.suggestedSheetIndex === null
+      ? undefined
+      : a.sheetMatches.find((m) => m.sheetIndex === a.suggestedSheetIndex)
+  const best = hit?.profiles.find((p) => p.blockedBy === undefined)
+
+  if (hit !== undefined && best !== undefined) {
+    return (
+      `이 시트에서는 맞는 양식을 찾지 못했습니다 — ` +
+      `「${hit.sheetName}」 시트가 ${best.profile.displayName} · ${best.profile.label}와 ` +
+      `${Math.round(best.confidence * 100)}% 일치합니다. 아래에서 그 시트를 고르세요`
+    )
+  }
+  // 시트가 하나뿐이면 「이 시트에서는」이 군더더기다 — 파일과 시트가 같은 말이다.
+  if (a.sheets.length <= 1) return "맞는 매핑 프로파일이 없습니다 — 이 파일은 넣을 수 없습니다"
+  // ★ 여기서만 «파일 전체»를 말한다. 실제로 전부 봤기 때문이다.
+  return `${a.sheetMatches.length}개 시트를 모두 살펴봤지만 맞는 양식이 없습니다 — 이 파일은 넣을 수 없습니다`
+}
+
 export interface ImportWizardState {
   /** 고른 파일의 분석 결과. `null`이면 아직 아무것도 안 골랐다. */
   readonly analysis: ImportAnalysis | null
@@ -266,27 +306,42 @@ export function importVals(
         : ` (예: ${match.profile.recognitionRules.fileNameExample})`)
     : match
       ? `일치도 ${Math.round(match.confidence * 100)}% · ${match.evidence.join(" · ")}`
-      : "맞는 매핑 프로파일이 없습니다 — 이 파일은 넣을 수 없습니다"
+      : noMatchLine(a)
 
   // ── §18 시트 선택 ────────────────────────────────────────────────
   // 시트가 여럿이면 사람이 고른다. 역할·사유·수식비율을 함께 보인다 —
   // 96%가 수식인 시트는 다른 시트에서 계산된 결과이고, 사실로 적재하면
   // 숫자가 두 번 더해진다.
   vals.impManySheets = a.sheets.length > 1
-  vals.impSheets = a.sheets.map((s, i) => ({
-    label: s.name,
-    on: i === a.sheetIndex ? "active" : "",
-    note: [
-      s.reason,
-      `${won(s.physicalRowCount)}행`,
-      s.formulaRatio === null ? "" : `수식 ${Math.round(s.formulaRatio * 100)}%`,
-    ]
-      .filter((t) => t !== "")
-      .join(" · "),
-    // 수식 비율이 높으면 눈에 띄게 — 판단 재료지 결정이 아니다 (§18-A)
-    color: s.formulaRatio !== null && s.formulaRatio > 0.5 ? WARN : DIM,
-    pick: () => act.pickSheet(i),
-  }))
+  vals.impSheets = a.sheets.map((s, i) => {
+    /**
+     * ★ 「이 시트가 무엇인지」를 목록에서 바로 말한다 ★
+     *
+     * 19장짜리 워크북에서 «시트를 골라 보세요»만 있으면 사용자는 열아홉 번을
+     * 눌러 봐야 한다. 판정은 이미 전 시트에 대해 끝나 있으므로(`sheetMatches`),
+     * 아는 것을 목록에 적는 것이 맞다 — 고르는 일이 **탐색이 아니라 확인**이 된다.
+     */
+    const m = a.sheetMatches.find((x) => x.sheetIndex === i)
+    const hit = m?.profiles.find((p) => p.blockedBy === undefined)
+    return {
+      label: s.name,
+      on: i === a.sheetIndex ? "active" : "",
+      note: [
+        hit === undefined
+          ? ""
+          : `★ ${hit.profile.label} ${Math.round(hit.confidence * 100)}%`,
+        s.reason,
+        `${won(s.physicalRowCount)}행`,
+        s.formulaRatio === null ? "" : `수식 ${Math.round(s.formulaRatio * 100)}%`,
+      ]
+        .filter((t) => t !== "")
+        .join(" · "),
+      // 맞는 양식이 있는 시트는 초록으로 — 수식 경고보다 이 신호가 앞선다.
+      // 수식 비율이 높으면 눈에 띄게 — 판단 재료지 결정이 아니다 (§18-A)
+      color: hit !== undefined ? G : s.formulaRatio !== null && s.formulaRatio > 0.5 ? WARN : DIM,
+      pick: () => act.pickSheet(i),
+    }
+  })
 
   // ── 확인: 무엇이 들어가나 ────────────────────────────────────────
   //

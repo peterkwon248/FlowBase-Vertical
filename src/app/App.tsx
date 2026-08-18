@@ -529,7 +529,7 @@ export function App(): React.JSX.Element {
        * 표본은 이미 손에 있었는데 아무데도 안 남겼다. `profiles[0]`이 없으면
        * `null`로 남는다 — 「맞는 양식이 없었다」도 기록할 값이다.
        */
-      void recordSighting(analysis, analysis.profiles[0]?.profile.id ?? null)
+      void recordSighting(analysis)
       setWiz((w) => ({ ...w, analysis, priorSame, profileIndex: 0, error: null, busy: false }))
     } catch (e) {
       setWiz((w) => ({

@@ -367,32 +367,45 @@ export async function findPriorImports(
  * `analyzeImport`는 DB를 건드리지 않는다는 계약이라(시트 바꿔 다시 보기가 싸야
  * 한다) 저장은 부르는 쪽인 여기서 한다 — `findPriorImports`와 같은 자리다.
  *
+ * **훑은 시트를 전부 남긴다** — 판정이 이미 전 시트를 봤으므로 재료가 손에 있다.
+ *
  * 실패해도 가져오기를 막지 않는다. 배우지 못하는 것이 못 넣는 것보다 낫다.
  */
-export async function recordSighting(
-  a: ImportAnalysis,
-  profileId: string | null,
-): Promise<void> {
+export async function recordSighting(a: ImportAnalysis): Promise<void> {
   try {
     const db = await open()
     try {
       await catchUp(db)
-      const sheet = a.sheets[a.sheetIndex]
-      await new Repository(db).recordFileSighting({
-        libraryId: DEV_LIBRARY,
-        sourceHash: a.contentHash,
-        sourceName: a.fileName,
-        sourceBytes: a.byteLength,
-        containerFormat: a.format,
-        sheetIndex: a.sheetIndex,
-        sheetName: sheet?.name ?? null,
-        headerRowIndex: a.header.rowIndex,
-        profileId,
-        // 아직 안 넣었다. 넣으면 `runImport`가 같은 키로 갱신하며 배치를 붙인다.
-        batchId: null,
-        at: nowStamp(),
-        columns: a.columns,
-      })
+      const repo = new Repository(db)
+      const at = nowStamp()
+      /**
+       * ★ **훑은 시트 전부**를 남긴다 — 고른 하나가 아니라 ★
+       *
+       * 판정이 이미 전 시트를 봤으므로(`sheetMatches`) 재료는 손에 있다. 고른
+       * 시트만 남기면 19장짜리 워크북에서 18장을 또 잃는다 — 그리고 하필 그
+       * 18장에 원가 마스터(7열)와 자사몰(101열)이 들어 있다.
+       *
+       * 드리프트의 증거도 안 고른 시트에 있다: 같은 11번가 양식이 한 파일에서
+       * 63열, 다른 파일에서 60열이었다.
+       */
+      for (const m of a.sheetMatches) {
+        await repo.recordFileSighting({
+          libraryId: DEV_LIBRARY,
+          sourceHash: a.contentHash,
+          sourceName: a.fileName,
+          sourceBytes: a.byteLength,
+          containerFormat: a.format,
+          sheetIndex: m.sheetIndex,
+          sheetName: m.sheetName,
+          headerRowIndex: m.header.rowIndex,
+          // 시트마다 답이 다르다. 「이 파일의 프로파일」 같은 것은 없다.
+          profileId: m.profiles[0]?.profile.id ?? null,
+          // 아직 안 넣었다. 넣으면 `runImport`가 같은 키로 갱신하며 배치를 붙인다.
+          batchId: null,
+          at,
+          columns: m.columns,
+        })
+      }
     } finally {
       await db.close()
     }
