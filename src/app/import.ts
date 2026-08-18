@@ -78,7 +78,9 @@ export function noMatchLine(a: ImportAnalysis): string {
   if (hit !== undefined && best !== undefined) {
     return (
       `이 시트에서는 맞는 양식을 찾지 못했습니다 — ` +
-      `「${hit.sheetName}」 시트가 ${best.profile.displayName} · ${best.profile.label}와 ` +
+      // `displayName`과 `label`을 나란히 쓰면 마켓 이름이 두 번 나온다
+      // ("ESM (G마켓·옥션) · ESM 주문통합검색 (G마켓·옥션)"). 문서 이름 하나면 충분하다.
+      `「${hit.sheetName}」 시트가 ${best.profile.label}와 ` +
       `${Math.round(best.confidence * 100)}% 일치합니다. 아래에서 그 시트를 고르세요`
     )
   }
@@ -330,7 +332,9 @@ export function importVals(
         hit === undefined
           ? ""
           : `★ ${hit.profile.label} ${Math.round(hit.confidence * 100)}%`,
-        s.reason,
+        // ★ 결함 62 ★ `reason`이 «1000행»이라 그대로 쓰면 행 수가 두 번 찍힌다
+        // ("1000행 · 1,000행"). 같은 사실이면 자릿수 구분이 있는 쪽만 남긴다.
+        s.reason === `${s.physicalRowCount}행` ? "" : s.reason,
         `${won(s.physicalRowCount)}행`,
         s.formulaRatio === null ? "" : `수식 ${Math.round(s.formulaRatio * 100)}%`,
       ]
