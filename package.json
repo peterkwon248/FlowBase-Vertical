@@ -15,7 +15,8 @@
     "e2e": "tsx tools/harness/e2e-gate.ts",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "wiring": "tsx tools/harness/wiring.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
