@@ -32,6 +32,7 @@ import { loadCoverage, type ConnectionCoverage } from "@core/coverage/load.js"
 import { loadHistoryRows, type HistoryRow } from "@core/history/rows.js"
 import { loadProductRows, type ProductView } from "@core/product/rows.js"
 import { Repository, type BatchDigest } from "@core/store/repository.js"
+import type { ImportAnalysis } from "@core/import/analyze.js"
 import { krLinkingMatcher } from "@packs/kr-marketplace/linking-matcher.js"
 import { krDocTypeResolver } from "@packs/kr-marketplace/markets/index.js"
 import { defaultMonth, loadAvailableMonths, monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
@@ -352,6 +353,51 @@ export async function findPriorImports(
     }
   } catch {
     return []
+  }
+}
+
+/**
+ * 판정 단계에서 본 것을 남긴다 — **넣지 않아도 남는다** (마이그레이션 009).
+ *
+ * ★ 여기가 「파일이 증발하던」 자리다 ★
+ * 프로파일이 없으면 위저드는 «넣을 수 없습니다»로 끝났고 기록이 0이었다. 그래서
+ * 같은 파일을 다음 달에 다시 넣어도 앱은 처음 보는 것처럼 굴었다. 이제 **본 것은
+ * 남는다** — 맞는 양식이 없었다는 사실까지 포함해서.
+ *
+ * `analyzeImport`는 DB를 건드리지 않는다는 계약이라(시트 바꿔 다시 보기가 싸야
+ * 한다) 저장은 부르는 쪽인 여기서 한다 — `findPriorImports`와 같은 자리다.
+ *
+ * 실패해도 가져오기를 막지 않는다. 배우지 못하는 것이 못 넣는 것보다 낫다.
+ */
+export async function recordSighting(
+  a: ImportAnalysis,
+  profileId: string | null,
+): Promise<void> {
+  try {
+    const db = await open()
+    try {
+      await catchUp(db)
+      const sheet = a.sheets[a.sheetIndex]
+      await new Repository(db).recordFileSighting({
+        libraryId: DEV_LIBRARY,
+        sourceHash: a.contentHash,
+        sourceName: a.fileName,
+        sourceBytes: a.byteLength,
+        containerFormat: a.format,
+        sheetIndex: a.sheetIndex,
+        sheetName: sheet?.name ?? null,
+        headerRowIndex: a.header.rowIndex,
+        profileId,
+        // 아직 안 넣었다. 넣으면 `runImport`가 같은 키로 갱신하며 배치를 붙인다.
+        batchId: null,
+        at: nowStamp(),
+        columns: a.columns,
+      })
+    } finally {
+      await db.close()
+    }
+  } catch {
+    /* 배우지 못해도 가져오기는 계속된다 */
   }
 }
 

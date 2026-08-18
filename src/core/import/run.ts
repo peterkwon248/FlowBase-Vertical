@@ -47,7 +47,8 @@ import {
 import { collectListings } from "./mapping/listing.js"
 import { sha1Bytes } from "./mapping/sha1.js"
 import { isFatal, scopeOf } from "./issues.js"
-import type { ExcludedRow, HeaderDetection, SheetInfo } from "./types.js"
+import type { ExcludedRow, HeaderDetection, RawRow, SheetInfo } from "./types.js"
+import { describeColumns, SAMPLE_ROWS } from "./columns.js"
 import {
   listingIdFor,
   type BatchOpen,
@@ -168,6 +169,9 @@ export async function runImport(
      */
     const cleaned = await repo.abortStaleBatches(o.libraryId, o.connectionId, o.now)
 
+    /** 파일 지문. 배치와 목격이 **같은 값**을 써야 둘이 이어진다 (006 · 009). */
+    const sourceHash = hex(sha1Bytes(o.bytes))
+
     const batch: BatchOpen = {
       id: o.batchId,
       libraryId: o.libraryId,
@@ -177,7 +181,7 @@ export async function runImport(
       // ★ 파일 지문 ★ 이게 있어야 «같은 바이트·다른 이름»을 다음 가져오기에서
       // 잡을 수 있다 (마이그레이션 006). 배관은 001부터 있었지만 아무도 값을
       // 넘기지 않아 늘 NULL이었다.
-      sourceHash: hex(sha1Bytes(o.bytes)),
+      sourceHash,
       containerFormat: top.format,
       // 어느 시트에서 왔는지 남긴다 — 여러 시트짜리 파일에서 이게 없으면
       // 나중에 "이 batch가 무엇이었나"를 되짚을 수 없다.
@@ -195,6 +199,14 @@ export async function runImport(
     const keyState = newKeyState()
 
     let headers: string[] = []
+    /**
+     * 열 서술용 표본 — **첫 청크의 앞부분만** 잡는다 (마이그레이션 009).
+     *
+     * 종류 추론은 표본 200개면 충분하고(`inferColumnKind`), 8만 행을 들고 있는
+     * 것은 LOCK 5가 금지한 바로 그 일이다. 여기서 잡지 않으면 적재 후에 파일을
+     * 다시 열어야 한다 — 같은 바이트를 두 번 읽는 값이 이 배열보다 비싸다.
+     */
+    const sampleRows: RawRow[] = []
     let loaded = 0
     let offset = 0
     let unmappedColumnCount = 0
@@ -225,6 +237,12 @@ export async function runImport(
 
     for await (const chunk of chunks) {
       if (headers.length === 0) headers = [...getSummary().header.columns]
+
+      // 첫 청크에서만 채운다. `raws`는 원본 표현이라 화면이 파일과 같은 값을 보인다.
+      for (let i = 0; sampleRows.length < SAMPLE_ROWS && i < chunk.rowCount; i++) {
+        const at = i * chunk.width
+        sampleRows.push(chunk.raws.slice(at, at + chunk.width))
+      }
 
       const mapped = mapRows(
         o.profile,
@@ -459,6 +477,32 @@ export async function runImport(
       })),
     ])
     await repo.recordIssues(batch.id, issues)
+
+    /**
+     * ★ 무엇이 들어왔는지가 아니라 **파일이 무엇이었는지**를 남긴다 (009) ★
+     *
+     * 매핑된 8열만 이름을 갖고 나머지 51열은 `unmappedColumnCount`라는 **수 하나로**
+     * 뭉개져 왔다. 그 수는 「51개를 못 읽었다」는 말은 해도 「그것들이 무엇이었나」는
+     * 영영 못 한다. 여기서 남기면 다음 세션의 별칭 사전이 그 이름들을 재료로 쓴다.
+     *
+     * 판정 단계에서 이미 남겼을 수 있다(위저드가 그렇게 한다). 그때는 `batch_id`가
+     * 붙으면서 갱신될 뿐 행이 늘지 않는다 — 키가 `(라이브러리, 지문, 시트)`다.
+     */
+    await repo.recordFileSighting({
+      libraryId: o.libraryId,
+      sourceHash,
+      sourceName: o.fileName,
+      sourceBytes: o.bytes.length,
+      containerFormat: top.format,
+      sheetIndex: o.sheetIndex,
+      sheetName: sheet.name,
+      headerRowIndex: sum.header.rowIndex,
+      profileId: o.profile.id,
+      batchId: batch.id,
+      at: o.now,
+      columns: describeColumns(headers, sampleRows),
+    })
+
     await repo.commitBatch(batch.id, o.now)
 
     return {

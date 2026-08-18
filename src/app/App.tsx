@@ -44,7 +44,7 @@ import { importVals, BIG_FILE_BYTES, EMPTY_WIZARD, type ImportActions, type Impo
 import { analyzeImport } from "@core/import/analyze.js"
 import { runImport } from "@core/import/run.js"
 import { loadProfiles } from "@packs/kr-marketplace/profiles/index.js"
-import { DEV_LIBRARY, findPriorImports, loadDevSnapshot, nowStamp, readDigest, today, writeThenReload, type LoadResult } from "./data.js"
+import { DEV_LIBRARY, findPriorImports, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
@@ -522,6 +522,14 @@ export function App(): React.JSX.Element {
       // 같은 바이트가 이미 들어왔는지 — **파일명이 달라도** 잡힌다 (마이그레이션 006).
       // 실패해도 가져오기를 막지 않는다. 고지를 못 하는 것이 못 넣는 것보다 낫다.
       const priorSame = await findPriorImports(analysis.contentHash)
+      /**
+       * ★ 본 것을 남긴다 — **넣기 전에, 넣지 않아도** (마이그레이션 009) ★
+       *
+       * 프로파일이 없으면 여기서 끝나던 파일이 지금까지 통째로 증발했다. 열 이름과
+       * 표본은 이미 손에 있었는데 아무데도 안 남겼다. `profiles[0]`이 없으면
+       * `null`로 남는다 — 「맞는 양식이 없었다」도 기록할 값이다.
+       */
+      void recordSighting(analysis, analysis.profiles[0]?.profile.id ?? null)
       setWiz((w) => ({ ...w, analysis, priorSame, profileIndex: 0, error: null, busy: false }))
     } catch (e) {
       setWiz((w) => ({

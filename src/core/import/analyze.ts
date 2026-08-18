@@ -33,6 +33,7 @@ import { sniff } from "./recognition/sniff.js"
 import { parserFor } from "./parsers/index.js"
 import { streamSheet } from "./pipeline.js"
 import { matchProfiles, type MappingProfile, type ProfileMatch } from "./mapping/index.js"
+import { describeColumns, type ColumnSighting } from "./columns.js"
 import { sha1Bytes } from "./mapping/sha1.js"
 
 /** 지문은 사람이 보고 대조할 수 있어야 한다 — 16진 문자열로 남긴다. */
@@ -67,6 +68,17 @@ export interface ImportAnalysis {
   readonly sample: readonly RawRow[]
   /** ⚠ **미리보기 범위에서** 제외된 행. 전체 수가 아니다. */
   readonly sampleExcluded: readonly ExcludedRow[]
+  /**
+   * 이 시트가 가진 열을 **있는 그대로** 서술한 것 (마이그레이션 009).
+   *
+   * ★ `profiles`가 비어 있어도 이건 채워진다 — 그게 요점이다 ★
+   * 「맞는 양식이 없다」로 끝나던 파일도 열 이름·표본·추정 종류는 알고 있었다.
+   * 지금까지 그걸 아무데도 남기지 않아서 같은 파일을 매달 처음 보는 것처럼 굴었다.
+   *
+   * 여기서는 **만들기만 한다.** 저장은 부르는 쪽이다 — 이 함수는 DB를 건드리지
+   * 않는다는 계약이 위저드의 «시트 바꿔 다시 보기»를 싸게 만든다.
+   */
+  readonly columns: readonly ColumnSighting[]
   /** 파서가 남긴 말. 오늘까지 아무 호출부도 이걸 보지 않았다. */
   readonly warnings: readonly string[]
   /**
@@ -151,6 +163,7 @@ export async function analyzeImport(
       header: sum.header,
       sample,
       sampleExcluded: sum.excluded,
+      columns: describeColumns(headers, sample),
       warnings: [...src.warnings],
       contentHash: hex(sha1Bytes(bytes)),
     }

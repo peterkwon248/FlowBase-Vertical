@@ -19,6 +19,8 @@ import type { Driver, Row, SqlValue } from "./driver.js"
  * CHECK가 없어(008 참조) **이 타입이 유일한 잠금**이라 부탁으로 둘 수 없다.
  */
 import type { IssueCode } from "../import/issues.js"
+/** 열 서술의 모양은 `import/columns.ts`가 정한다 — 저장은 그걸 그대로 받아 적는다. */
+import type { ColumnSighting } from "../import/columns.js"
 
 /** 적재 가능한 Fact 테이블. 여기 없는 이름은 적재할 수 없다. */
 export const FACT_TABLES = [
@@ -144,6 +146,31 @@ export interface IssueRecord {
   readonly scope: "row" | "file"
   readonly rowIndex: number | null
   readonly detail: string
+}
+
+/**
+ * 「이 파일의 이 시트를 봤다」 — **적재와 무관하게 남는 사실** (마이그레이션 009).
+ *
+ * `profileId`와 `batchId`가 **둘 다 null인 것이 정상 경우**다. 맞는 양식이 없어
+ * 넣지 못한 파일이야말로 지금까지 통째로 증발하던 쪽이고, 이 기록을 만든 이유다.
+ */
+export interface FileSightingRecord {
+  readonly libraryId: string
+  /** 파일 지문 (SHA-1 hex) — `batch.source_hash`와 같은 값·같은 표기. */
+  readonly sourceHash: string
+  readonly sourceName: string
+  readonly sourceBytes: number
+  readonly containerFormat: string
+  readonly sheetIndex: number
+  readonly sheetName: string | null
+  /** 헤더 줄. **못 찾으면 null** — 0으로 넘겨짚지 않는다. */
+  readonly headerRowIndex: number | null
+  /** 맞은 프로파일. 없으면 null. */
+  readonly profileId: string | null
+  /** 적재까지 갔다면 그 배치. 안 갔으면 null. */
+  readonly batchId: string | null
+  readonly at: string
+  readonly columns: readonly ColumnSighting[]
 }
 
 /**
@@ -1024,6 +1051,121 @@ export class Repository {
       `INSERT INTO batch_issue (batch_id, code, scope, row_index, detail) VALUES (?,?,?,?,?)`,
       issues.map((i) => [batchId, i.code, i.scope, i.rowIndex, i.detail]),
     )
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 파일이 가진 열 — **매핑 이전의 사실** (마이그레이션 009)
+  // ─────────────────────────────────────────────────────────
+
+  /**
+   * 「이 파일의 이 시트를 봤다」를 남긴다. **적재와 무관하게** 남는다.
+   *
+   * ★ 프로파일이 없어도 부른다 — 그게 이 함수의 존재 이유다 ★
+   * 지금까지 프로파일 미일치는 「맞는 양식 없음」 한 문장으로 끝나고 기록이 0이라,
+   * 같은 파일을 다시 넣어도 앱은 처음 보는 것처럼 굴었다. `profileId: null`은
+   * 실패 표시가 아니라 **우리가 기록하려던 바로 그 사실**이다.
+   *
+   * 같은 `(라이브러리, 지문, 시트)`를 다시 보면 행을 늘리지 않고 갱신한다.
+   * 열은 **통째로 갈아 끼운다** — 헤더 판정이 달라졌다면(시트를 다시 고름) 옛
+   * 열이 남아 있는 편보다 없는 편이 정직하다.
+   *
+   * @returns `file_sighting.id` — 열이 매달린 자리
+   */
+  async recordFileSighting(s: FileSightingRecord): Promise<number> {
+    return this.db.transaction(async () => {
+      await this.db
+        .prepare(
+          `INSERT INTO file_sighting
+             (library_id, source_hash, source_name, source_bytes, container_format,
+              sheet_index, sheet_name, header_row_index, column_count,
+              profile_id, batch_id, first_seen_at, last_seen_at, seen_count)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+           ON CONFLICT(library_id, source_hash, sheet_index) DO UPDATE SET
+             -- 이름은 바뀔 수 있다 (이름만 바꿔 재가져오기 — 006). 마지막 이름을 쓴다.
+             source_name      = excluded.source_name,
+             sheet_name       = excluded.sheet_name,
+             header_row_index = excluded.header_row_index,
+             column_count     = excluded.column_count,
+             -- 현재 판정으로 덮는다. 프로파일이 늘거나 바뀌면 답도 바뀌는 게 맞다.
+             profile_id       = excluded.profile_id,
+             -- ★ 배치는 덮지 않는다 ★ 적재가 **일어났다**는 것은 되돌릴 수 없는
+             -- 사실이라, 뒤이은 «그냥 열어보기»가 그것을 NULL로 지우면 안 된다.
+             batch_id         = COALESCE(excluded.batch_id, file_sighting.batch_id),
+             last_seen_at     = excluded.last_seen_at,
+             seen_count       = file_sighting.seen_count + 1`,
+        )
+        .run(
+          s.libraryId,
+          s.sourceHash,
+          s.sourceName,
+          s.sourceBytes,
+          s.containerFormat,
+          s.sheetIndex,
+          s.sheetName,
+          s.headerRowIndex,
+          s.columns.length,
+          s.profileId,
+          s.batchId,
+          s.at,
+          s.at,
+        )
+
+      // 드라이버 계약은 `lastInsertRowid`를 노출하지 않는다(`RunResult`는 `changes`
+      // 뿐이다). UPSERT라 새 행인지 갱신인지도 갈리므로, 유일키로 되찾는 것이
+      // 두 경우 모두에 맞는 유일한 방법이다.
+      const row = await this.db
+        .prepare(
+          `SELECT id FROM file_sighting
+            WHERE library_id = ? AND source_hash = ? AND sheet_index = ?`,
+        )
+        .get(s.libraryId, s.sourceHash, s.sheetIndex)
+      const id = Number(row?.["id"])
+      if (!Number.isInteger(id)) throw new Error("목격 기록을 되찾지 못했다")
+
+      await this.db.prepare(`DELETE FROM file_column WHERE sighting_id = ?`).run(id)
+      if (s.columns.length > 0) {
+        await this.db.runMany(
+          `INSERT INTO file_column
+             (sighting_id, ordinal, header, sample_value, kind, kind_confidence, kind_reason)
+           VALUES (?,?,?,?,?,?,?)`,
+          s.columns.map((c) => [
+            id,
+            c.ordinal,
+            c.header,
+            c.sample,
+            c.kind,
+            c.confidence,
+            c.reason,
+          ]),
+        )
+      }
+      return id
+    })
+  }
+
+  /** 이 라이브러리에서 본 파일들. 최근 본 것부터. */
+  async fileSightings(libraryId: string, limit = 200): Promise<readonly Row[]> {
+    return this.db
+      .prepare(
+        `SELECT id, source_hash, source_name, source_bytes, container_format,
+                sheet_index, sheet_name, header_row_index, column_count,
+                profile_id, batch_id, first_seen_at, last_seen_at, seen_count
+           FROM file_sighting
+          WHERE library_id = ?
+          ORDER BY last_seen_at DESC, id DESC
+          LIMIT ?`,
+      )
+      .all(libraryId, limit)
+  }
+
+  /** 목격 하나의 열 전부. **순번 순서다** — 화면이 파일과 같은 순서로 그려야 한다. */
+  async fileColumns(sightingId: number): Promise<readonly Row[]> {
+    return this.db
+      .prepare(
+        `SELECT ordinal, header, sample_value, kind, kind_confidence, kind_reason
+           FROM file_column WHERE sighting_id = ? ORDER BY ordinal`,
+      )
+      .all(sightingId)
   }
 
   async commitBatch(batchId: string, at: string): Promise<void> {
