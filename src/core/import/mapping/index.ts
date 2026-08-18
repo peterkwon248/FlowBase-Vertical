@@ -27,6 +27,30 @@ export interface FieldMapping {
   readonly derive?:
     | { readonly from: "fileName"; readonly capture: string }
     | { readonly from: "constant"; readonly value: RawCell }
+    /**
+     * ★ 여러 열의 **곱** (2026-08-18) ★
+     *
+     * ─────────────────────────────────────────────────────────────
+     * 어떤 양식은 라인 합계를 주지 않고 **단가와 수량만** 준다. 자사몰 주문
+     * 파일이 그렇다 — `판매가`(단가) · `상품수량`은 있는데 라인 금액 열이 없고,
+     * `총 품목 금액`은 **주문 단위 합계**다.
+     *
+     * 실측(B2B 픽스처 1,197행 · 주문 1,071건): 주문 단위로 묶으면
+     * `Σ(판매가 × 상품수량) == 총 품목 금액`이 **1,054건 일치**한다. 어긋나는
+     * 17건은 전부 설명된다 — 16건은 취소되어 총액이 0이고, 1건은 옵션 추가금이다.
+     *
+     * 그래서 라인 금액에 `총 품목 금액`을 쓰면 **다품목 주문에서 매출이 겹쳐
+     * 계상된다**(품목 2개짜리 주문이 두 줄 모두 주문 총액을 갖는다). 단가×수량이
+     * 라인의 진실이고, 그걸 표현할 방법이 없어서 이 갈래를 만들었다.
+     * ─────────────────────────────────────────────────────────────
+     *
+     * ★ 마켓을 모른다 (LOCK 4) ★ 「단가 × 수량」은 어느 마켓에나 있는 모양이고,
+     * 여기 있는 것은 **곱셈**뿐이다. 어떤 열을 곱할지는 프로파일이 정한다.
+     *
+     * 열이 없거나 숫자가 아니면 **조용히 0으로 만들지 않는다** — 다른 매핑과
+     * 같은 경로로 오류를 남긴다. 0은 「안 팔렸다」로 읽히므로 가장 위험한 기본값이다.
+     */
+    | { readonly from: "multiply"; readonly columns: readonly string[] }
   /**
    * 원본 값 → Canonical 값 사전. 스키마가 `CHECK`로 값을 제한하는 컬럼이
    * 있어서 필요하다 — 예: `claim_type IN ('CANCEL','RETURN','EXCHANGE','REFUND')`인데
@@ -703,6 +727,34 @@ export function mapRows(
     const rowIndex = chunk.rowIndices[i] ?? startRowIndex + i
     const base = i * chunk.width
 
+    /**
+     * 여러 열의 곱. **전부 숫자로 읽혔을 때만** 값이 된다 (`derive.from === "multiply"`).
+     *
+     * 하나라도 못 읽으면 `null`이다 — 0이나 부분곱을 돌려주면 «작게 팔렸다»라는
+     * 거짓이 되고, 그건 조용한 실패다. 주문 행과 품목 행이 **같은 함수**를 쓰므로
+     * 라인 금액이 두 표에서 갈리지 않는다.
+     */
+    const multiplied = (
+      columns: readonly string[],
+      target: string,
+    ): number | null => {
+      let acc = 1
+      for (const name of columns) {
+        const col = index.get(name)
+        if (col === undefined || col >= chunk.width) {
+          if (!missingReported.has(name)) {
+            missingReported.add(name)
+            errors.push({ rowIndex, field: target, reason: `컬럼 "${name}"가 없다`, code: "missing_column" })
+          }
+          return null
+        }
+        const one = coerce(chunk.values[base + col] ?? null, chunk.raws[base + col] ?? null, "number")
+        if (typeof one !== "number") return null
+        acc *= one
+      }
+      return acc
+    }
+
     /** 매핑 한 벌을 적용한다. **두 번 부를 수 있다** — 이중 기록이 그래서 가능하다. */
     const apply = (mappings: readonly FieldMapping[]): { fields: Record<string, RawCell>; fatal: boolean } => {
       const fields: Record<string, RawCell> = {}
@@ -713,6 +765,8 @@ export function mapRows(
         if (m.derive) {
           if (m.derive.from === "constant") {
             value = m.derive.value
+          } else if (m.derive.from === "multiply") {
+            value = multiplied(m.derive.columns, m.target)
           } else {
             const raw = ctx.fileNameCaptures[m.derive.capture]
             value = raw === undefined ? null : (looseDate(raw) ?? raw)
@@ -876,6 +930,9 @@ export function mapRows(
         for (const m of itemRule!.fieldMappings) {
           let value: RawCell = null
           if (m.derive?.from === "constant") value = m.derive.value
+          // 라인 금액이 «단가 × 수량»인 양식은 품목 쪽도 같은 곱이 필요하다.
+          // 주문 행과 **같은 함수**를 쓰므로 두 표의 금액이 갈릴 수 없다.
+          else if (m.derive?.from === "multiply") value = multiplied(m.derive.columns, m.target)
           else if (m.source !== undefined) {
             const col = index.get(m.source)
             if (col !== undefined && col < chunk.width) {
