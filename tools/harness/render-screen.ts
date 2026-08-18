@@ -36,6 +36,7 @@ import { loadCoverage } from "../../src/core/coverage/load.js"
 import { historyVals } from "../../src/app/history.js"
 import { productVals } from "../../src/app/product.js"
 import { loadProductRows } from "../../src/core/product/rows.js"
+import { loadChannelRows, loadDailySeries, loadProfitRows } from "../../src/core/profit/rows.js"
 import { loadHistoryRows } from "../../src/core/history/rows.js"
 import type { DocType } from "../../src/core/coverage/index.js"
 import type { MarketDict } from "../../src/packs/kr-marketplace/markets/index.js"
@@ -125,13 +126,25 @@ const history = await loadHistoryRows(db, "lib-1", resolveDocType)
 // 원가 기준일은 **고정한다** — 오늘을 쓰면 같은 DB에서 날마다 다른 HTML이 나와
 // 렌더 대조가 성립하지 않는다. 초안도 비어 있다(상호작용은 이 층이 증명하지 못한다).
 const products = await loadProductRows(db, "lib-1", PERIOD, PERIOD.to)
+// ★ 2026-08-17에 배선된 세 블록 — 이 도구가 **앱보다 낡으면 화면을 잘못 본다** ★
+// 클라우드 세션에서는 이 HTML이 사람의 눈을 대신하므로, 여기가 빠지면 «비어 있는
+// 표»를 보고 «아직 안 만들었구나»로 읽게 된다. 앱의 `data.ts`와 같은 조회를 쓴다.
+const profitRows = await loadProfitRows(db, "lib-1", PERIOD)
+const channelRows = await loadChannelRows(db, "lib-1", PERIOD)
+const daily = await loadDailySeries(db, "lib-1", PERIOD)
 await db.close()
 
 const noop = (): void => {}
 const vals = shellVals(shellStateFor(false), {
   go: noop, toggleNav: noop, closeNav: noop, openNav: noop, goImport: noop, toggleTheme: noop,
 } as never)
-dashboardVals(vals, snap, PERIOD, coverage)
+dashboardVals(vals, snap, PERIOD, coverage, {
+  products: profitRows,
+  channels: channelRows,
+  daily,
+  // 호버는 상호작용이라 SSR에서는 늘 꺼져 있다 (툴팁은 사람이 실기기에서 본다).
+  trendIdx: -1,
+})
 settlementVals(vals, settlement, PERIOD)
 orderVals(vals, orders, PERIOD)
 // 선택 상태는 상호작용이라 SSR에서는 늘 비어 있다 — 일괄 바의 «모두 선택»은
