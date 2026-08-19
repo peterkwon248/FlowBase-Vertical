@@ -35,6 +35,7 @@ import { streamSheet } from "./pipeline.js"
 import { matchProfiles, type MappingProfile, type ProfileMatch } from "./mapping/index.js"
 import { describeColumns, type ColumnSighting } from "./columns.js"
 import { buildAliasIndex, judgeColumns, type JudgeResult } from "./judge.js"
+import { proveIdentities, type IdentityFinding } from "./validation/identity.js"
 import { sha1Bytes } from "./mapping/sha1.js"
 
 /** 지문은 사람이 보고 대조할 수 있어야 한다 — 16진 문자열로 남긴다. */
@@ -104,6 +105,12 @@ export interface ImportAnalysis {
    */
   readonly judge: JudgeResult
   /**
+   * 증명된 항등 **전부** — tier를 올린 것뿐 아니라 성립한 관계 원문이다.
+   * 필드매핑 화면(B)이 근거 칸에 쓰고, «우연한 항등이 얼마나 나오나»의 실측
+   * 재료이기도 하다 (많이 나오면 템플릿 게이트가 왜 필요한지의 증거다).
+   */
+  readonly identities: readonly IdentityFinding[]
+  /**
    * ★ **모든 시트**를 프로파일에 물어본 결과 ★
    *
    * ─────────────────────────────────────────────────────────────
@@ -151,6 +158,11 @@ export interface AnalyzeOptions {
   /** 사람이 시트를 고른 뒤 다시 부를 때 쓴다. 기본은 0. */
   readonly sheetIndex?: number
   readonly sampleRows?: number
+  /**
+   * 항등식 증명에 쓸 행 수 (기본 200). **고른 시트에서만** 모은다 — 전 시트
+   * 훑기(50장 상한)에 200행씩 물리면 열어보기가 무거워진다. 0이면 증명을 끈다.
+   */
+  readonly proofRows?: number
 }
 
 /**
@@ -320,6 +332,43 @@ export async function analyzeImport(
         : (sheetMatches.find((m) => m.profiles.some((p) => p.blockedBy === undefined))
             ?.sheetIndex ?? null)
 
+    const sightings = mine?.columns ?? describeColumns(sum.header.columns, sample)
+
+    /**
+     * ── 항등식 증명 표본 — **고른 시트에서만** (계획 C · §20 4층) ──
+     *
+     * 숫자 열이 3개는 돼야 합이 성립하고, 정규화된 값(파이프라인과 같은 규칙)을
+     * 최대 `proofRows`행 모은다. 스트리밍 첫 청크 하나라 LOCK 5와 충돌하지 않는다.
+     * 실패해도 분석을 막지 않는다 — 증명은 부가 신호이지 조건이 아니다.
+     */
+    const proofRows = opts.proofRows ?? 200
+    let identities: IdentityFinding[] = []
+    const numeric = sightings.filter((c) => c.kind === "number")
+    if (proofRows > 0 && numeric.length >= 3) {
+      try {
+        const { chunks: proofChunks } = streamSheet(src, sheetIndex, { chunkSize: proofRows })
+        const matrix: (number | null)[][] = []
+        for await (const chunk of proofChunks) {
+          for (let i = 0; i < chunk.rowCount && matrix.length < proofRows; i++) {
+            const base = i * chunk.width
+            matrix.push(
+              numeric.map((c) => {
+                const v = chunk.values[base + c.ordinal]
+                return typeof v === "number" ? v : null
+              }),
+            )
+          }
+          break
+        }
+        identities = proveIdentities(
+          numeric.map((c) => ({ ordinal: c.ordinal, header: c.header })),
+          matrix,
+        )
+      } catch {
+        /* 증명을 못 해도 분석은 계속된다 */
+      }
+    }
+
     return {
       fileName,
       byteLength: bytes.length,
@@ -332,11 +381,9 @@ export async function analyzeImport(
       header: sum.header,
       sample,
       sampleExcluded: sum.excluded,
-      columns: mine?.columns ?? describeColumns(sum.header.columns, sample),
-      judge: judgeColumns(
-        mine?.columns ?? describeColumns(sum.header.columns, sample),
-        buildAliasIndex(profiles),
-      ),
+      columns: sightings,
+      judge: judgeColumns(sightings, buildAliasIndex(profiles), identities),
+      identities,
       sheetMatches,
       suggestedSheetIndex,
       warnings: [...src.warnings, ...scanWarnings],

@@ -30,8 +30,9 @@
  */
 
 import { profileVersion, type ColumnRole, type MappingProfile } from "./mapping/index.js"
-import { targetSpec } from "./mapping/targets.js"
+import { IDENTITY_TEMPLATES, targetSpec } from "./mapping/targets.js"
 import type { ColumnSighting } from "./columns.js"
+import type { IdentityFinding } from "./validation/identity.js"
 
 export interface AliasEntry {
   readonly header: string
@@ -126,22 +127,89 @@ const usedBy = (e: AliasEntry): string => `${e.marketplaceKey}/${e.docType}`
 export function judgeColumns(
   sightings: readonly ColumnSighting[],
   index: AliasIndex,
+  identities: readonly IdentityFinding[] = [],
 ): JudgeResult {
   const verdicts: ColumnVerdict[] = []
+  for (const s of sightings) {
+    const entries = index.byHeader.get(s.header.trim()) ?? []
+    verdicts.push(judgeOne(s, entries))
+  }
+
+  applyIdentities(verdicts, identities)
+
   const tierCounts: Record<VerdictTier, number> = {
     alias: 0,
     identity: 0,
     candidate: 0,
     unknown: 0,
   }
-
-  for (const s of sightings) {
-    const entries = index.byHeader.get(s.header.trim()) ?? []
-    const v = judgeOne(s, entries)
-    verdicts.push(v)
-    tierCounts[v.tier]++
-  }
+  for (const v of verdicts) tierCounts[v.tier]++
   return { verdicts, tierCounts }
+}
+
+/**
+ * ★ 증명이 tier를 올리는 유일한 길 — 템플릿 경유 (§20 4층) ★
+ *
+ * 항등 `S = A + B` 혼자는 관계만 증명한다. 등록부의 템플릿(`net = gross − fee`
+ * ⇔ 합 형태 `gross = net + fee`)과 맞물려, **세 모서리 중 둘이 별칭으로 확정돼
+ * 있고 하나가 미확정일 때** 그 하나가 남은 자리의 target을 얻는다.
+ *
+ * 왜 둘이 확정돼야 하나: 하나만 확정된 상태에서 올리면 남은 두 자리 중 어느
+ * 쪽인지 항등이 못 가른다(합은 교환법칙이 있다). 우연히 성립하는 합(실측으로
+ * 재본다)도 확정 이웃 없이는 아무것도 지목하지 못한다 — 정직한 하한이다.
+ */
+function applyIdentities(
+  verdicts: ColumnVerdict[],
+  identities: readonly IdentityFinding[],
+): void {
+  if (identities.length === 0) return
+  const byOrdinal = new Map(verdicts.map((v) => [v.ordinal, v]))
+  const at = (ord: number) => byOrdinal.get(ord)
+
+  for (const tpl of IDENTITY_TEMPLATES) {
+    // 합 형태로 편다: result = P − M  ⇔  P = result + M
+    const plus = tpl.terms.filter((t) => !t.startsWith("-"))
+    const minus = tpl.terms.filter((t) => t.startsWith("-")).map((t) => t.slice(1))
+    if (plus.length !== 1 || minus.length !== 1) continue // 지금 템플릿 모양만 다룬다
+    const slotS = plus[0]! // 합의 결과 자리
+    const compA = tpl.result
+    const compB = minus[0]!
+
+    for (const f of identities) {
+      const vS = at(f.result)
+      const vA = at(f.a)
+      const vB = at(f.b)
+      if (!vS || !vA || !vB) continue
+
+      // 합의 두 항은 순서가 없다 — {result, M} 두 배정을 다 시도한다.
+      for (const [cA, cB] of [
+        [compA, compB],
+        [compB, compA],
+      ] as const) {
+        const assign: readonly { v: ColumnVerdict; want: string }[] = [
+          { v: vS, want: slotS },
+          { v: vA, want: cA },
+          { v: vB, want: cB },
+        ]
+        const confirmed = assign.filter((x) => x.v.tier === "alias" && x.v.target === x.want)
+        const open = assign.filter((x) => x.v.tier === "candidate" || x.v.tier === "unknown")
+        if (confirmed.length !== 2 || open.length !== 1) continue
+        const target = open[0]!.want
+        const spec = targetSpec(target)
+        const i = verdicts.findIndex((x) => x.ordinal === open[0]!.v.ordinal)
+        if (i < 0) continue
+        verdicts[i] = {
+          ...verdicts[i]!,
+          tier: "identity",
+          target,
+          candidates: [target],
+          sentence:
+            `${f.sentence} — ${tpl.gloss}에 맞아 ${target}` +
+            `${spec === undefined ? "" : `(${spec.gloss})`}로 증명된다`,
+        }
+      }
+    }
+  }
 }
 
 function judgeOne(s: ColumnSighting, entries: readonly AliasEntry[]): ColumnVerdict {
