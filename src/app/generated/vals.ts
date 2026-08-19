@@ -363,6 +363,8 @@ export interface TemplateVals {
   impReset: (...args: any[]) => void
   impRun: (...args: any[]) => void
   impRunLabel: string
+  /** ADR-019 — 표지 시트를 건너뛰고 맞는 시트를 자동으로 열었을 때의 고지. ""면 숨김. */
+  impSheetAutoNote: string
   impSheets: readonly any[]
   impSteps: readonly any[]
   isDraftTab: boolean
@@ -936,6 +938,7 @@ export function emptyVals(): TemplateVals {
     impReset: () => {},
     impRun: () => {},
     impRunLabel: "",
+    impSheetAutoNote: "",
     impSheets: [],
     impSteps: [],
     isDraftTab: false,

@@ -4439,6 +4439,12 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               </span>
                             </div>
                             {" "}
+                            {vals.impSheetAutoNote !== "" && (
+                              <div style={{ padding: "9px 12px", borderBottom: "1px solid var(--border)", font: "var(--fw-medium) 11px/1.6 var(--font-sans)", color: "var(--ok, #2f9e63)", background: "rgba(47,158,99,0.08)" }}>
+                                {vals.impSheetAutoNote}
+                              </div>
+                            )}
+                            {" "}
                             <div style={{ display: "grid" }}>
                               {vals.impSheets.map((s: any, $index: number) => (
                                   <span key={$index} className={`fb-row ${s.on}`} style={{ display: "flex", alignItems: "baseline", gap: "10px", padding: "9px 12px", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={s.pick}>

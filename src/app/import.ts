@@ -280,7 +280,10 @@ export function importVals(
   vals.impChannelName = ""
   vals.srcWizard = a !== null
 
-  vals.impBig = state.bigFile && state.digest === null
+  // ★ 결과가 나온 뒤에는 «멈출 수 있다» 경고를 내린다 ★ 기준 경로는 digest를
+  // 끝내 안 채우고 refResult만 채운다 — digest만 보면 13MB 단가표의 결과 화면
+  // 위에 프리즈 경고가 영영 남는다 (ADR-019에서 잡은 결함).
+  vals.impBig = state.bigFile && state.digest === null && state.refResult === null
   vals.impBusy = state.busy
   vals.impError = state.error ?? ""
   vals.impHasError = state.error !== null
@@ -298,6 +301,7 @@ export function importVals(
     vals.impDupNote = ""
     vals.impSheets = []
     vals.impManySheets = false
+    vals.impSheetAutoNote = ""
     vals.impCanRun = false
     vals.impRunLabel = "확인하고 가져오기"
     vals.impDone = false
@@ -387,6 +391,28 @@ export function importVals(
       pick: () => act.pickSheet(i),
     }
   })
+
+  /**
+   * ★ 자동으로 옮겼으면 말한다 (ADR-019 · LOCK 6) ★
+   *
+   * 조용히 옮기면 사용자는 자기가 0번 시트를 본 적 없다는 걸 모른다. 어디서
+   * 어디로, 무엇을 근거로 옮겼는지 문장으로 말한다 (§20 규칙 2 — %가 아니라
+   * 근거 문장… 이되 일치도는 프로파일 판정의 어휘라 함께 둔다).
+   *
+   * `?? null` 가드 — 테스트 목업이 `as unknown as ImportAnalysis` 캐스트라
+   * 이 필드가 없는 객체가 실제로 들어온다.
+   */
+  const auto = a.autoSelected ?? null
+  const autoTo = auto === null ? undefined : a.sheets[auto.to]
+  vals.impSheetAutoNote =
+    auto === null || autoTo === undefined
+      ? ""
+      : `「${a.sheets[auto.from]?.name ?? `시트 ${auto.from + 1}`}」 시트에는 맞는 양식이 없어 ` +
+        `「${autoTo.name}」 시트를 열었습니다` +
+        (match === undefined
+          ? ""
+          : ` — ${match.profile.label} ${Math.round(match.confidence * 100)}%`) +
+        `. 다른 시트를 보려면 아래에서 고르세요.`
 
   // ── 확인: 무엇이 들어가나 ────────────────────────────────────────
   //

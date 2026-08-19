@@ -718,12 +718,21 @@ export function App(): React.JSX.Element {
   const [wiz, setWiz] = useState<ImportWizardState>(EMPTY_WIZARD)
   const wizBytes = useRef<Uint8Array | null>(null)
 
-  /** 분석은 DB를 건드리지 않는다. 몇 번을 불러도 같은 답이라 시트 바꾸기가 싸다. */
-  const analyze = useCallback(async (bytes: Uint8Array, name: string, sheetIndex: number) => {
+  /**
+   * 분석은 DB를 건드리지 않는다. 몇 번을 불러도 같은 답이라 시트 바꾸기가 싸다.
+   *
+   * `sheetIndex`를 **주지 않으면** 첫 분석이다 — 코어가 맞는 시트로 자동 이동할
+   * 수 있다 (ADR-019 · 결과의 `autoSelected`가 말한다). 사람이 시트를 고른
+   * 재분석은 명시 인덱스라 절대 옮겨지지 않는다.
+   */
+  const analyze = useCallback(async (bytes: Uint8Array, name: string, sheetIndex?: number) => {
     try {
       // 후보는 **병합본**이다 (B2) — 내 확정판이 같은 자연키의 내장을 가린다.
       // 사용자가 고친 매핑이 다음 가져오기의 판정·적재에 그대로 쓰이는 자리다.
-      const analysis = await analyzeImport(bytes, name, await loadAllProfiles(), { sheetIndex })
+      // (exactOptionalPropertyTypes — undefined를 담아 넘기지 않고 키를 뺀다)
+      const analysis = await analyzeImport(bytes, name, await loadAllProfiles(), {
+        ...(sheetIndex === undefined ? {} : { sheetIndex }),
+      })
       // 같은 바이트가 이미 들어왔는지 — **파일명이 달라도** 잡힌다 (마이그레이션 006).
       // 실패해도 가져오기를 막지 않는다. 고지를 못 하는 것이 못 넣는 것보다 낫다.
       const priorSame = await findPriorImports(analysis.contentHash)
@@ -741,11 +750,21 @@ export function App(): React.JSX.Element {
        * 화면에 상시로 보여야 사용자가 자기가 「오늘부터」를 골랐다는 사실을 안다 —
        * `product.ts`의 `emptyDraft`와 같은 판단이다.
        */
+      /**
+       * ★ 이전 실행의 결과를 지운다 — 완료 후 막다른 길의 수정 (ADR-019 B5) ★
+       *
+       * digest/refResult가 남으면 impCanRun이 영원히 false다. 완료 후 시트를
+       * 바꾸면 새 분석 밑에 옛 결과가 그대로 떠 «결과 단계»가 유지되는 자기모순
+       * 화면이 됐고, 유일한 출구인 reset은 파일까지 지워 13MB 재선택·재분석을
+       * 강요했다. 새 분석 = 새 확인 단계다.
+       */
       setWiz((w) => ({
         ...w,
         analysis,
         priorSame,
         profileIndex: 0,
+        digest: null,
+        refResult: null,
         effectiveFrom: w.effectiveFrom === "" ? today() : w.effectiveFrom,
         error: null,
         busy: false,
@@ -784,7 +803,8 @@ export function App(): React.JSX.Element {
       void file.arrayBuffer().then((buf) => {
         const bytes = new Uint8Array(buf)
         wizBytes.current = bytes
-        void analyze(bytes, file.name, 0)
+        // 시트를 넘기지 않는다 — 첫 분석은 코어가 맞는 시트를 골라도 된다 (ADR-019)
+        void analyze(bytes, file.name)
       })
     },
     pickProfile: (i) => setWiz((w) => ({ ...w, profileIndex: i })),
@@ -806,6 +826,9 @@ export function App(): React.JSX.Element {
       const bytes = wizBytes.current
       const name = wiz.analysis?.fileName
       if (!bytes || name === undefined) return
+      // 적재가 도는 중에는 바꾸지 않는다 — Tauri(진짜 비동기 IPC)에서 재분석이
+      // busy 플래그를 밟아 «실행 중인데 화면은 확인 단계»가 되는 경합을 막는다.
+      if (wiz.busy) return
       void analyze(bytes, name, i)
     },
     confirm: () => {

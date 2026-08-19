@@ -48,6 +48,7 @@ function analysisOf(profile: MappingProfile, headers: readonly string[]): Import
     sheetIndex: 0,
     sheetMatches: [{ sheetIndex: 0, sheetName: "상품별원가 raw", profiles: match }],
     suggestedSheetIndex: 0,
+    autoSelected: null,
     header: { rowIndex: 0, columns: [...headers], confidence: 1 },
     sample: [["A1", "머그컵", "M-1", "3200", "0", "주방", "M-1"]],
     sampleExcluded: [],
@@ -122,6 +123,26 @@ describe("기준 데이터 위저드 — 원가", () => {
   it("실행 버튼이 **batch라고 말하지 않는다** (LOCK 2·10)", () => {
     const v = vals({ ...EMPTY_WIZARD, analysis: analysisOf(COST, COST_HEADERS), effectiveFrom: "2026-01-01" })
     expect(v.impRunLabel).toBe("확인하고 기준 데이터에 넣기")
+  })
+
+  it("★ 결과가 나오면 «멈출 수 있다» 경고를 내린다 — 기준 경로는 digest가 아니라 refResult다 ★", () => {
+    // 기준 경로는 digest를 끝내 안 채운다. digest만 보면 13MB 단가표의 결과
+    // 화면 위에 프리즈 경고가 영영 남는다 (ADR-019에서 잡은 결함).
+    const a = analysisOf(COST, COST_HEADERS)
+    const running = vals({ ...EMPTY_WIZARD, analysis: a, bigFile: true })
+    expect(running.impBig, "실행 전에는 떠야 한다").toBe(true)
+    const done = vals({
+      ...EMPTY_WIZARD,
+      analysis: a,
+      bigFile: true,
+      refResult: {
+        inserted: 1, skipped: 0, replaced: 0, unmatched: 0, createdSkus: 0, badRows: 0,
+        excluded: [], warnings: [], unmatchedSample: [], stashed: 0, bridged: 0, kind: "COGS",
+        header: { rowIndex: 0, columns: [], confidence: 1 },
+        sheet: { index: 0, name: "S" },
+      } as never,
+    })
+    expect(done.impBig, "결과가 나왔는데 경고가 남았다").toBe(false)
   })
 
   it("★ 사실 파일에는 적용일을 묻지 않는다 — 없는 질문이다 ★", () => {

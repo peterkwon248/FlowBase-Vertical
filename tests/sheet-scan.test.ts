@@ -191,6 +191,22 @@ describe("자동 시트 선택 (ADR-019)", () => {
     expect(a.sheetIndex).toBe(1)
     expect(a.autoSelected).toEqual({ from: 0, to: 1 })
   })
+
+  it("★ 화면이 옮겼다는 사실을 말한다 — 어디서 어디로, 무슨 근거로 (LOCK 6) ★", async () => {
+    const a = await analyzeImport(coverAndCards(), "단가표.xlsx", [COST_CARD])
+    const vals = emptyVals()
+    importVals(vals, { ...EMPTY_WIZARD, analysis: a })
+
+    const note = String(vals.impSheetAutoNote)
+    expect(note, "출발 시트가 없다").toContain("공유정보")
+    expect(note, "도착 시트가 없다").toContain("충전기")
+    expect(note, "근거(양식 이름)가 없다").toContain("상품별 단가표")
+    // 옮기지 않았으면 침묵한다 — 빈 고지가 자리만 차지하면 안 된다
+    const b = await analyzeImport(coverAndCards(), "단가표.xlsx", [COST_CARD], { sheetIndex: 1 })
+    const vals2 = emptyVals()
+    importVals(vals2, { ...EMPTY_WIZARD, analysis: b })
+    expect(vals2.impSheetAutoNote).toBe("")
+  })
 })
 
 /** §18-A 가드는 실픽스처 #3(파생 시트가 실존)이 필요하다 — 픽스처 가드를 같이 쓴다. */
