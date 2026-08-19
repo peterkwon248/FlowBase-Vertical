@@ -314,6 +314,29 @@ export interface TemplateVals {
   heroLabel: string
   heroNet: string
   heroRev: string
+  /** §21 «cost-fixed-save» — 목업의 고정비 표가 못 하는 것들(적용일·항목 추가·저장·선언). */
+  fixAdd: (...args: any[]) => void
+  fixAddWhy: string
+  fixCanAdd: boolean
+  fixAddOpacity: string
+  fixSaveOpacity: string
+  fixCanSave: boolean
+  fixDate: string
+  /** 「이 기간 몫」의 분수. 달을 걸치면 빈 문자열 — 분수를 지어내지 않는다. */
+  fixDays: string
+  fixNewAmount: string
+  fixNewName: string
+  fixNone: boolean
+  fixNoneBg: string
+  fixNoneNote: string
+  fixNoneReason: string
+  fixSave: (...args: any[]) => void
+  fixSaveWhy: string
+  setFixDate: (...args: any[]) => void
+  setFixNewAmount: (...args: any[]) => void
+  setFixNewName: (...args: any[]) => void
+  setFixNoneReason: (...args: any[]) => void
+  toggleFixNone: (...args: any[]) => void
   impBig: boolean
   impBusy: boolean
   impCanRun: boolean
@@ -860,6 +883,27 @@ export function emptyVals(): TemplateVals {
     heroLabel: "",
     heroNet: "",
     heroRev: "",
+    fixAdd: () => {},
+    fixAddWhy: "",
+    fixCanAdd: false,
+    fixAddOpacity: "",
+    fixSaveOpacity: "",
+    fixCanSave: false,
+    fixDate: "",
+    fixDays: "",
+    fixNewAmount: "",
+    fixNewName: "",
+    fixNone: false,
+    fixNoneBg: "",
+    fixNoneNote: "",
+    fixNoneReason: "",
+    fixSave: () => {},
+    fixSaveWhy: "",
+    setFixDate: () => {},
+    setFixNewAmount: () => {},
+    setFixNewName: () => {},
+    setFixNoneReason: () => {},
+    toggleFixNone: () => {},
     impBig: false,
     impBusy: false,
     impCanRun: false,

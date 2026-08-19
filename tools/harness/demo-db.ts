@@ -154,6 +154,39 @@ for (const t of TARGETS) {
   }
 }
 
+/**
+ * ★ 고정비 — **손익 3층의 마지막 줄** (2026-08-19) ★
+ *
+ * 이게 없으면 데모의 순이익이 채널 기여이익과 **한 푼도 다르지 않다.** 화면만
+ * 보면 「고정비가 0원인 회사」로 읽히는데, 실제로는 넣을 자리가 없었던 것이다.
+ *
+ * 금액은 목업 시드와 같은 규모를 쓴다 — 예시 파일의 매출 규모에 맞춰 순이익이
+ * 적자로 처박히지 않되, 고정비가 손익을 실제로 움직이는 것이 보이는 크기다.
+ * **실데이터가 아니다** (픽스처와 같은 성격).
+ */
+{
+  const items: readonly [string, number][] = [
+    ["사무실 임대료", 1_800_000],
+    ["인건비", 3_200_000],
+    ["창고 보관료", 940_000],
+    ["소프트웨어 · 통신", 380_000],
+  ]
+  for (const [label, amount] of items) {
+    await repo.setOverhead({
+      libraryId: LIB,
+      kind: "FIXED",
+      basis: "MONTH",
+      label,
+      amount,
+      // 데모 데이터가 2025-10 ~ 2026-07에 걸쳐 있다. 원가와 같은 날에 세운다.
+      effectiveFrom: "2025-01-01",
+      now: NOW,
+    })
+  }
+  const total = items.reduce((n, [, a]) => n + a, 0)
+  console.log(`  ${"고정비".padEnd(18)} ${items.length}항목 · 월 ${total.toLocaleString("ko-KR")}원`)
+}
+
 // VACUUM으로 조여서 정적 자산 크기를 줄인다. 웹판은 이 파일을 통째로 받는다.
 await db.exec("VACUUM")
 await db.close()

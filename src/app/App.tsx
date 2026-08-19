@@ -38,6 +38,15 @@ import {
   type ProductActions,
 } from "./product.js"
 import { parseCostDraft } from "@core/cost/index.js"
+import {
+  costsVals,
+  emptyCostsDraft,
+  parseAmount,
+  saveGuard as costsSaveGuard,
+  type CostsActions,
+  type CostsDraft,
+  type CostsView,
+} from "./costs.js"
 import type { ProductSkuRow, ProductView } from "@core/product/rows.js"
 import { marketDict } from "@packs/kr-marketplace/markets/index.js"
 import { importVals, BIG_FILE_BYTES, EMPTY_WIZARD, type ImportActions, type ImportWizardState } from "./import.js"
@@ -126,6 +135,8 @@ export function App(): React.JSX.Element {
   const [coverage, setCoverage] = useState<readonly ConnectionCoverage[]>([])
   const [history, setHistory] = useState<readonly HistoryRow[]>([])
   const [products, setProducts] = useState<ProductView | null>(null)
+  /** 비용 화면의 고정비·운영비와 「두지 않음」 선언 (마이그레이션 010). */
+  const [costs, setCosts] = useState<CostsView | null>(null)
   /** 대시보드의 두 표 — 상품별·채널별 손익. 조회가 준 것을 그대로 든다. */
   const [profitRows, setProfitRows] = useState<readonly ProfitRow[]>([])
   const [channelRows, setChannelRows] = useState<readonly ChannelRow[]>([])
@@ -251,6 +262,7 @@ export function App(): React.JSX.Element {
     setCoverage(r.coverage)
     setHistory(r.history)
     setProducts(r.products)
+    setCosts(r.costs)
     setProfitRows(r.profitRows)
     setChannelRows(r.channelRows)
     setDaily(r.daily)
@@ -512,6 +524,144 @@ export function App(): React.JSX.Element {
     pickTab: setProdTab,
     setDraft: putDraft,
     save: (row) => saveCost(row, drafts.get(row.skuId) ?? emptyDraft(today()), false),
+  }
+
+  // ── 비용 — 고정비 (마이그레이션 010) ─────────────────────────────
+  //
+  // ★ 초안이 하나인 것이 여기서는 **맞다** ★
+  // 상품 원가는 SKU마다 초안이 따로여야 했다(목업 결함 ①). 고정비는 다르다 —
+  // 한 번의 저장이 「이 날짜부터 우리 고정비는 이렇다」라는 **한 문장**이고,
+  // 적용일도 하나다. 항목마다 날짜를 따로 두면 사용자가 4개 날짜를 관리하게 된다.
+  const [costsDraft, setCostsDraft] = useState<CostsDraft>(() => emptyCostsDraft(today()))
+
+  const patchCosts = useCallback(
+    (patch: Partial<CostsDraft>) => setCostsDraft((d) => ({ ...d, ...patch })),
+    [],
+  )
+
+  const costsActions: CostsActions = {
+    setAmount: (label, value) =>
+      setCostsDraft((d) => {
+        const amounts = new Map(d.amounts)
+        amounts.set(label, value)
+        return { ...d, amounts }
+      }),
+    setEffectiveFrom: (date) => patchCosts({ effectiveFrom: date }),
+    setNewLabel: (v) => patchCosts({ newLabel: v }),
+    setNewAmount: (v) => patchCosts({ newAmount: v }),
+
+    /**
+     * 고친 값들을 **한 트랜잭션으로** 저장한다.
+     *
+     * 항목별로 따로 쓰면 중간에 실패했을 때 절반만 반영된 달이 남는다 — 그 상태의
+     * 순이익은 어느 쪽도 아닌 숫자다. `writeThenReload`의 콜백 전체가 한 사슬이라
+     * 여기서 루프를 돌아도 잠금은 하나다.
+     */
+    save: () => {
+      if (!costsSaveGuard(costsDraft).can || !acquire()) return
+      const stamp = nowStamp()
+      const touched = [...costsDraft.amounts.entries()].filter(([, v]) => v.trim() !== "")
+      void writeThenReload(async (repo) => {
+        for (const [label, raw] of touched) {
+          const amount = parseAmount(raw)
+          if (amount === null) continue
+          await repo.setOverhead({
+            libraryId: DEV_LIBRARY,
+            kind: "FIXED",
+            basis: "MONTH",
+            label,
+            amount,
+            effectiveFrom: costsDraft.effectiveFrom,
+            now: stamp,
+          })
+        }
+      }, monthRef.current)
+        .then((r) => {
+          if (r.error) {
+            setConfirm(sayConfirm("저장하지 못했습니다", r.error, () => setConfirm(null)))
+            return
+          }
+          take(r)
+          // 저장에 성공한 값만 초안에서 지운다. 적용일은 남긴다 — 같은 날짜로
+          // 여러 항목을 이어 넣는 것이 자연스러운 리듬이다.
+          setCostsDraft((d) => ({ ...d, amounts: new Map() }))
+        })
+        .finally(release)
+    },
+
+    add: () => {
+      const amount = parseAmount(costsDraft.newAmount)
+      if (amount === null || costsDraft.newLabel.trim() === "" || !acquire()) return
+      const stamp = nowStamp()
+      const label = costsDraft.newLabel.trim()
+      void writeThenReload(async (repo) => {
+        await repo.setOverhead({
+          libraryId: DEV_LIBRARY,
+          kind: "FIXED",
+          basis: "MONTH",
+          label,
+          amount,
+          effectiveFrom: costsDraft.effectiveFrom,
+          now: stamp,
+        })
+      }, monthRef.current)
+        .then((r) => {
+          if (r.error) {
+            setConfirm(sayConfirm("추가하지 못했습니다", r.error, () => setConfirm(null)))
+            return
+          }
+          take(r)
+          setCostsDraft((d) => ({ ...d, newLabel: "", newAmount: "" }))
+        })
+        .finally(release)
+    },
+
+    /**
+     * ★ 「두지 않습니다」를 **끄면 다시 미선언**이다 ★
+     * 「두지 않음 → 둔다」로 뒤집는 것이 아니라 선언을 거두는 것이다. 그래야
+     * 진단이 다시 물어보는 상태로 돌아간다 — 선언의 반대는 반대 선언이 아니라
+     * «아직 안 정함»이다.
+     */
+    toggleNone: () => {
+      const on = costs?.stance.fixed?.stance === "none"
+      if (!acquire()) return
+      const stamp = nowStamp()
+      void writeThenReload(async (repo) => {
+        if (on) await repo.clearOverheadStance(DEV_LIBRARY, "FIXED")
+        else
+          await repo.setOverheadStance({
+            libraryId: DEV_LIBRARY,
+            kind: "FIXED",
+            stance: "none",
+            reason: costs?.stance.fixed?.reason ?? "in-cogs",
+            now: stamp,
+          })
+      }, monthRef.current)
+        .then((r) => {
+          if (r.error) setConfirm(sayConfirm("바꾸지 못했습니다", r.error, () => setConfirm(null)))
+          else take(r)
+        })
+        .finally(release)
+    },
+
+    setNoneReason: (reason) => {
+      if (!acquire()) return
+      const stamp = nowStamp()
+      void writeThenReload(async (repo) => {
+        await repo.setOverheadStance({
+          libraryId: DEV_LIBRARY,
+          kind: "FIXED",
+          stance: "none",
+          reason,
+          now: stamp,
+        })
+      }, monthRef.current)
+        .then((r) => {
+          if (r.error) setConfirm(sayConfirm("바꾸지 못했습니다", r.error, () => setConfirm(null)))
+          else take(r)
+        })
+        .finally(release)
+    },
   }
 
   // ── 가져오기 위저드 ──────────────────────────────────────────────
@@ -840,6 +990,9 @@ export function App(): React.JSX.Element {
   // 상품도 **0장이 사실**이다 — SKU가 없으면 «연결된 SKU가 아직 없습니다»가 게이지에
   // 뜬다. 연결 화면과 같은 판단이고, 원가를 넣을 대상이 없다는 것 자체가 할 말이다.
   if (products) productVals(vals, products, prodTab, drafts, today(), productActions, per)
+  // 비용 화면은 **손익이 있어야** 그린다 — 3층 표가 `pnl`을 통째로 읽고, 고정비의
+  // 「이 기간 몫」도 안분된 값이라 스냅샷 없이는 숫자를 만들 수 없다.
+  if (costs && snap) costsVals(vals, costs, snap.pnl, costsDraft, costsActions)
   // 확인 다이얼로그는 화면이 아니라 앱 상태다 — 어느 화면에서 띄웠든 같은 모달이다.
   vals.confirm = confirm
   vals.closeConfirm = () => setConfirm(null)

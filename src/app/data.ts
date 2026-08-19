@@ -30,6 +30,7 @@ import { loadSettlementRows, type SettlementRow } from "@core/settlement/rows.js
 import { loadOrderRows, type OrderRow } from "@core/order/rows.js"
 import { loadLinkingView, type LinkingView } from "@core/linking/view.js"
 import { loadCoverage, type ConnectionCoverage } from "@core/coverage/load.js"
+import type { CostsView } from "./costs.js"
 import { loadHistoryRows, type HistoryRow } from "@core/history/rows.js"
 import { loadProductRows, type ProductView } from "@core/product/rows.js"
 import { Repository, type BatchDigest } from "@core/store/repository.js"
@@ -104,6 +105,14 @@ export interface LoadResult {
    * 둘이 섞인다. 섞인 것을 숨기지 않으려고 `soldQty`만 기간을 타는 것으로 못박아 뒀다.
    */
   products: ProductView | null
+  /**
+   * 비용 화면의 고정비·운영비 (마이그레이션 010).
+   *
+   * 기준일은 **보고 있는 기간의 시작**이다 — 손익이 그 기준으로 안분하므로
+   * (`loadPnlSnapshot`) 화면이 다른 날을 쓰면 표의 합과 3층의 「− 고정비」가
+   * 어긋난다. 원가에서 「화면 셋이 같은 창을 봐야 한다」고 세운 규율 그대로다.
+   */
+  costs: CostsView | null
   /**
    * 대시보드의 **상품별 손익**. 기간 안 판매를 SKU로 묶은 것이다 —
    * 못 채우는 칸(수수료·배송비·광고비)이 무엇이고 왜인지는 `core/profit/rows.ts`.
@@ -295,7 +304,25 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
       const profitRows = await loadProfitRows(db, DEV_LIBRARY, period)
       const channelRows = await loadChannelRows(db, DEV_LIBRARY, period)
       const daily = await loadDailySeries(db, DEV_LIBRARY, period)
-      const excluded = await new Repository(db).exclusionTotals(DEV_LIBRARY)
+      const repo = new Repository(db)
+      const excluded = await repo.exclusionTotals(DEV_LIBRARY)
+      /**
+       * 항목마다 **이력 건수**를 함께 센다 — 「임대료 · 03부터 (이력 3)」이 되려면
+       * 필요하다. 항목 수가 열 개 안팎이라 N+1이 실질 비용이 아니고, 세는 규칙을
+       * 한 쿼리에 우겨넣으면 «그 시점에 유효한 값 하나»의 판정과 섞인다.
+       */
+      const withHistory = async (kind: "FIXED" | "OPS") =>
+        Promise.all(
+          (await repo.overheads(DEV_LIBRARY, kind, period.from)).map(async (o) => ({
+            ...o,
+            historyCount: (await repo.overheadHistory(DEV_LIBRARY, kind, o.label)).length,
+          })),
+        )
+      const costs: CostsView = {
+        fixed: await withHistory("FIXED"),
+        ops: await withHistory("OPS"),
+        stance: { fixed: await repo.overheadStance(DEV_LIBRARY, "FIXED") },
+      }
       return {
         snapshot,
         settlement,
@@ -305,6 +332,7 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
         history,
         excluded,
         products,
+        costs,
         profitRows,
         channelRows,
         daily,
@@ -338,6 +366,9 @@ function failed(e: unknown, want?: Month): LoadResult {
     // 못 읽었으면 «제외가 없다»가 아니라 «모른다»이고, 배너는 그때 뜨지 않는다.
     excluded: { files: 0, rows: 0, reasons: [] },
     products: null,
+    // 못 읽었으면 «고정비가 없다»가 아니라 «모른다»이다. 화면이 그때 «두지 않음»을
+    // 그리면 사용자가 자기 선언이 사라진 줄 안다.
+    costs: null,
     profitRows: [],
     channelRows: [],
     daily: { points: [], periodOnly: 0 },

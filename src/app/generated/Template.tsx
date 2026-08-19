@@ -3641,7 +3641,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   <span style={{ font: "var(--fw-semi) 12px var(--font-sans)", color: "var(--fg-2)" }}>
                                     이 기간 몫
                                     <span style={{ fontWeight: "var(--fw-medium)", color: "var(--fg-4)" }}>
-                                      8일 / 31일
+                                      {vals.fixDays}
                                     </span>
                                   </span>
                                   {" "}
@@ -3649,6 +3649,63 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                     {vals.fixTotal}
                                   </span>
                                 </span>
+                              </div>
+                              {" "}
+                              <div data-s21="cost-fixed-save" style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
+                                <span style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                                  <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-3)" }}>
+                                    언제부터
+                                  </span>
+                                  {" "}
+                                  <input className="v-input" type="date" style={{ height: "26px", fontSize: "11px", width: "138px" }} value={vals.fixDate} onChange={vals.setFixDate} />
+                                  {" "}
+                                  <span style={{ flex: "1" }}></span>
+                                  {" "}
+                                  <button className="v-btn v-btn--primary" style={{ height: "26px", padding: "0 10px", fontSize: "11px", opacity: vals.fixSaveOpacity }} onClick={vals.fixSave} disabled={!vals.fixCanSave}>
+                                    저장
+                                  </button>
+                                </span>
+                                {vals.fixSaveWhy !== "" && (
+                                    <span style={{ font: "var(--fw-regular) 10px/1.4 var(--font-sans)", color: "var(--pnl-neg)" }}>
+                                      {vals.fixSaveWhy}
+                                    </span>
+                                )}
+                                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <input className="v-input" style={{ height: "26px", fontSize: "12px", flex: "1", minWidth: "0" }} value={vals.fixNewName} onChange={vals.setFixNewName} placeholder="새 항목 (임대료 · 인건비 …)" />
+                                  {" "}
+                                  <input className="v-input" style={{ height: "26px", fontSize: "12px", width: "92px", textAlign: "right" }} value={vals.fixNewAmount} onChange={vals.setFixNewAmount} placeholder="월 금액" inputMode="numeric" />
+                                  {" "}
+                                  <button className="v-btn" style={{ height: "26px", padding: "0 9px", fontSize: "11px", opacity: vals.fixAddOpacity }} onClick={vals.fixAdd} disabled={!vals.fixCanAdd}>
+                                    추가
+                                  </button>
+                                </span>
+                                {vals.fixAddWhy !== "" && (
+                                    <span style={{ font: "var(--fw-regular) 10px/1.4 var(--font-sans)", color: "var(--pnl-neg)" }}>
+                                      {vals.fixAddWhy}
+                                    </span>
+                                )}
+                                <span style={{ display: "flex", alignItems: "center", gap: "7px", marginTop: "2px", cursor: "pointer" }} onClick={vals.toggleFixNone}>
+                                  <span style={{ width: "13px", height: "13px", borderRadius: "3px", border: "1px solid var(--border-strong)", background: vals.fixNoneBg, flex: "none" }}></span>
+                                  {" "}
+                                  <span style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-2)" }}>
+                                    고정비를 두지 않습니다
+                                  </span>
+                                  {vals.fixNone && (
+                                      <select className="v-input" style={{ height: "24px", fontSize: "11px" }} value={vals.fixNoneReason} onChange={vals.setFixNoneReason} onClick={vals.stopEvt}>
+                                        <option value="in-cogs">
+                                          원가에 이미 포함
+                                        </option>
+                                        <option value="not-applicable">
+                                          해당 없음
+                                        </option>
+                                      </select>
+                                  )}
+                                </span>
+                                {vals.fixNoneNote !== "" && (
+                                    <span style={{ font: "var(--fw-regular) 11px/1.6 var(--font-sans)", color: "var(--fg-4)", textWrap: "pretty" }}>
+                                      {vals.fixNoneNote}
+                                    </span>
+                                )}
                               </div>
                             </div>
                           </div>

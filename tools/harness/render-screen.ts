@@ -35,6 +35,7 @@ import { channelVals } from "../../src/app/channel.js"
 import { loadCoverage } from "../../src/core/coverage/load.js"
 import { historyVals } from "../../src/app/history.js"
 import { productVals } from "../../src/app/product.js"
+import { costsVals, emptyCostsDraft, type CostsView } from "../../src/app/costs.js"
 import { loadProductRows } from "../../src/core/product/rows.js"
 import { loadChannelRows, loadDailySeries, loadProfitRows } from "../../src/core/profit/rows.js"
 import { loadHistoryRows } from "../../src/core/history/rows.js"
@@ -132,6 +133,24 @@ const products = await loadProductRows(db, "lib-1", PERIOD, PERIOD.to)
 const profitRows = await loadProfitRows(db, "lib-1", PERIOD)
 const channelRows = await loadChannelRows(db, "lib-1", PERIOD)
 const daily = await loadDailySeries(db, "lib-1", PERIOD)
+/**
+ * ★ 2026-08-19에 배선된 비용 화면 — 위 경고의 두 번째 적용 ★
+ * 고정비를 안 먹이면 이 도구로 본 화면은 영영 「고정비 0원」이고, 클라우드
+ * 세션에서는 그게 사람이 보는 유일한 화면이다.
+ */
+const repo = new (await import("../../src/core/store/repository.js")).Repository(db)
+const withHistory = async (kind: "FIXED" | "OPS") =>
+  Promise.all(
+    (await repo.overheads("lib-1", kind, PERIOD.from)).map(async (o) => ({
+      ...o,
+      historyCount: (await repo.overheadHistory("lib-1", kind, o.label)).length,
+    })),
+  )
+const costs: CostsView = {
+  fixed: await withHistory("FIXED"),
+  ops: await withHistory("OPS"),
+  stance: { fixed: await repo.overheadStance("lib-1", "FIXED") },
+}
 await db.close()
 
 const noop = (): void => {}
@@ -153,6 +172,8 @@ linkingVals(vals, linking, TAB, new Set())
 channelVals(vals, coverage, { goImport: noop }, dictOf)
 historyVals(vals, history)
 productVals(vals, products, "list", new Map(), PERIOD.to, undefined, PERIOD)
+// 초안은 비어 있다 — 상호작용은 이 층이 증명하지 못한다. 적용일도 고정한다.
+costsVals(vals, costs, snap.pnl, emptyCostsDraft(PERIOD.to))
 vals.firstRun = false
 vals.notFirstRun = true
 ;(vals.v as Record<string, boolean>)[VIEW] = true

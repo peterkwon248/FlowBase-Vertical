@@ -83,9 +83,14 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
     why: "컷 목록 — «없어도 손익이 보인다». 화면이 §21-7로 「준비 중」을 말하고 있다",
   },
   {
-    name: "미구현 화면 — 비용",
-    fields: /^(ad(Alloc|Count|Roas|Rows|Total|Unalloc)|cd[A-Z]|cost(Changes|Miss|Rows|Tabs|Total)|ct[A-Z]|fix(Rows|Total)|layer[A-Z]|ops(Rows|Total)|set(CdCost|CdFrom|CdMemo))/,
-    why: "컷 목록 — 고정비·운영비 입력 화면. 지금은 손익이 0원으로 정직하게 말한다",
+    // ★ 2026-08-19에 절반이 배선됐다 ★ 고정비 표·3층 표·「두지 않습니다」가 서고,
+    // `fix*`·`layer*`·`ops*`·`ctOps`·`costTabs`가 여기서 빠졌다. 도구가 앱보다 낡으면
+    // 「미구현」이라고 세면서 실제로는 배선된 화면을 안 보게 된다.
+    name: "미구현 화면 — 비용 (광고비 탭·원가 탭)",
+    fields: /^(ad(Alloc|Count|Roas|Rows|Total|Unalloc)|cd[A-Z]|cost(Changes|Miss|Rows|Total)|ct(Ad|Cogs)|set(CdCost|CdFrom|CdMemo))/,
+    why:
+      "컷 목록 — 비용 화면의 **남은 두 탭**. 운영·고정비 탭은 배선됐고(010), " +
+      "원가는 상품 화면에 이미 있으며, 광고비 배분은 재료(캠페인↔상품 연결)가 아직 없다",
   },
   {
     name: "미구현 화면 — 설정·라이선스·커맨드팔레트",
