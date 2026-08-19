@@ -339,6 +339,14 @@ export type ColumnRole =
    * 되고, 그건 어느 표를 봐도 그 값이 없는 이유를 설명하지 못한다.
    */
   | "item-field"
+  /**
+   * `reference.amountColumn` — **기준 데이터의 값**이 여기서 온다 (원가 등).
+   *
+   * `field`와 갈라 두는 이유는 `item-field`와 같다: 이 값은 Fact 표가 아니라
+   * `cost_history`로 가고, 되돌리기도 batch도 걸리지 않는다. 같은 `field`로
+   * 뭉치면 확인 화면이 «주문 표에 저장된다»고 말하게 된다.
+   */
+  | "reference-amount"
 
 export interface ColumnUse {
   readonly roles: readonly ColumnRole[]
@@ -367,6 +375,17 @@ export interface ProfileColumnUse {
  * `rowRouting.routes[].fieldMappings`도 센다 — 클레임 경로에서만 쓰는 컬럼을
  * «버렸다»고 세면 숫자가 거짓말을 한다.
  */
+/**
+ * 기준 데이터 종류 → **저장되는 자리**의 이름. 화면이 「어디에 들어가나」를
+ * 말할 때 쓴다 — `cost_history.kind`의 코드값을 그대로 보이면 아무 뜻도 없다.
+ */
+const REFERENCE_TARGET: Record<string, string> = {
+  COGS: "매입원가",
+  PACKAGING: "포장비",
+  LOGISTICS: "물류비",
+  OTHER: "기타 원가",
+}
+
 export function columnRoles(profile: MappingProfile): ProfileColumnUse {
   const byColumn = new Map<string, ColumnUse>()
 
@@ -399,6 +418,24 @@ export function columnRoles(profile: MappingProfile): ProfileColumnUse {
   for (const c of profile.listing?.keyColumns ?? []) add(c, "listing-key")
   for (const c of profile.listing?.titleColumns ?? []) add(c, "listing-title")
   if (profile.rowRouting) add(profile.rowRouting.column, "routing")
+
+  /**
+   * ★ 기준 데이터 프로파일은 `fieldMappings`가 비어 있다 ★
+   *
+   * 원가표는 Canonical 필드로 저장되는 것이 하나도 없다 — 상품번호로 리스팅을
+   * 찾고 금액을 `cost_history`에 넣을 뿐이다. 그래서 이 블록이 없으면 확인
+   * 화면이 **모든 컬럼을 «이 프로파일이 쓰지 않는 컬럼»이라고 말한다.** 실제로는
+   * 셋을 읽고 그중 둘이 없으면 한 행도 못 넣는데도. 결함 53과 같은 계보다.
+   */
+  const ref = profile.reference
+  if (ref) {
+    add(ref.listingKeyColumn, "listing-key")
+    add(ref.amountColumn, "reference-amount", {
+      target: REFERENCE_TARGET[ref.kind] ?? "기준 데이터",
+      required: true,
+    })
+    add(ref.titleColumn, "listing-title")
+  }
 
   return { byColumn, contentKeyed: profile.sourceKey.strategy === "content" }
 }

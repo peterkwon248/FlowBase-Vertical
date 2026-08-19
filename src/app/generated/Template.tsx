@@ -4552,6 +4552,24 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                         </div>
                       </div>
                       {" "}
+                      {vals.impRefer && (
+                          <div data-s21="import-reference" style={{ marginTop: "12px", border: "1px solid var(--border-strong)", borderRadius: "var(--r-md)", padding: "12px 14px", display: "grid", gap: "8px", background: "var(--bg-subtle)" }}>
+                            <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <Lic name="calendar" size={14} color="var(--accent)" />
+                              {" "}
+                              <span style={{ font: "var(--fw-semi) 13px var(--font-sans)", color: "var(--fg)" }}>
+                                언제부터 적용되나요
+                              </span>
+                              {" "}
+                              <input className="v-input" type="date" style={{ height: "28px", fontSize: "12px", width: "150px" }} value={vals.impReferDate} onChange={vals.setImpReferDate} />
+                            </span>
+                            {" "}
+                            <span style={{ font: "var(--fw-regular) 11px/1.6 var(--font-sans)", color: "var(--fg-3)" }}>
+                              {vals.impReferNote}
+                            </span>
+                          </div>
+                      )}
+                      {" "}
                       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "14px" }}>
                         <span style={{ font: "var(--fw-regular) 12px var(--font-sans)", color: "var(--fg-4)" }}>
                           {vals.impDupNote}

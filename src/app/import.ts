@@ -22,6 +22,7 @@
  */
 
 import type { ImportAnalysis } from "@core/import/analyze.js"
+import type { ReferenceRunResult } from "@core/import/run-reference.js"
 import { columnRoles, type ColumnRole } from "@core/import/mapping/index.js"
 import type { BatchDigest } from "@core/store/repository.js"
 import type { TemplateVals } from "./generated/vals.js"
@@ -119,6 +120,18 @@ export interface ImportWizardState {
     readonly at: string
     readonly undone: boolean
   }[]
+  /**
+   * ★ 기준 데이터의 **적용 시작일** — 파일에 없어서 사람이 정한다 ★
+   *
+   * 원가표에는 «언제부터 이 원가인가»가 없다. 지어내면 과거 주문에 새 원가가
+   * 소급되고 지난달 손익이 이번 달에 바뀐다 (`product.ts`의 목업 결함 ②와 같은
+   * 문제). 기본값은 오늘이지만 **숨기지 않는다** — 기본값을 숨기면 사용자는
+   * 자기가 「오늘부터」를 골랐다는 사실을 모른 채 저장하고, 7월 주문에 원가가
+   * 안 붙은 이유를 영영 모른다.
+   */
+  readonly effectiveFrom: string
+  /** 기준 데이터 적재 결과. 사실 경로의 `digest`와 **다른 모양**이라 따로 둔다. */
+  readonly refResult: ReferenceRunResult | null
 }
 
 export const EMPTY_WIZARD: ImportWizardState = {
@@ -129,12 +142,16 @@ export const EMPTY_WIZARD: ImportWizardState = {
   error: null,
   bigFile: false,
   priorSame: [],
+  effectiveFrom: "",
+  refResult: null,
 }
 
 export interface ImportActions {
   pickFile: (file: File) => void
   pickProfile: (index: number) => void
   pickSheet: (index: number) => void
+  /** 기준 데이터의 적용 시작일을 사람이 고친다 (`YYYY-MM-DD`). */
+  setEffectiveFrom: (date: string) => void
   confirm: () => void
   reset: () => void
 }
@@ -143,6 +160,7 @@ export const NOOP_IMPORT_ACTIONS: ImportActions = {
   pickFile: () => {},
   pickProfile: () => {},
   pickSheet: () => {},
+  setEffectiveFrom: () => {},
   confirm: () => {},
   reset: () => {},
 }
@@ -163,7 +181,8 @@ const FORMAT_LABEL: Record<string, string> = {
  * (그리고 파이프라인의 Validation은 아직 미구현이다).
  */
 function steps(state: ImportWizardState) {
-  const at = state.digest ? 4 : state.busy ? 3 : state.analysis ? 2 : 0
+  const at =
+    state.digest || state.refResult ? 4 : state.busy ? 3 : state.analysis ? 2 : 0
   const LABELS = [
     ["파일", "고르기"],
     ["판정", "형식과 프로파일"],
@@ -194,6 +213,10 @@ function steps(state: ImportWizardState) {
  * «저장 안 함»으로 뭉뚱그린 것이 결함 53이었다.
  */
 export function roleField(roles: readonly ColumnRole[]): string {
+  // 기준 데이터의 금액은 `target`(「매입원가」)이 이미 채워지므로 여기 오지 않지만,
+  // 순서상 앞에 둔다 — 원가표의 상품번호가 `listing-key`이기도 해서 뒤에 두면
+  // «리스팅 키»로 덮인다.
+  if (roles.includes("reference-amount")) return "기준 데이터"
   if (roles.includes("source-key")) return "행 식별 키"
   if (roles.includes("listing-title")) return "리스팅 제목"
   if (roles.includes("listing-key")) return "리스팅 키"
@@ -218,6 +241,11 @@ export function roleWhy(roles: readonly ColumnRole[], required: boolean): string
   if (roles.includes("listing-key")) parts.push("리스팅을 식별한다")
   if (roles.includes("listing-title")) parts.push("상품 연결에 뜨는 제목")
   if (roles.includes("routing")) parts.push("행이 갈 표를 정한다")
+  // 기준 데이터는 **batch에 안 실린다.** 되돌리기 목록에 안 나오는 이유가 여기 있고,
+  // 말하지 않으면 사용자가 「가져오기 기록」에서 찾다가 «안 들어갔다»고 읽는다.
+  if (roles.includes("reference-amount")) {
+    parts.push("기준 데이터로 저장된다 — batch가 아니라 이력으로 쌓인다")
+  }
   return parts.join(" · ")
 }
 
@@ -268,6 +296,10 @@ export function importVals(
     vals.impDone = false
     vals.impDigest = []
     vals.impDigestTitle = ""
+    vals.impRefer = false
+    vals.impReferDate = ""
+    vals.impReferNote = ""
+    vals.setImpReferDate = act.setEffectiveFrom
     vals.impPick = act.pickFile
     vals.impReset = act.reset
     return
@@ -275,6 +307,8 @@ export function importVals(
 
   const sheet = a.sheets[a.sheetIndex]
   const match = a.profiles[state.profileIndex]
+  /** 기준 데이터 프로파일인가 — 이 한 값이 아래 네 자리의 문구를 가른다. */
+  const ref = match?.profile.reference
 
   vals.srcName = a.fileName
   vals.srcMeta = [
@@ -439,18 +473,67 @@ export function importVals(
   // 이름만 다른 재가져오기는 UPSERT로 합쳐지지 않는다 — 파일명이 키에 들어가는
   // 양식에서는 **키가 갈라져 두 번 쌓인다.** 막지는 않되 알고 넣게 한다.
   const prior = state.priorSame
+  /**
+   * ★ 기준 데이터에는 `source_key`도 UPSERT도 없다 ★
+   *
+   * 이 줄은 사실 경로의 규칙을 말한다 — 같은 키면 갱신, 다시 넣으면 새 batch.
+   * 원가는 그 셋 중 어느 것도 아니다: 키가 (SKU · 종류 · 적용일)이고 같으면
+   * **건너뛴다**. 사실 경로의 문장을 그대로 두면 사용자는 «다시 넣으면 갱신되겠지»
+   * 하고 값을 고쳐 다시 넣는데, 적용일이 같으면 아무 일도 일어나지 않는다.
+   * 화면을 렌더해서 이 줄이 그대로 떠 있는 것을 보고 잡았다 (2026-08-19).
+   */
   vals.impDupNote =
-    prior.length === 0
+    ref !== undefined
+      ? "같은 적용일에 같은 값이 이미 있으면 건너뜁니다 — 원가를 고치려면 적용일을 다르게 두세요. " +
+        "그러면 이전 값은 이력으로 남고 그 날짜부터 새 값이 붙습니다."
+      : prior.length === 0
       ? "같은 source_key가 이미 있으면 덮어쓰지 않고 갱신됩니다 (UPSERT)."
       : `이 파일은 ${prior[0]!.at}에 「${prior[0]!.sourceName}」으로 이미 들어왔습니다` +
         (prior[0]!.sourceName === a.fileName ? "" : " — 내용은 같고 파일명만 다릅니다") +
         (prior[0]!.undone ? " (되돌려진 배치입니다)" : "") +
         ". 그래도 넣으면 새 batch로 쌓입니다."
 
+  /**
+   * ── 기준 데이터 — **적용일을 묻는다** ────────────────────────────
+   *
+   * ★ 이 물음이 없으면 넣을 수 없다 ★
+   * 원가표에는 «언제부터 이 원가인가»가 없다(실측 7열 전부 확인). 사실 파일은
+   * 행마다 날짜를 들고 오지만 기준 데이터는 **상태**라 날짜가 데이터 밖에 있다.
+   * 지어내면 과거 손익이 소급으로 바뀌므로 사람에게 묻는 것 말고 답이 없다.
+   *
+   * `impRunLabel`도 갈아끼운다 — 「가져오기」는 batch를 만든다는 말인데 여기서는
+   * 안 만든다. 되돌리기 목록에 안 나올 것을 「가져왔다」고 부르면 사용자가
+   * 기록에서 찾다가 «안 들어갔다»로 읽는다 (LOCK 2와 LOCK 10 계열).
+   */
+  vals.impRefer = ref !== undefined && state.refResult === null
+  vals.impReferDate = state.effectiveFrom
+  vals.setImpReferDate = act.setEffectiveFrom
+  vals.impReferNote =
+    ref === undefined
+      ? ""
+      : `${REF_KIND_LABEL[ref.kind] ?? "기준 데이터"}는 «언제부터»가 파일에 없습니다 — ` +
+        `이 날짜부터 적용되고, 이전 기간은 지금 값 그대로 남습니다. ` +
+        `batch로 쌓이지 않아 「가져오기 기록」에는 나오지 않습니다.`
+
   // 막힌 후보로는 넣을 수 없다. 버튼을 비활성으로 두고 이유는 위 판정 줄이 말한다.
+  //
+  // ★ 기준 데이터는 **적용일이 비면 못 누른다** ★ 날짜 없이 넣을 방법이 없고,
+  // 빈 채로 눌렀을 때 조용히 오늘로 채우면 그게 곧 «지어낸 값»이다.
+  const dateOk = ref === undefined || /^\d{4}-\d{2}-\d{2}$/.test(state.effectiveFrom)
   vals.impCanRun =
-    match !== undefined && blocked === undefined && !state.busy && state.digest === null
-  vals.impRunLabel = state.busy ? "가져오는 중…" : "확인하고 가져오기"
+    match !== undefined &&
+    blocked === undefined &&
+    dateOk &&
+    !state.busy &&
+    state.digest === null &&
+    state.refResult === null
+  vals.impRunLabel = state.busy
+    ? ref === undefined
+      ? "가져오는 중…"
+      : "넣는 중…"
+    : ref === undefined
+      ? "확인하고 가져오기"
+      : "확인하고 기준 데이터에 넣기"
   vals.impRun = act.confirm
 
   // ── 결과: 다이제스트 ─────────────────────────────────────────────
@@ -458,11 +541,89 @@ export function importVals(
   // 지금까지 이 테이블은 넣기만 하고 아무도 읽지 않았다. 「128행 적재」만 말하고
   // 제외 2건을 두고 오면 그게 곧 조용한 실패다 (LOCK 6).
   const d = state.digest
-  vals.impDone = d !== null
-  vals.impDigestTitle = d
-    ? `${d.sourceName} — ${won(d.rowCount)}행 적재${d.excludedCount > 0 ? ` · ${won(d.excludedCount)}행 제외` : ""}`
-    : ""
-  vals.impDigest = d === null ? [] : digestRows(d, opened)
+  const rr = state.refResult
+  vals.impDone = d !== null || rr !== null
+  vals.impDigestTitle = rr
+    ? `${a.fileName} — ${REF_KIND_LABEL[rr.kind] ?? "기준 데이터"} ${won(rr.inserted)}건 반영` +
+      (rr.unmatched > 0 ? ` · ${won(rr.unmatched)}건은 아직 판 적이 없어 못 붙였습니다` : "")
+    : d
+      ? `${d.sourceName} — ${won(d.rowCount)}행 적재${d.excludedCount > 0 ? ` · ${won(d.excludedCount)}행 제외` : ""}`
+      : ""
+  vals.impDigest = rr ? referenceRows(rr) : d === null ? [] : digestRows(d, opened)
+}
+
+/** 기준 데이터 종류 → 사람이 읽는 말. core의 코드값(`COGS`)을 화면에 내지 않는다. */
+export const REF_KIND_LABEL: Record<string, string> = {
+  COGS: "매입원가",
+  PACKAGING: "포장비",
+  LOGISTICS: "물류비",
+  OTHER: "기타 원가",
+}
+
+/**
+ * 기준 데이터 적재 결과 — **행 하나하나가 어떻게 됐는지.**
+ *
+ * ★ 「못 찾음」이 여기서 가장 중요한 줄이다 ★
+ * 253종짜리 원가표를 넣으면 대부분이 안 붙는 것이 **정상**이다 — 아직 안 판
+ * 상품·단종된 상품이 섞여 있기 때문이다. 그 수를 빨갛게 칠하면 사용자는
+ * «파일이 잘못됐다»로 읽고 멀쩡한 원가표를 고치려 든다. 그래서 색은 중립이고
+ * 문장이 이유를 든다 — 세되 실패로 부르지 않는다 (LOCK 6은 «숨기지 마라»이지
+ * «전부 빨갛게 칠하라»가 아니다).
+ *
+ * `importVals` 밖으로 뺀 이유는 `digestRows`와 같다 — 조기 반환 때문에 이 조립만
+ * 따로 확인할 길이 없어진다.
+ */
+export function referenceRows(
+  r: ReferenceRunResult,
+): { label: string; value: string; color: string }[] {
+  const rows = [
+    {
+      label: `${REF_KIND_LABEL[r.kind] ?? "기준 데이터"} 반영`,
+      value: `${won(r.inserted)}건`,
+      color: G,
+    },
+  ]
+  if (r.replaced > 0) {
+    rows.push({ label: "같은 적용일을 덮어씀", value: `${won(r.replaced)}건`, color: WARN })
+  }
+  if (r.skipped > 0) {
+    rows.push({ label: "이미 같은 값이 있어 그대로 둠", value: `${won(r.skipped)}건`, color: DIM })
+  }
+  if (r.createdSkus > 0) {
+    // SKU를 **만들었다**는 것은 되돌리기가 안 되는 일이라 반드시 말한다.
+    rows.push({
+      label: "상품(SKU)을 새로 만들어 붙임",
+      value: `${won(r.createdSkus)}개`,
+      color: "var(--fg-2)",
+    })
+  }
+  if (r.unmatched > 0) {
+    rows.push({
+      label: "아직 판 적이 없어 못 붙임 — 팔리면 그때 붙습니다",
+      value: `${won(r.unmatched)}건`,
+      color: DIM,
+    })
+    if (r.unmatchedSample.length > 0) {
+      // 무엇이 안 붙었는지 말하지 않으면 «171건»은 사용자가 손댈 수 없는 숫자다.
+      rows.push({
+        label: "못 붙은 상품번호 (앞의 몇 개)",
+        value: r.unmatchedSample.slice(0, 5).join(" · "),
+        color: DIM,
+      })
+    }
+  }
+  if (r.badRows > 0) {
+    // 이쪽은 진짜 결손이다 — 상품번호가 비었거나 금액을 못 읽었다.
+    rows.push({ label: "상품번호가 없거나 금액을 못 읽음", value: `${won(r.badRows)}행`, color: NEG })
+  }
+  if (r.excluded.length > 0) {
+    rows.push({
+      label: "파이프라인이 거른 행 (합계·빈 행)",
+      value: `${won(r.excluded.length)}행`,
+      color: WARN,
+    })
+  }
+  return rows
 }
 
 /**

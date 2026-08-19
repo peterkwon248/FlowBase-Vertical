@@ -328,6 +328,11 @@ export interface TemplateVals {
   impManySheets: boolean
   importCounts: readonly any[]
   impPick: (...args: any[]) => void
+  /** §21 «import-reference» — 기준 데이터 프로파일일 때만 참. 적용일을 묻는다. */
+  impRefer: boolean
+  impReferDate: string
+  impReferNote: string
+  setImpReferDate: (...args: any[]) => void
   impReset: (...args: any[]) => void
   impRun: (...args: any[]) => void
   impRunLabel: string
@@ -869,6 +874,10 @@ export function emptyVals(): TemplateVals {
     impManySheets: false,
     importCounts: [],
     impPick: () => {},
+    impRefer: false,
+    impReferDate: "",
+    impReferNote: "",
+    setImpReferDate: () => {},
     impReset: () => {},
     impRun: () => {},
     impRunLabel: "",

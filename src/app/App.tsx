@@ -43,6 +43,7 @@ import { marketDict } from "@packs/kr-marketplace/markets/index.js"
 import { importVals, BIG_FILE_BYTES, EMPTY_WIZARD, type ImportActions, type ImportWizardState } from "./import.js"
 import { analyzeImport } from "@core/import/analyze.js"
 import { runImport } from "@core/import/run.js"
+import { runReferenceImport } from "@core/import/run-reference.js"
 import { loadProfiles } from "@packs/kr-marketplace/profiles/index.js"
 import { DEV_LIBRARY, findPriorImports, isWebDemo, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
@@ -533,7 +534,21 @@ export function App(): React.JSX.Element {
        * `null`로 남는다 — 「맞는 양식이 없었다」도 기록할 값이다.
        */
       void recordSighting(analysis)
-      setWiz((w) => ({ ...w, analysis, priorSame, profileIndex: 0, error: null, busy: false }))
+      /**
+       * ★ 적용일의 기본값은 **오늘**이지만 숨기지 않는다 ★
+       * 대부분의 입력이 «지금부터 이 원가»라 기본값이 있는 편이 낫다. 그러나
+       * 화면에 상시로 보여야 사용자가 자기가 「오늘부터」를 골랐다는 사실을 안다 —
+       * `product.ts`의 `emptyDraft`와 같은 판단이다.
+       */
+      setWiz((w) => ({
+        ...w,
+        analysis,
+        priorSame,
+        profileIndex: 0,
+        effectiveFrom: w.effectiveFrom === "" ? today() : w.effectiveFrom,
+        error: null,
+        busy: false,
+      }))
     } catch (e) {
       setWiz((w) => ({
         ...w,
@@ -574,6 +589,10 @@ export function App(): React.JSX.Element {
       })
     },
     pickProfile: (i) => setWiz((w) => ({ ...w, profileIndex: i })),
+    setEffectiveFrom: (ev: unknown) => {
+      const v = (ev as { target?: { value?: string } } | null)?.target?.value ?? ""
+      setWiz((w) => ({ ...w, effectiveFrom: v }))
+    },
     pickSheet: (i) => {
       const bytes = wizBytes.current
       const name = wiz.analysis?.fileName
@@ -634,9 +653,38 @@ export function App(): React.JSX.Element {
        * 잠긴다. 잠기는 것은 그대로지만 **잠겼다는 사실이 화면에 남는다.**
        * 시간을 재는 게 아니라 «한 번 그릴 틈»을 주는 것이라 기기 속도와 무관하다.
        */
+      /**
+       * ★ 기준 데이터는 **다른 문으로 들어간다** ★
+       *
+       * 연결도 batch도 만들지 않는다 — 원가는 마켓이 준 사실이 아니라 셀러가
+       * 정한 기준이고, 되돌리기는 «이력을 지우는 것»이 아니라 «새 값을 얹는
+       * 것»이다 (ADR-005). 사실 경로의 `ensureConnection`을 여기서 부르면
+       * 「내 원가표」라는 이름의 유령 연결이 연결 목록에 남는다.
+       *
+       * ★ 그래도 **사슬은 하나다** ★ 갈래를 사슬째 나누면 `.finally(release)`가
+       * 둘이 되고, 잠금 게이트(`tests/app-lock.test.ts`)가 그걸 잡는다 — 게이트가
+       * 세는 것은 «잡은 수 = 놓는 수»이고, 갈래마다 놓는 구조는 한쪽 갈래를 고칠
+       * 때 다른 쪽 `finally`를 잃기 쉽다. 갈리는 것은 **안에서**다.
+       */
+      const isRef = match.profile.reference !== undefined
+      let refGot: Awaited<ReturnType<typeof runReferenceImport>> | null = null
+
       const start = (): void => {
         void writeThenReload(async (repo) => {
           await repo.ensureLibrary(DEV_LIBRARY, "기본", stamp)
+          if (isRef) {
+            refGot = await runReferenceImport(repo, {
+              bytes,
+              fileName: a.fileName,
+              profile: match.profile,
+              sheetIndex: a.sheetIndex,
+              libraryId: DEV_LIBRARY,
+              // 적용일은 화면이 물어서 받은 값이다 — 여기서 지어내지 않는다.
+              effectiveFrom: wiz.effectiveFrom,
+              now: stamp,
+            })
+            return
+          }
           await repo.ensureConnection(
             {
               id: connId,
@@ -666,6 +714,12 @@ export function App(): React.JSX.Element {
             return
           }
           take(r)
+          // 기준 데이터는 batch가 없어 **다시 읽을 다이제스트가 없다.** 결과는
+          // 적재 함수가 센 것 그대로다 — 되돌아가 확인할 batch 행이 애초에 없다.
+          if (isRef) {
+            setWiz((w) => ({ ...w, busy: false, refResult: refGot, error: null }))
+            return
+          }
           // 다이제스트는 **적재 뒤에 다시 읽는다.** 넣으면서 센 것을 그대로 쓰지 않는
           // 이유는 화면이 말하는 수가 DB가 아는 수여야 하기 때문이다. 잠금은 그
           // 조회까지 **한 사슬**로 묶여 있어 아래 `finally` 하나가 전부 책임진다.

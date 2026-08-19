@@ -84,6 +84,11 @@ export interface ReferenceRunResult {
   readonly warnings: readonly string[]
   /** 못 찾은 상품번호 표본 — 사람이 원인을 짚을 수 있게 앞의 몇 개를 든다. */
   readonly unmatchedSample: readonly string[]
+  /**
+   * 어느 종류로 들어갔나 (`cost_history.kind`). **화면이 이걸 되짚을 길이 없다** —
+   * 결과만 들고는 «원가»인지 «물류비»인지 알 수 없어서 결과에 싣는다.
+   */
+  readonly kind: "COGS" | "PACKAGING" | "LOGISTICS" | "OTHER"
 }
 
 /** 원 단위 정수로 읽는다. 「1,200원」·「1200.0」 같은 표기를 넘긴다. */
@@ -234,6 +239,7 @@ export async function runReferenceImport(
       sheet,
       warnings: [...src.warnings, ...rec.identityNotes],
       unmatchedSample,
+      kind: rule.kind,
     }
   } finally {
     src.close()
