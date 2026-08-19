@@ -17,7 +17,7 @@
 import { describe, expect, it } from "vitest"
 import { readFileSync } from "node:fs"
 import { columnRoles, matchProfiles, type MappingProfile } from "../src/core/import/mapping/index.js"
-import { importVals, referenceRows, roleField, roleWhy, EMPTY_WIZARD } from "../src/app/import.js"
+import { importVals, referenceRows, refTargetSheets, refBlockedSheetCount, roleField, roleWhy, EMPTY_WIZARD } from "../src/app/import.js"
 import { emptyVals } from "../src/app/generated/vals.js"
 import type { ImportAnalysis } from "../src/core/import/analyze.js"
 import type { ReferenceRunResult } from "../src/core/import/run-reference.js"
@@ -138,8 +138,7 @@ describe("기준 데이터 위저드 — 원가", () => {
       refResult: {
         inserted: 1, skipped: 0, replaced: 0, unmatched: 0, createdSkus: 0, badRows: 0,
         excluded: [], warnings: [], unmatchedSample: [], stashed: 0, bridged: 0, kind: "COGS",
-        header: { rowIndex: 0, columns: [], confidence: 1 },
-        sheet: { index: 0, name: "S" },
+        perSheet: [], conflicts: [], conflictCount: 0,
       } as never,
     })
     expect(done.impBig, "결과가 나왔는데 경고가 남았다").toBe(false)
@@ -215,5 +214,120 @@ describe("기준 데이터 결과 — 못 찾은 것을 실패로 부르지 않�
     // 결과가 나오면 적용일 블록은 물러난다 — 이미 정해진 값을 다시 묻지 않는다
     expect(v.impRefer).toBe(false)
     expect(v.impCanRun).toBe(false)
+  })
+
+  it("★ 실패한 시트는 빨갛게, 사유와 함께 — warnings에 묻으면 아무도 못 본다 ★", () => {
+    const rows = referenceRows({
+      ...base,
+      perSheet: [
+        { sheetIndex: 0, sheetName: "공유정보", inserted: 0, skipped: 0, replaced: 0, unmatched: 0, stashed: 0, bridged: 0, createdSkus: 0, badRows: 0, excludedCount: 0, failed: "블록을 찾지 못했다" },
+        { sheetIndex: 1, sheetName: "충전기", inserted: 35, skipped: 0, replaced: 0, unmatched: 171, stashed: 171, bridged: 0, createdSkus: 35, badRows: 0, excludedCount: 0, failed: null },
+      ],
+    })
+    const failed = rows.find((r) => r.label.includes("넣지 못함"))
+    expect(failed, "실패 시트가 다이제스트에 없다").toBeDefined()
+    expect(failed!.label).toContain("공유정보")
+    expect(failed!.value).toContain("블록을 찾지 못했다")
+    expect(failed!.color).toBe("var(--pnl-neg)")
+    // 성공한 시트도 시트별 줄이 선다 — 「어느 시트가 몇 건」이 사라지지 않는다
+    const ok = rows.find((r) => r.label.includes("「충전기」"))
+    expect(ok?.value).toContain("반영 35")
+  })
+
+  it("★ 시트 간 금액 충돌 — 몇 건인지와 어느 값이 남았는지를 말한다 ★", () => {
+    const rows = referenceRows({
+      ...base,
+      conflictCount: 2,
+      conflicts: [
+        { where: "pending", key: "쿨매트", prior: 7700, next: 8800, kept: 8800 },
+        { where: "cost", key: "워치독", prior: 9200, next: 9900, kept: 9200 },
+      ],
+    })
+    const head = rows.find((r) => r.label.includes("다른 금액"))
+    expect(head, "충돌 건수가 다이제스트에 없다").toBeDefined()
+    expect(head!.value).toBe("2건")
+    const sample = rows.find((r) => r.label.includes("어긋난 자리"))
+    expect(sample!.value).toContain("쿨매트")
+    expect(sample!.value).toContain("8,800원 남음")
+  })
+})
+
+/**
+ * ★ 「일치한 시트 전부 넣기」 — 기본 체크된 초안 (ADR-019 B4 · §18-B) ★
+ *
+ * 사건 파일은 같은 양식으로 100% 매칭된 카드 시트가 14장이었다 — 시트 하나씩
+ * 14번 넣는 것이 유일한 길이었다. 토글은 «자동 판정 결과를 체크 상태의 초안으로
+ * 제시하고, 확정은 사람이 누른다»는 §18-B의 이행이다.
+ */
+describe("일치한 시트 전부 넣기 — 대상 계산과 토글", () => {
+  const COST_HIT = { profile: COST, confidence: 1, evidence: [] }
+  const ESM_HIT = { profile: ESM, confidence: 1, evidence: [] }
+  const COST_BLOCKED = { profile: COST, confidence: 1, evidence: [], blockedBy: { missingCaptures: ["기간"] } }
+
+  /** 시트 4장: 0 = 고른 원가 · 1 = 같은 양식 · 2 = 다른 양식이 1순위 · 3 = 같은 양식이지만 막힘 */
+  const multiA = (): ImportAnalysis => {
+    const a = analysisOf(COST, COST_HEADERS)
+    return {
+      ...a,
+      sheets: [
+        { index: 0, name: "원가A", physicalRowCount: 100, columnCount: 7, reason: "100행", formulaRatio: null },
+        { index: 1, name: "원가B", physicalRowCount: 90, columnCount: 7, reason: "90행", formulaRatio: null },
+        { index: 2, name: "매출", physicalRowCount: 80, columnCount: 7, reason: "80행", formulaRatio: null },
+        { index: 3, name: "막힘", physicalRowCount: 70, columnCount: 7, reason: "70행", formulaRatio: null },
+      ],
+      sheetMatches: [
+        { sheetIndex: 0, sheetName: "원가A", profiles: a.profiles },
+        { sheetIndex: 1, sheetName: "원가B", profiles: [COST_HIT] },
+        // 다른 양식이 더 높은 순위 — 같은 양식이 2순위로 붙어 있어도 쓸려 들어가면 안 된다
+        { sheetIndex: 2, sheetName: "매출", profiles: [ESM_HIT, COST_HIT] },
+        { sheetIndex: 3, sheetName: "막힘", profiles: [COST_BLOCKED] },
+      ],
+    } as unknown as ImportAnalysis
+  }
+
+  it("★ 대상 = 고른 시트 + 1순위가 같은 양식인 시트뿐 — 오름차순 ★", () => {
+    const a = multiA()
+    expect(refTargetSheets(a, COST.id)).toEqual([0, 1])
+    // 같은 양식인데 파일명 문제로 막힌 시트는 세어 말한다 — 조용히 사라지지 않는다
+    expect(refBlockedSheetCount(a, COST.id)).toBe(1)
+  })
+
+  it("토글과 버튼이 개수를 말한다 — 끄면 고른 시트 하나 (현행과 동일)", () => {
+    const on = vals({ ...EMPTY_WIZARD, analysis: multiA(), effectiveFrom: "2026-01-01" })
+    expect(on.impAllSheets).toBe(true)
+    expect(on.impAllSheetsLabel).toContain("2개 전부 넣기")
+    expect(on.impAllSheetsLabel, "막힌 시트를 말하지 않는다").toContain("빠진 시트 1개")
+    expect(on.impRunLabel).toBe("확인하고 기준 데이터에 넣기 — 2개 시트")
+
+    const off = vals({ ...EMPTY_WIZARD, analysis: multiA(), effectiveFrom: "2026-01-01", allSheets: false })
+    expect(off.impAllSheets).toBe(false)
+    expect(off.impRunLabel).toBe("확인하고 기준 데이터에 넣기")
+  })
+
+  it("결과가 나오면 토글은 숨는다 — 적용일 입력과 같은 패턴", () => {
+    const done: ReferenceRunResult = {
+      inserted: 1, skipped: 0, replaced: 0, unmatched: 0, createdSkus: 0, badRows: 0,
+      excluded: [], warnings: [], unmatchedSample: [], stashed: 0, bridged: 0,
+      kind: "COGS", perSheet: [], conflicts: [], conflictCount: 0,
+    }
+    const v = vals({
+      ...EMPTY_WIZARD,
+      analysis: multiA(),
+      effectiveFrom: "2026-01-01",
+      refResult: done,
+    })
+    expect(v.impAllSheetsLabel).toBe("")
+  })
+
+  it("사실(fact) 경로에는 토글이 없다 — 이 결정은 기준 경로 한정이다 (ADR-019)", () => {
+    const a = analysisOf(ESM, ["주문번호", "상품번호", "상품명", "진행상태", "구매금액", "결제일", "주문순번"])
+    const v = vals({ ...EMPTY_WIZARD, analysis: a })
+    expect(v.impAllSheetsLabel).toBe("")
+  })
+
+  it("매칭 시트가 하나뿐이면 토글이 없다 — 물을 것이 없다", () => {
+    const v = vals({ ...EMPTY_WIZARD, analysis: analysisOf(COST, COST_HEADERS), effectiveFrom: "2026-01-01" })
+    expect(v.impAllSheetsLabel).toBe("")
+    expect(v.impRunLabel).toBe("확인하고 기준 데이터에 넣기")
   })
 })

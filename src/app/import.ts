@@ -132,6 +132,16 @@ export interface ImportWizardState {
   readonly effectiveFrom: string
   /** 기준 데이터 적재 결과. 사실 경로의 `digest`와 **다른 모양**이라 따로 둔다. */
   readonly refResult: ReferenceRunResult | null
+  /**
+   * ★ 「일치한 시트 전부 넣기」 토글 (ADR-019 B4) ★
+   *
+   * 기본이 참인 이유: §18-B가 요구하는 것이 «자동 판정 결과를 **체크 상태의
+   * 초안**으로 제시하고, 확정은 사람이 누른다»이기 때문이다. 파일·시트를 바꾸면
+   * 참으로 되돌아간다 — 초안은 매 판정마다 새로 서는 것이지 지난 파일의 선택이
+   * 아니다. 기준(reference) 경로에서 같은 양식으로 매칭된 시트가 여럿일 때만
+   * 화면에 나타난다.
+   */
+  readonly allSheets: boolean
 }
 
 export const EMPTY_WIZARD: ImportWizardState = {
@@ -144,6 +154,7 @@ export const EMPTY_WIZARD: ImportWizardState = {
   priorSame: [],
   effectiveFrom: "",
   refResult: null,
+  allSheets: true,
 }
 
 export interface ImportActions {
@@ -158,6 +169,8 @@ export interface ImportActions {
    * 고장으로 읽힌다. 지금 보던 양식이 선택된 채 열린다.
    */
   editMap: () => void
+  /** 「일치한 시트 전부 넣기」 토글 (ADR-019 B4). */
+  toggleAllSheets: () => void
   confirm: () => void
   reset: () => void
 }
@@ -168,6 +181,7 @@ export const NOOP_IMPORT_ACTIONS: ImportActions = {
   pickSheet: () => {},
   setEffectiveFrom: () => {},
   editMap: () => {},
+  toggleAllSheets: () => {},
   confirm: () => {},
   reset: () => {},
 }
@@ -302,6 +316,9 @@ export function importVals(
     vals.impSheets = []
     vals.impManySheets = false
     vals.impSheetAutoNote = ""
+    vals.impAllSheets = false
+    vals.impAllSheetsLabel = ""
+    vals.toggleImpAllSheets = act.toggleAllSheets
     vals.impCanRun = false
     vals.impRunLabel = "확인하고 가져오기"
     vals.impDone = false
@@ -563,6 +580,24 @@ export function importVals(
         `이 날짜부터 적용되고, 이전 기간은 지금 값 그대로 남습니다. ` +
         `batch로 쌓이지 않아 「가져오기 기록」에는 나오지 않습니다.`
 
+  // ── 「일치한 시트 전부 넣기」 — 기본 체크된 초안 (ADR-019 B4 · §18-B) ──
+  //
+  // 같은 양식으로 매칭된 시트가 여럿인 기준 파일에서만 나타난다. 결과가 나오면
+  // 숨는다(적용일 입력과 같은 패턴) — 완료 화면에 살아 있는 토글이 남으면
+  // 죽은 버튼 옆에서 눌리는 줄 안다.
+  const refTargets =
+    ref !== undefined && match !== undefined ? refTargetSheets(a, match.profile.id) : []
+  const refBlocked =
+    ref !== undefined && match !== undefined ? refBlockedSheetCount(a, match.profile.id) : 0
+  const showAllSheets = ref !== undefined && state.refResult === null && refTargets.length > 1
+  vals.impAllSheets = showAllSheets && state.allSheets
+  vals.impAllSheetsLabel = !showAllSheets
+    ? ""
+    : `일치한 시트 ${won(refTargets.length)}개 전부 넣기 — 같은 양식으로 판정된 시트들입니다` +
+      // blockedBy로 빠진 동일-양식 시트를 조용히 사라지게 두지 않는다 (ADR-010 계보)
+      (refBlocked > 0 ? ` · 파일명 문제로 빠진 시트 ${won(refBlocked)}개는 넣지 않습니다` : "")
+  vals.toggleImpAllSheets = act.toggleAllSheets
+
   // 막힌 후보로는 넣을 수 없다. 버튼을 비활성으로 두고 이유는 위 판정 줄이 말한다.
   //
   // ★ 기준 데이터는 **적용일이 비면 못 누른다** ★ 날짜 없이 넣을 방법이 없고,
@@ -575,13 +610,18 @@ export function importVals(
     !state.busy &&
     state.digest === null &&
     state.refResult === null
+  // 몇 개 시트가 들어가는지 버튼이 말한다 — 「가져오기」라 부르지 않는 기존
+  // 결정(batch를 만들지 않는다)은 그대로다. 접미만 는다.
+  const multiRef = showAllSheets && state.allSheets
   vals.impRunLabel = state.busy
     ? ref === undefined
       ? "가져오는 중…"
       : "넣는 중…"
     : ref === undefined
       ? "확인하고 가져오기"
-      : "확인하고 기준 데이터에 넣기"
+      : multiRef
+        ? `확인하고 기준 데이터에 넣기 — ${won(refTargets.length)}개 시트`
+        : "확인하고 기준 데이터에 넣기"
   vals.impRun = act.confirm
   vals.impEditMap = act.editMap
 
@@ -594,6 +634,7 @@ export function importVals(
   vals.impDone = d !== null || rr !== null
   vals.impDigestTitle = rr
     ? `${a.fileName} — ${REF_KIND_LABEL[rr.kind] ?? "기준 데이터"} ${won(rr.inserted)}건 반영` +
+      (rr.perSheet.length > 1 ? ` · 시트 ${won(rr.perSheet.length)}개` : "") +
       (rr.unmatched > 0 ? ` · ${won(rr.unmatched)}건은 아직 판 적이 없어 못 붙였습니다` : "")
     : d
       ? `${d.sourceName} — ${won(d.rowCount)}행 적재${d.excludedCount > 0 ? ` · ${won(d.excludedCount)}행 제외` : ""}`
@@ -607,6 +648,36 @@ export const REF_KIND_LABEL: Record<string, string> = {
   PACKAGING: "포장비",
   LOGISTICS: "물류비",
   OTHER: "기타 원가",
+}
+
+/**
+ * «전부 넣기»의 대상 시트 — 고른 시트 + **1순위 비차단 후보가 같은 프로파일인**
+ * 다른 시트들, 시트 인덱스 오름차순 (ADR-019 B4).
+ *
+ * ★ 왜 1순위 조건인가 ★ 「같은 프로파일이 어딘가에 맞았다」로 거르면 다른
+ * 프로파일이 더 높은 확신으로 맞은 시트까지 쓸려 들어간다 — 미지의 값을 기본
+ * 경로로 흘리지 않는다는 ADR-010의 자매 규칙이다. 고른 시트는 사람이 확인
+ * 표까지 본 시트라 조건 없이 든다.
+ */
+export function refTargetSheets(a: ImportAnalysis, profileId: string): number[] {
+  const others = a.sheetMatches
+    .filter((m) => m.sheetIndex !== a.sheetIndex)
+    .filter((m) => {
+      const top = m.profiles.find((p) => p.blockedBy === undefined)
+      return top !== undefined && top.profile.id === profileId
+    })
+    .map((m) => m.sheetIndex)
+  return [a.sheetIndex, ...others].sort((x, y) => x - y)
+}
+
+/** 같은 프로파일인데 파일명 캡처(blockedBy)로 빠진 시트 수 — 조용히 사라지게 두지 않는다. */
+export function refBlockedSheetCount(a: ImportAnalysis, profileId: string): number {
+  return a.sheetMatches.filter(
+    (m) =>
+      m.sheetIndex !== a.sheetIndex &&
+      !m.profiles.some((p) => p.blockedBy === undefined && p.profile.id === profileId) &&
+      m.profiles.some((p) => p.blockedBy !== undefined && p.profile.id === profileId),
+  ).length
 }
 
 /**
@@ -671,6 +742,53 @@ export function referenceRows(
       value: `${won(r.excluded.length)}행`,
       color: WARN,
     })
+  }
+
+  /**
+   * ★ 시트 간 금액 충돌 (ADR-019 B3) ★ 같은 대상에 다른 금액이 두 번 왔다.
+   * 어느 값이 남았는지까지 말한다 — 「몇 건」만 말하면 사용자가 손댈 수 없는
+   * 숫자다 (unmatchedSample과 같은 판단).
+   */
+  if (r.conflictCount > 0) {
+    rows.push({
+      label: "같은 품명에 다른 금액 — 시트끼리 어긋납니다",
+      value: `${won(r.conflictCount)}건`,
+      color: WARN,
+    })
+    rows.push({
+      label: "어긋난 자리 (앞의 몇 개 · 남은 값 표시)",
+      value: r.conflicts
+        .slice(0, 3)
+        .map((c) => `${c.key} ${won(c.prior)}→${won(c.next)} (${won(c.kept)}원 남음)`)
+        .join(" · "),
+      color: WARN,
+    })
+  }
+
+  /**
+   * ★ 시트별 결과 — 다중 시트일 때만 (ADR-019 B2) ★
+   * 합산만 주면 «어느 시트가 몇 건»이 사라진다. 실패 시트는 **일급으로 빨갛게** —
+   * warnings에 묻으면 아무도 못 본다는 것이 실측이다.
+   */
+  if (r.perSheet.length > 1 || r.perSheet.some((s) => s.failed !== null)) {
+    for (const s of r.perSheet) {
+      if (s.failed !== null) {
+        rows.push({ label: `시트 「${s.sheetName}」 — 넣지 못함`, value: s.failed, color: NEG })
+        continue
+      }
+      const parts = [
+        s.inserted > 0 ? `반영 ${won(s.inserted)}` : "",
+        s.bridged > 0 ? `지난 판단으로 ${won(s.bridged)}` : "",
+        s.stashed > 0 ? `대기 ${won(s.stashed)}` : "",
+        s.skipped > 0 ? `건너뜀 ${won(s.skipped)}` : "",
+        s.badRows > 0 ? `못 읽음 ${won(s.badRows)}` : "",
+      ].filter((t) => t !== "")
+      rows.push({
+        label: `시트 「${s.sheetName}」`,
+        value: parts.length === 0 ? "0건" : parts.join(" · "),
+        color: DIM,
+      })
+    }
   }
   return rows
 }

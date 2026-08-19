@@ -49,7 +49,7 @@ import {
 } from "./costs.js"
 import type { ProductSkuRow, ProductView } from "@core/product/rows.js"
 import { marketDict } from "@packs/kr-marketplace/markets/index.js"
-import { importVals, BIG_FILE_BYTES, EMPTY_WIZARD, type ImportActions, type ImportWizardState } from "./import.js"
+import { importVals, refTargetSheets, BIG_FILE_BYTES, EMPTY_WIZARD, type ImportActions, type ImportWizardState } from "./import.js"
 import { fieldmapVals, parsePick } from "./fieldmap.js"
 import { analyzeImport } from "@core/import/analyze.js"
 import { runImport } from "@core/import/run.js"
@@ -765,6 +765,8 @@ export function App(): React.JSX.Element {
         profileIndex: 0,
         digest: null,
         refResult: null,
+        // 토글도 초안으로 — §18-B의 «초안»은 매 판정마다 새로 선다 (ADR-019 B4)
+        allSheets: true,
         effectiveFrom: w.effectiveFrom === "" ? today() : w.effectiveFrom,
         error: null,
         busy: false,
@@ -822,6 +824,7 @@ export function App(): React.JSX.Element {
       const v = (ev as { target?: { value?: string } } | null)?.target?.value ?? ""
       setWiz((w) => ({ ...w, effectiveFrom: v }))
     },
+    toggleAllSheets: () => setWiz((w) => ({ ...w, allSheets: !w.allSheets })),
     pickSheet: (i) => {
       const bytes = wizBytes.current
       const name = wiz.analysis?.fileName
@@ -909,8 +912,12 @@ export function App(): React.JSX.Element {
               bytes,
               fileName: a.fileName,
               profile: match.profile,
-              // 커밋 4(토글)에서 같은 프로파일로 매칭된 전 시트로 확장된다 (ADR-019 B4).
-              sheetIndexes: [a.sheetIndex],
+              // 토글이 켜져 있으면 같은 프로파일로 매칭된 전 시트 — 기본 체크된
+              // 초안이고 확정은 이 버튼 클릭이다 (§18-B · ADR-019 B4). 끄면
+              // 고른 시트 하나 — 현행과 동일하다.
+              sheetIndexes: wiz.allSheets
+                ? refTargetSheets(a, match.profile.id)
+                : [a.sheetIndex],
               libraryId: DEV_LIBRARY,
               // 적용일은 화면이 물어서 받은 값이다 — 여기서 지어내지 않는다.
               effectiveFrom: wiz.effectiveFrom,

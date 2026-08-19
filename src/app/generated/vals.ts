@@ -339,6 +339,12 @@ export interface TemplateVals {
   setFixNewName: (...args: any[]) => void
   setFixNoneReason: (...args: any[]) => void
   toggleFixNone: (...args: any[]) => void
+  /** ADR-019 B4 — 「일치한 시트 전부 넣기」 토글 상태. */
+  impAllSheets: boolean
+  /** 토글 옆 문장. ""면 토글 자체가 숨는다 (기준 경로 · 매칭 시트 복수일 때만). */
+  impAllSheetsLabel: string
+  /** 토글 클릭. */
+  toggleImpAllSheets: (...args: any[]) => void
   impBig: boolean
   impBusy: boolean
   impCanRun: boolean
@@ -916,6 +922,9 @@ export function emptyVals(): TemplateVals {
     setFixNewName: () => {},
     setFixNoneReason: () => {},
     toggleFixNone: () => {},
+    impAllSheets: false,
+    impAllSheetsLabel: "",
+    toggleImpAllSheets: () => {},
     impBig: false,
     impBusy: false,
     impCanRun: false,

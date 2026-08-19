@@ -4458,6 +4458,16 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   </span>
                               ))}
                             </div>
+                            {" "}
+                            {vals.impAllSheetsLabel !== "" && (
+                              <label style={{ display: "flex", alignItems: "baseline", gap: "8px", padding: "10px 12px", borderTop: "1px solid var(--border)", cursor: "pointer", font: "var(--fw-medium) 12px/1.6 var(--font-sans)", color: "var(--fg-2)" }}>
+                                <input type="checkbox" checked={vals.impAllSheets} onChange={vals.toggleImpAllSheets} style={{ position: "relative", top: "1px" }} />
+                                {" "}
+                                <span>
+                                  {vals.impAllSheetsLabel}
+                                </span>
+                              </label>
+                            )}
                           </div>
                       )}
                       {" "}
