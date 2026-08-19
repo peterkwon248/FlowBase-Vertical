@@ -5286,7 +5286,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                             <Lic name="triangle-alert" size={14} />
                             {" "}
                             <span style={{ flex: "1" }}>
-                              이 양식은 아직 확인되지 않았습니다. 확인 필요 열을 확정해야 다음 파일이 자동으로 처리됩니다.
+                              {vals.fmWarnText}
                             </span>
                             {" "}
                             {vals.fmConfirmable && (
@@ -5345,7 +5345,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   </td>
                                   {" "}
                                   <td className="db-td">
-                                    <select value={c.field} onChange={c.onPick} style={{ maxWidth: "240px", height: "26px", padding: "0 6px", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", background: "var(--bg-input)", color: c.fieldColor, font: "var(--fw-semi) 11px var(--font-mono)", outline: "none", cursor: "pointer" }}>
+                                    <select value={c.field} onChange={c.onPick} disabled={c.locked} style={{ maxWidth: "240px", height: "26px", padding: "0 6px", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", background: "var(--bg-input)", color: c.fieldColor, font: "var(--fw-semi) 11px var(--font-mono)", outline: "none", cursor: "pointer" }}>
                                       {vals.fmFieldOptions.map((o: any, $index: number) => (
                                           <option key={$index} value={o}>
                                             {o}

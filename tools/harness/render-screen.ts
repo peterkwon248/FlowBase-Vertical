@@ -45,6 +45,7 @@ import { loadHistoryRows } from "../../src/core/history/rows.js"
 import type { DocType } from "../../src/core/coverage/index.js"
 import type { MarketDict } from "../../src/packs/kr-marketplace/markets/index.js"
 import { profileVersion, type MappingProfile } from "../../src/core/import/mapping/index.js"
+import { mergeProfiles } from "../../src/core/import/mapping/derive.js"
 import { Template } from "../../src/app/generated/Template.js"
 import { shellVals, shellStateFor } from "../../src/app/shell.js"
 
@@ -126,7 +127,14 @@ const settlement = await loadSettlementRows(db, "lib-1", PERIOD)
 const orders = await loadOrderRows(db, "lib-1", PERIOD)
 const linking = await loadLinkingView(db, "lib-1", krLinkingMatcher)
 const pendingCost = await loadPendingCostView(db, "lib-1", krCostBridgeMatcher)
-const fieldmap = await loadFieldmapView(new Repository(db), profiles, "lib-1")
+// ★ 앱과 같은 병합 (B2) — 개인 프로파일이 내장을 가린다 (`data.ts profileWorld`).
+// 이걸 빼먹으면 이 도구가 앱보다 낡는다 — 사용자가 확정한 판이 화면에 안 보인다.
+const { profiles: userProfiles } = await new Repository(db).userProfiles()
+const merged = mergeProfiles(profiles, userProfiles)
+const userVersions = new Set(userProfiles.map(profileVersion))
+// `…@u1`로 적재된 batch의 종류도 풀려야 한다 — 앱의 resolveDocType 확장과 같은 이유.
+for (const p of userProfiles) docTypeByVersion.set(profileVersion(p), p.docType)
+const fieldmap = await loadFieldmapView(new Repository(db), merged, "lib-1", userVersions)
 const coverage = await loadCoverage(db, "lib-1", resolveDocType)
 const history = await loadHistoryRows(db, "lib-1", resolveDocType)
 // 원가 기준일은 **고정한다** — 오늘을 쓰면 같은 DB에서 날마다 다른 HTML이 나와

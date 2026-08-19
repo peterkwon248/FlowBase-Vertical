@@ -41,6 +41,10 @@ import type { ImportAnalysis } from "@core/import/analyze.js"
 import { krLinkingMatcher } from "@packs/kr-marketplace/linking-matcher.js"
 import { krDocTypeResolver } from "@packs/kr-marketplace/markets/index.js"
 import { loadProfiles } from "@packs/kr-marketplace/profiles/index.js"
+import { mergeProfiles } from "@core/import/mapping/derive.js"
+import { profileVersion, type MappingProfile } from "@core/import/mapping/index.js"
+import { formatDefects, validateProfiles } from "@core/import/mapping/validate.js"
+import type { DocTypeResolver } from "@core/coverage/load.js"
 import { defaultMonth, loadAvailableMonths, monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
 import type { Period } from "@core/profit/index.js"
 
@@ -298,8 +302,13 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
       const orders = await loadOrderRows(db, DEV_LIBRARY, period)
       const linking = await loadLinkingView(db, DEV_LIBRARY, krLinkingMatcher)
       const pendingCost = await loadPendingCostView(db, DEV_LIBRARY, krCostBridgeMatcher)
-      const fieldmap = await loadFieldmapView(new Repository(db), loadProfiles(), DEV_LIBRARY)
-      const resolveDocType = krDocTypeResolver()
+      const repo = new Repository(db)
+      // 개인 프로파일(B2)이 내장을 가린 병합본 — 필드매핑·커버리지·기록이 같은
+      // 세계를 본다. 내장만 보면 `…@u1` batch의 docType을 못 풀어 커버리지가
+      // 조용히 그 파일을 잃는다.
+      const world = await profileWorld(repo)
+      const fieldmap = await loadFieldmapView(repo, world.merged, DEV_LIBRARY, world.userVersions)
+      const resolveDocType = world.resolveDocType
       const coverage = await loadCoverage(db, DEV_LIBRARY, resolveDocType)
       const history = await loadHistoryRows(db, DEV_LIBRARY, resolveDocType)
       /**
@@ -322,7 +331,6 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
       const profitRows = await loadProfitRows(db, DEV_LIBRARY, period)
       const channelRows = await loadChannelRows(db, DEV_LIBRARY, period)
       const daily = await loadDailySeries(db, DEV_LIBRARY, period)
-      const repo = new Repository(db)
       const excluded = await repo.exclusionTotals(DEV_LIBRARY)
       /**
        * 항목마다 **이력 건수**를 함께 센다 — 「임대료 · 03부터 (이력 3)」이 되려면
@@ -433,6 +441,71 @@ export async function writeThenReload(
 
 /** 쓰기 시각. 되돌리기·이력이 이 값을 본다 (ADR-004). */
 export const nowStamp = (): string => new Date().toISOString().slice(0, 19)
+
+/**
+ * ★ 프로파일의 세계 — **내장 + 내 확정판의 병합** (계획 B2) ★
+ *
+ * 사용자가 확정한 파생판(`mapping_profile source='user'`)이 같은 자연키의
+ * 내장을 가린다 — 목업 고정 문구 «직접 지정한 매핑은 덮어쓰지 않습니다»의 이행.
+ * 판정(analyze)·별칭 색인·필드매핑 화면·커버리지 해석이 전부 이 병합본을 쓴다:
+ * **사용자의 답이 다음 판정의 확정 층이 된다** (§20 규칙 4).
+ *
+ * ★ 문에서 거르되 던지지 않는다 ★ 내장 프로파일의 문(`loadProfiles`)은 결함에
+ * 던진다 — 그건 우리 잘못이고 앱이 안 뜨는 게 맞다. 개인 프로파일의 결함은
+ * 성격이 다르다: 썩은 행 하나가 앱 전체를 막으면 사용자는 자기 데이터 전부를
+ * 잃은 걸로 겪는다. 그래서 **세어서 경고하고 건너뛴다** (LOCK 6 — 조용히는 아니다).
+ *
+ * ★ docType 해석도 여기서 늘린다 ★ `krDocTypeResolver`는 내장 버전만 안다 —
+ * `…@u1`로 적재된 batch를 그대로 두면 커버리지·기록이 그 파일의 종류를 몰라
+ * **조용히 빠뜨린다.** 개인 프로파일의 버전을 먼저 보고, 없으면 내장으로 물러난다.
+ */
+async function profileWorld(repo: Repository): Promise<{
+  readonly merged: readonly MappingProfile[]
+  readonly userVersions: ReadonlySet<string>
+  readonly resolveDocType: DocTypeResolver
+}> {
+  const { profiles: raw, broken } = await repo.userProfiles()
+  if (broken > 0) console.warn(`[data] 본문이 읽히지 않는 개인 프로파일 ${broken}건 — 건너뛴다`)
+  const user: MappingProfile[] = []
+  for (const p of raw) {
+    const defects = validateProfiles([p])
+    if (defects.size > 0) {
+      console.warn(`[data] 개인 프로파일 결함 — 건너뛴다\n${formatDefects(defects)}`)
+    } else {
+      user.push(p)
+    }
+  }
+  const merged = mergeProfiles(loadProfiles(), user)
+  const userVersions = new Set(user.map(profileVersion))
+  const kr = krDocTypeResolver()
+  const byUserVersion = new Map(user.map((p) => [profileVersion(p), p.docType]))
+  const resolveDocType: DocTypeResolver = (mv) => {
+    const dt = byUserVersion.get(mv)
+    if (dt === "order" || dt === "settlement" || dt === "ad") return dt
+    return kr(mv)
+  }
+  return { merged, userVersions, resolveDocType }
+}
+
+/**
+ * 판정이 쓰는 프로파일 후보 — **병합본이다** (`analyzeImport`의 재료).
+ *
+ * DB를 못 열면 내장만으로 물러난다 — 판정은 DB 없이도 서야 하는 계약이고
+ * (웹 데모), 그 상황에서 개인 프로파일은 어차피 저장할 수도 없었다.
+ */
+export async function loadAllProfiles(): Promise<readonly MappingProfile[]> {
+  try {
+    const db = await open()
+    try {
+      await catchUp(db)
+      return (await profileWorld(new Repository(db))).merged
+    } finally {
+      await db.close()
+    }
+  } catch {
+    return loadProfiles()
+  }
+}
 
 /**
  * 방금 넣은 batch가 무엇을 했는지 다시 읽는다.

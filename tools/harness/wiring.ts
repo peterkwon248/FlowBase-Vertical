@@ -98,14 +98,16 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
     why: "컷 목록 — 설정 화면과 커맨드 팔레트. 배포 단계 일이다",
   },
   {
-    // ★ 2026-08-19 B1에서 필드매핑 읽기 배선이 끝났다 ★ `fm[A-Z]` 일반형이 여기서
-    // 빠지고, §20 트리거 게이트 안의 것만 이름으로 남는다: 드리프트(diff*·toggleDiff·
-    // applyUpdate·fmUpdate*)와 확인 완료(confirmFm·fmConfirmable)는 «8월 실전 실물
-    // 1회» 게이트다 — 컷에 남아 있는 것이 게이트 준수의 기계적 증거다.
-    name: "§20 게이트 — 드리프트·확인 완료 + 미구현(내 필드·데이터 구조)",
-    fields: /^(diff[A-Z]|toggleDiff|applyUpdate|fmUpdate|fmConfirmable$|confirmFm|cf[A-Z]|addCf|entities|formula|pipeline)/,
+    // ★ 2026-08-19 B1에서 필드매핑 읽기 배선이, B2에서 확인 완료(confirmFm·
+    // fmConfirmable)가 끝났다 ★ 남는 것은 §20 트리거 게이트 안의 것뿐이다:
+    // 드리프트(diff*·toggleDiff·applyUpdate·fmUpdate*)와 질문 카드(cf*)는
+    // «8월 실전 실물 1회» 게이트다 — 컷에 남아 있는 것이 게이트 준수의 기계적
+    // 증거다. 확인 완료가 빠진 근거는 §20 규칙 1 개정(2026-08-18 사용자 확정) —
+    // «펼치면 전체 편집 표»는 게이트 밖이고, 그 표의 저장 버튼이 confirmFm이다.
+    name: "§20 게이트 — 드리프트·질문 카드 + 미구현(내 필드·데이터 구조)",
+    fields: /^(diff[A-Z]|toggleDiff|applyUpdate|fmUpdate|cf[A-Z]|addCf|entities|formula|pipeline)/,
     why:
-      "드리프트·질문 카드·확인 완료는 §20 구현 트리거(8월 실전 실물 1회) 게이트 안이다. " +
+      "드리프트·질문 카드는 §20 구현 트리거(8월 실전 실물 1회) 게이트 안이다. " +
       "내 필드·데이터 구조 화면은 배포 단계 일",
   },
   {

@@ -1,12 +1,12 @@
 /**
- * 필드 매핑 화면 (B1) — **양식 사전이 처음으로 화면에 선다.**
+ * 필드 매핑 화면 — **양식 사전이 화면에 서고(B1), 고른 것이 저장으로 간다(B2).**
  *
- * 배선 1/21이던 껍데기 화면의 읽기 배선을 고정한다. 편집(B2 — onPick·confirmFm·
- * 개인 프로파일)은 여기 없다 — §20 게이트 안의 것(diff*)도 없다.
+ * B1: 읽기 배선. B2: 드롭다운 초안·잠금·확인 배너. §20 게이트 안의 것(diff*·cf*)은
+ * 여기 없다 — 게이트 준수는 wiring 컷이 기계적으로 지킨다.
  */
 
 import { describe, expect, it } from "vitest"
-import { fieldmapVals, fieldOptions, type FieldmapForm, type FieldmapView } from "../src/app/fieldmap.js"
+import { fieldmapVals, fieldOptions, parsePick, type FieldmapActions, type FieldmapForm, type FieldmapView } from "../src/app/fieldmap.js"
 import { importVals, EMPTY_WIZARD } from "../src/app/import.js"
 import { emptyVals } from "../src/app/generated/vals.js"
 import { loadProfiles } from "../src/packs/kr-marketplace/profiles/index.js"
@@ -129,6 +129,96 @@ describe("드롭다운 — 등록부의 뜻풀이 (B2가 켤 완성본)", () => 
     expect(opts.some((o) => o.startsWith("total_amount — "))).toBe(true)
     expect(opts).toContain("이 열은 쓰지 않음")
     expect(opts.filter((o) => o.includes(" — ")).length).toBeGreaterThanOrEqual(26)
+  })
+})
+
+describe("B2 — 초안·잠금·확인 배너", () => {
+  const draw = (draft: ReadonlyMap<string, string | null>, act?: Partial<FieldmapActions>) => {
+    const vals = emptyVals()
+    fieldmapVals(
+      vals,
+      { forms: [builtin()] },
+      null,
+      { pick: () => {}, onPick: () => {}, confirm: () => {}, ...act },
+      draft,
+    )
+    return vals
+  }
+
+  it("드롭다운 값 해석 — 등록부에 있는 것만 초안이 된다 (parsePick)", () => {
+    expect(parsePick("total_amount — 주문 총액 — 구매자가 결제한 금액")).toEqual({
+      kind: "target",
+      target: "total_amount",
+    })
+    expect(parsePick("이 열은 쓰지 않음")).toEqual({ kind: "none" })
+    expect(parsePick("저장 안 함")).toEqual({ kind: "none" })
+    expect(parsePick("행 식별에 참여")).toEqual({ kind: "ignore" })
+    expect(parsePick("totl_amount — 오타")).toEqual({ kind: "ignore" })
+  })
+
+  it("★ 구조 역할 열은 잠기고, field뿐인 열과 미매핑 열은 산다 ★", () => {
+    const vals = draw(new Map())
+    const rows = vals.fmCols as { header: string; locked: boolean }[]
+    const by = new Map(rows.map((r) => [r.header, r.locked]))
+    expect(by.get("주문번호"), "행 식별 키인데 드롭다운이 살아 있다").toBe(true)
+    expect(by.get("상품번호"), "리스팅 키인데 드롭다운이 살아 있다").toBe(true)
+    expect(by.get("정산확정일")).toBe(false)
+  })
+
+  it("초안이 있는 행은 고른 값과 «고침»을 그리고, 배너가 개수와 뜻을 말한다", () => {
+    const vals = draw(new Map([["선결제배송비", "vat_amount"]]))
+    const row = (vals.fmCols as { header: string; field: string; conf: string }[]).find(
+      (r) => r.header === "선결제배송비",
+    )!
+    expect(row.conf).toBe("고침")
+    expect(row.field).toContain("vat_amount — ")
+    expect(vals.fmWarn).toBe(true)
+    expect(vals.fmWarnText).toContain("1건")
+    expect(vals.fmConfirmable).toBe(true)
+  })
+
+  it("«쓰지 않음» 초안은 그 낱말 그대로 그린다", () => {
+    const vals = draw(new Map([["선결제배송비", null]]))
+    const row = (vals.fmCols as { header: string; field: string }[]).find(
+      (r) => r.header === "선결제배송비",
+    )!
+    expect(row.field).toBe("이 열은 쓰지 않음")
+  })
+
+  it("★ 최소 한 벌이 깨지는 초안 — 버튼은 죽고 배너가 이유를 말한다 (LOCK 6) ★", () => {
+    const vals = draw(
+      new Map([
+        ["정산확정일", null],
+        ["송금완료일", null],
+      ]),
+    )
+    expect(vals.fmConfirmable).toBe(false)
+    expect(vals.fmWarnText).toContain("저장할 수 없습니다")
+    expect(vals.fmWarnText).toContain("날짜")
+  })
+
+  it("초안이 없으면 배너도 없다 — 내장 양식의 평상시", () => {
+    const vals = draw(new Map())
+    expect(vals.fmWarn).toBe(false)
+    expect(vals.fmConfirmable).toBe(false)
+  })
+
+  it("미확인 양식은 동결 문구가 그대로 서고 확인 버튼은 없다 (v1 컷)", () => {
+    const vals = emptyVals()
+    fieldmapVals(vals, { forms: [unknownForm([col(0, "낯선열", "text")])] }, "file:hash:0")
+    expect(vals.fmWarn).toBe(true)
+    expect(vals.fmWarnText).toContain("아직 확인되지 않았습니다")
+    expect(vals.fmConfirmable).toBe(false)
+    // 파생의 발판이 없다 — 드롭다운도 전부 잠긴다.
+    expect((vals.fmCols as { locked: boolean }[]).every((r) => r.locked)).toBe(true)
+  })
+
+  it("내 확정판은 목록에서 «내 확정»으로 선다", () => {
+    const mine: FieldmapForm = { ...builtin(), key: "11st/settlement/order-line@u1", source: "user" }
+    const vals = emptyVals()
+    fieldmapVals(vals, { forms: [mine] }, null)
+    expect((vals.fmList[0] as { state: string; src: string }).state).toBe("내 확정")
+    expect(vals.fmSrc).toContain("내 확정판")
   })
 })
 

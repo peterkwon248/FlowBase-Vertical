@@ -272,6 +272,8 @@ export interface TemplateVals {
   fmUpdateBody: string
   fmUpdateTitle: string
   fmWarn: boolean
+  /** 배너 문장 (B2 — 손으로 더한 홀). 미확인 안내 또는 초안 저장 안내/거절 이유. */
+  fmWarnText: string
   formula: readonly any[]
   freshness: readonly any[]
   genRows: readonly any[]
@@ -848,6 +850,7 @@ export function emptyVals(): TemplateVals {
     fmUpdateBody: "",
     fmUpdateTitle: "",
     fmWarn: false,
+    fmWarnText: "",
     formula: [],
     freshness: [],
     genRows: [],

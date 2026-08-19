@@ -21,6 +21,8 @@ import type { Driver, Row, SqlValue } from "./driver.js"
 import type { IssueCode } from "../import/issues.js"
 /** 열 서술의 모양은 `import/columns.ts`가 정한다 — 저장은 그걸 그대로 받아 적는다. */
 import type { ColumnSighting } from "../import/columns.js"
+/** 개인 프로파일(B2)의 본문 모양. 저장은 JSON 문자열로 하고 여기선 타입만 안다. */
+import type { MappingProfile } from "../import/mapping/index.js"
 
 /** 적재 가능한 Fact 테이블. 여기 없는 이름은 적재할 수 없다. */
 export const FACT_TABLES = [
@@ -1619,6 +1621,94 @@ export class Repository {
            FROM file_column WHERE sighting_id = ? ORDER BY ordinal`,
       )
       .all(sightingId)
+  }
+
+  /**
+   * 개인 프로파일 저장 — **`mapping_profile` 표의 첫 사용자** (계획 B2).
+   *
+   * 001부터 `source='user'` 칸이 파여 있었고 오늘까지 사용처 0이었다. 사용자가
+   * 필드매핑 화면에서 확정한 파생판이 여기로 들어온다.
+   *
+   * ★ 버전은 `u1`·`u2`… **단조 증가**이고 기존 버전은 수정하지 않는다 (헌장 B-6) ★
+   * batch가 `mapping_version=…@u1`을 기록하므로, u1을 고치면 그 batch의 해석
+   * 이력이 거짓이 된다 — 재편집은 언제나 새 판이다. 다음 번호는 여기서 센다:
+   * 파생(`deriveProfile`)이 지어내면 «다음 번호의 진실»이 두 곳이 된다.
+   *
+   * @returns 부여된 버전 문자열 (`u1` 등)
+   */
+  async saveUserProfile(profile: MappingProfile, now: string): Promise<string> {
+    return this.db.transaction(async () => {
+      const rows = await this.db
+        .prepare(
+          `SELECT version FROM mapping_profile
+            WHERE pack_id = ? AND marketplace_key = ? AND doc_type = ? AND grain = ?
+              AND source = 'user'`,
+        )
+        .all(profile.packId, profile.marketplaceKey, profile.docType, profile.grain)
+      let max = 0
+      for (const r of rows) {
+        const m = /^u(\d+)$/.exec(String(r["version"]))
+        if (m !== null) max = Math.max(max, Number(m[1]))
+      }
+      const version = `u${max + 1}`
+      // 본문에도 같은 버전을 박는다 — `profileVersion(p)`이 batch의
+      // `mapping_version`을 만들므로 행의 키와 본문이 갈리면 이력이 거짓이 된다.
+      const stored: MappingProfile = { ...profile, version }
+      await this.db
+        .prepare(
+          `INSERT INTO mapping_profile
+             (version, pack_id, marketplace_key, doc_type, grain, definition, source, installed_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'user', ?)`,
+        )
+        .run(
+          version,
+          profile.packId,
+          profile.marketplaceKey,
+          profile.docType,
+          profile.grain,
+          JSON.stringify(stored),
+          now,
+        )
+      return version
+    })
+  }
+
+  /**
+   * 저장된 개인 프로파일 전부 — **최신이 앞** (`mergeProfiles`가 그 순서를 가정한다).
+   *
+   * 본문이 JSON으로 안 읽히는 행은 **세어서 넘긴다** — 조용히 버리면 사용자의
+   * 확정이 소리 없이 사라진 것이 되고(LOCK 6), 여기서 던지면 썩은 행 하나가
+   * 앱 전체를 막는다. 의미 검증(`validateProfiles`)은 문(호출부)에서 한다 —
+   * 저장 계층은 프로파일의 뜻을 모른다.
+   */
+  async userProfiles(): Promise<{
+    readonly profiles: readonly MappingProfile[]
+    readonly broken: number
+  }> {
+    const rows = await this.db
+      .prepare(
+        `SELECT definition, installed_at, version FROM mapping_profile
+          WHERE source = 'user'
+          ORDER BY installed_at DESC`,
+      )
+      .all()
+    // 같은 시각에 저장된 두 판은 `installed_at`으로 못 가른다 — 번호로 가른다.
+    // 문자열 정렬은 u10 < u2라 쓸 수 없다.
+    const un = (v: SqlValue | undefined): number => Number(/^u(\d+)$/.exec(String(v))?.[1] ?? 0)
+    const sorted = [...rows].sort((a, b) => {
+      const at = String(b["installed_at"]).localeCompare(String(a["installed_at"]))
+      return at !== 0 ? at : un(b["version"]) - un(a["version"])
+    })
+    const profiles: MappingProfile[] = []
+    let broken = 0
+    for (const r of sorted) {
+      try {
+        profiles.push(JSON.parse(String(r["definition"])) as MappingProfile)
+      } catch {
+        broken += 1
+      }
+    }
+    return { profiles, broken }
   }
 
   async commitBatch(batchId: string, at: string): Promise<void> {

@@ -50,13 +50,13 @@ import {
 import type { ProductSkuRow, ProductView } from "@core/product/rows.js"
 import { marketDict } from "@packs/kr-marketplace/markets/index.js"
 import { importVals, BIG_FILE_BYTES, EMPTY_WIZARD, type ImportActions, type ImportWizardState } from "./import.js"
-import { fieldmapVals } from "./fieldmap.js"
+import { fieldmapVals, parsePick } from "./fieldmap.js"
 import { analyzeImport } from "@core/import/analyze.js"
 import { runImport } from "@core/import/run.js"
 import { runReferenceImport } from "@core/import/run-reference.js"
-import { loadProfiles } from "@packs/kr-marketplace/profiles/index.js"
 import { profileVersion } from "@core/import/mapping/index.js"
-import { DEV_LIBRARY, findPriorImports, isWebDemo, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
+import { deriveProfile } from "@core/import/mapping/derive.js"
+import { DEV_LIBRARY, findPriorImports, isWebDemo, loadAllProfiles, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
@@ -139,6 +139,13 @@ export function App(): React.JSX.Element {
   /** 필드 매핑 화면 (B1). 선택된 양식의 key — null이면 첫 양식. */
   const [fieldmap, setFieldmap] = useState<LoadResult["fieldmap"]>(null)
   const [fmSel, setFmSel] = useState<string | null>(null)
+  /**
+   * 필드 매핑 초안 (B2) — 헤더별로 고른 것. `null` = «쓰지 않음».
+   * DB에 없다 — 「양식 확인 완료」가 파생판으로 저장하기 전까지는 화면 상태다
+   * (`costsDraft` 판례). 양식을 바꾸면 비운다 — 다른 양식의 초안을 들고 다니면
+   * 저장이 엉뚱한 프로파일을 파생한다.
+   */
+  const [fmDraft, setFmDraft] = useState<ReadonlyMap<string, string | null>>(new Map())
   const [coverage, setCoverage] = useState<readonly ConnectionCoverage[]>([])
   const [history, setHistory] = useState<readonly HistoryRow[]>([])
   const [products, setProducts] = useState<ProductView | null>(null)
@@ -714,7 +721,9 @@ export function App(): React.JSX.Element {
   /** 분석은 DB를 건드리지 않는다. 몇 번을 불러도 같은 답이라 시트 바꾸기가 싸다. */
   const analyze = useCallback(async (bytes: Uint8Array, name: string, sheetIndex: number) => {
     try {
-      const analysis = await analyzeImport(bytes, name, loadProfiles(), { sheetIndex })
+      // 후보는 **병합본**이다 (B2) — 내 확정판이 같은 자연키의 내장을 가린다.
+      // 사용자가 고친 매핑이 다음 가져오기의 판정·적재에 그대로 쓰이는 자리다.
+      const analysis = await analyzeImport(bytes, name, await loadAllProfiles(), { sheetIndex })
       // 같은 바이트가 이미 들어왔는지 — **파일명이 달라도** 잡힌다 (마이그레이션 006).
       // 실패해도 가져오기를 막지 않는다. 고지를 못 하는 것이 못 넣는 것보다 낫다.
       const priorSame = await findPriorImports(analysis.contentHash)
@@ -788,6 +797,7 @@ export function App(): React.JSX.Element {
       const match = a?.profiles[wiz.profileIndex]
       if (match !== undefined) setFmSel(profileVersion(match.profile))
       else if (a !== null && a !== undefined) setFmSel(`file:${a.contentHash}:${a.sheetIndex}`)
+      setFmDraft(new Map()) // 남아 있던 초안은 다른 양식의 것일 수 있다
       go("fieldmap")
     },
     setEffectiveFrom: (ev: unknown) => {
@@ -1018,7 +1028,63 @@ export function App(): React.JSX.Element {
   // 하나도 없으면 "연결할 것이 없습니다"가 떠야 하기 때문이다 — 목업의 빈 상태가
   // 그 자리에 이미 있다.
   if (linking) linkingVals(vals, linking, linkTab, picked, linkActions, pendingCost)
-  fieldmapVals(vals, fieldmap, fmSel, { pick: setFmSel })
+  // ── 필드 매핑 (B2) — 초안을 파생판으로 저장한다 ─────────────────────
+  // 선택된 양식 판정은 fieldmapVals와 같은 규칙이어야 한다 — 화면이 그리는 양식과
+  // 저장이 파생하는 양식이 갈리면 사용자가 보던 것과 다른 것이 저장된다.
+  const fmForms = fieldmap?.forms ?? []
+  const fmForm = fmForms.find((f) => f.key === fmSel) ?? fmForms[0] ?? null
+  fieldmapVals(
+    vals,
+    fieldmap,
+    fmSel,
+    {
+      pick: (k) => {
+        setFmSel(k)
+        // 다른 양식의 초안을 들고 다니지 않는다 — 저장이 엉뚱한 프로파일을 파생한다.
+        setFmDraft(new Map())
+      },
+      onPick: (header, ev) => {
+        const value = (ev as { target?: { value?: string } } | null)?.target?.value ?? ""
+        const p = parsePick(value)
+        if (p.kind === "ignore") return
+        setFmDraft((prev) => new Map(prev).set(header, p.kind === "none" ? null : p.target))
+      },
+      confirm: () => {
+        const base = fmForm?.profile
+        if (base === null || base === undefined) return
+        const derived = deriveProfile(base, fmDraft)
+        // 버튼(fmConfirmable)이 같은 판정으로 이미 죽어 있지만, 여기서도 확인한다 —
+        // 렌더와 클릭 사이에 상태가 변했을 수 있고, 조용한 return은 LOCK 6 위반이다.
+        if (!derived.ok) {
+          setConfirm(sayConfirm("저장할 수 없습니다", derived.why, () => setConfirm(null)))
+          return
+        }
+        if (!acquire()) {
+          setConfirm(sayConfirm("저장하지 못했습니다", BUSY_WHY, () => setConfirm(null)))
+          return
+        }
+        // 저장이 부여한 버전으로 새 key를 만든다 — 저장 뒤 내 확정판이 내장을
+        // 가리므로 옛 key(내장 버전)는 목록에서 사라진다. 그대로 두면 선택이
+        // 첫 양식으로 튄다.
+        let saved: string | null = null
+        void writeThenReload(async (repo) => {
+          const v = await repo.saveUserProfile(derived.profile, nowStamp())
+          saved = `${base.marketplaceKey}/${base.docType}/${base.grain}@${v}`
+        }, monthRef.current)
+          .then((r) => {
+            if (r.error) {
+              setConfirm(sayConfirm("저장하지 못했습니다", r.error, () => setConfirm(null)))
+              return
+            }
+            take(r)
+            setFmDraft(new Map())
+            if (saved !== null) setFmSel(saved)
+          })
+          .finally(release)
+      },
+    },
+    fmDraft,
+  )
   // §22-4 다이제스트 한 줄 — 방금 넣은 파일이 이 채널에서 무엇을 열었나.
   // 커버리지는 `take(r)`가 적재 뒤 다시 읽어 둔 것이라 DB가 아는 값이다.
   const doneProfile = wiz.digest ? wiz.analysis?.profiles[wiz.profileIndex]?.profile : undefined

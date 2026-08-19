@@ -505,6 +505,39 @@ const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[
     to: ["impEditMap", "impCanRun", "impRun"],
     why: "위 «매핑 수정» 핸들러의 holes 쪽 짝 — 동적 자리가 하나 늘었다",
   },
+  // ── 필드 매핑 — 확인 완료 배선 (2026-08-19 B2) ───────────────────
+  {
+    field: "texts",
+    from: ["이 양식은 아직 확인되지 않았습니다. 확인 필요 열을 확정해야 다음 파일이 자동으로 처리됩니다."],
+    to: [],
+    why:
+      "배너 문장이 동적 자리(`fmWarnText`)가 됐다 — 목업의 배너는 «미확인 양식» " +
+      "하나만 말했는데, B2부터 이 배너가 **초안의 상태**(고친 개수·저장의 뜻·저장할 " +
+      "수 없는 이유)도 말해야 한다. 확인 버튼을 조용히 죽이는 대신 이유를 그 자리에서 " +
+      "말한다 (LOCK 6). 미확인 양식일 때는 동결 문구를 글자 그대로 그린다",
+  },
+  {
+    field: "holes",
+    from: ["fmConfirmable", "confirmFm"],
+    to: ["fmWarnText", "fmConfirmable", "confirmFm"],
+    why: "위 «배너 문장 동적화»의 holes 쪽 짝 — 텍스트가 빠진 만큼 홀이 하나 생겼다",
+  },
+  {
+    field: "attrs",
+    from: ["onChange={c.onPick}", "value={o}"],
+    to: ["onChange={c.onPick}", "disabled={c.locked}", "value={o}"],
+    why:
+      "구조 역할(행 식별 키·라우팅·리스팅…) 열의 드롭다운을 **잠근다** (B2 v1 컷 " +
+      "라인 — 그 선언들은 값 하나가 아니라 적재의 구조를 바꾼다). 목업의 드롭다운은 " +
+      "전부 살아 있었지만 그건 저장 경로가 없던 시절의 그림이다 — 살아 있는 척하며 " +
+      "고른 것을 버리는 쪽이 더 나쁘다. 잠긴 이유는 근거 열이 이미 말하고 있다",
+  },
+  {
+    field: "holes",
+    from: ["c.onPick", "c.fieldColor"],
+    to: ["c.onPick", "c.locked", "c.fieldColor"],
+    why: "위 «드롭다운 잠금»의 holes 쪽 짝 — `disabled` 속성의 동적 자리",
+  },
 ]
 
 /**
