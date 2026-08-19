@@ -98,9 +98,15 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
     why: "컷 목록 — 설정 화면과 커맨드 팔레트. 배포 단계 일이다",
   },
   {
-    name: "미구현 화면 — 필드 매핑·내 필드·데이터 구조",
-    fields: /^(fm[A-Z]|diff[A-Z]|toggleDiff|applyUpdate|confirmFm|cf[A-Z]|addCf|entities|formula|pipeline)/,
-    why: "컷 목록 — «수동 매핑 편집·양식 구독»은 배포 단계 일. 데이터 구조는 읽기 전용 설명 화면",
+    // ★ 2026-08-19 B1에서 필드매핑 읽기 배선이 끝났다 ★ `fm[A-Z]` 일반형이 여기서
+    // 빠지고, §20 트리거 게이트 안의 것만 이름으로 남는다: 드리프트(diff*·toggleDiff·
+    // applyUpdate·fmUpdate*)와 확인 완료(confirmFm·fmConfirmable)는 «8월 실전 실물
+    // 1회» 게이트다 — 컷에 남아 있는 것이 게이트 준수의 기계적 증거다.
+    name: "§20 게이트 — 드리프트·확인 완료 + 미구현(내 필드·데이터 구조)",
+    fields: /^(diff[A-Z]|toggleDiff|applyUpdate|fmUpdate|fmConfirmable$|confirmFm|cf[A-Z]|addCf|entities|formula|pipeline)/,
+    why:
+      "드리프트·질문 카드·확인 완료는 §20 구현 트리거(8월 실전 실물 1회) 게이트 안이다. " +
+      "내 필드·데이터 구조 화면은 배포 단계 일",
   },
   {
     name: "헤더 부가 — 배지·팝오버·표시 메뉴",

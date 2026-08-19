@@ -489,6 +489,22 @@ const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[
       "다른 탭에서는 그리지 않는다 — 리스팅 카드와 원가 대기 행은 확정이 하는 일이 " +
       "달라서(연결 vs 원가 넣기) 한 그리드에 섞으면 버튼의 뜻이 갈린다",
   },
+  {
+    field: "attrs",
+    // 「매핑 수정」 버튼 — 목업부터 있던 버튼인데 핸들러가 없었다 (눌러도 조용).
+    from: ["class=v-btn v-btn--primary", "onClick={impRun}"],
+    to: ["onClick={impEditMap}", "class=v-btn v-btn--primary", "onClick={impRun}"],
+    why:
+      "«매핑 수정» 버튼에 첫 일을 줬다 (B1) — 필드 매핑 화면으로 간다. 지금 보던 " +
+      "양식이 선택된 채 열린다 (§20 규칙 1 개정의 «펼치면 전체 표»로 가는 길). " +
+      "눌러도 조용한 버튼은 고장으로 읽힌다 — impRun 가드에서 세운 그 규율이다",
+  },
+  {
+    field: "holes",
+    from: ["impCanRun", "impRun"],
+    to: ["impEditMap", "impCanRun", "impRun"],
+    why: "위 «매핑 수정» 핸들러의 holes 쪽 짝 — 동적 자리가 하나 늘었다",
+  },
 ]
 
 /**

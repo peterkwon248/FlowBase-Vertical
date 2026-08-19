@@ -152,6 +152,12 @@ export interface ImportActions {
   pickSheet: (index: number) => void
   /** 기준 데이터의 적용 시작일을 사람이 고친다 (`YYYY-MM-DD`). */
   setEffectiveFrom: (date: string) => void
+  /**
+   * «매핑 수정» — 필드 매핑 화면으로 간다 (B1 · §20 «전부 보기»의 이행).
+   * 목업부터 있던 버튼인데 지금까지 아무 일도 안 했다 — 눌러도 조용한 버튼은
+   * 고장으로 읽힌다. 지금 보던 양식이 선택된 채 열린다.
+   */
+  editMap: () => void
   confirm: () => void
   reset: () => void
 }
@@ -161,6 +167,7 @@ export const NOOP_IMPORT_ACTIONS: ImportActions = {
   pickProfile: () => {},
   pickSheet: () => {},
   setEffectiveFrom: () => {},
+  editMap: () => {},
   confirm: () => {},
   reset: () => {},
 }
@@ -342,7 +349,7 @@ export function importVals(
         : ` (예: ${match.profile.recognitionRules.fileNameExample})`)
     : match
       ? `일치도 ${Math.round(match.confidence * 100)}% · ${match.evidence.join(" · ")}`
-      : noMatchLine(a)
+      : `${noMatchLine(a)} · 열 판정: 확정 ${a.judge.tierCounts.alias} · 증명 ${a.judge.tierCounts.identity} · 후보 ${a.judge.tierCounts.candidate} · 모름 ${a.judge.tierCounts.unknown}`
 
   // ── §18 시트 선택 ────────────────────────────────────────────────
   // 시트가 여럿이면 사람이 고른다. 역할·사유·수식비율을 함께 보인다 —
@@ -397,21 +404,27 @@ export function importVals(
 
   // 표본 값은 첫 데이터 행에서 뽑는다 — 「이 컬럼이 뭔지」는 이름보다 값이 말한다.
   const first = a.sample[0]
+  /**
+   * ★ 프로파일이 없으면 판정 4단이 말한다 (ADR-017) ★
+   * 예전 이 자리는 전 열이 «맞는 프로파일이 없어 판정하지 못했다»였다 — 참이지만
+   * 앱이 아는 것보다 적게 말했다. 별칭·항등식이 아는 열은 그만큼 말한다.
+   * 확신도 칸은 여전히 %가 아니다 — 선언/확정/증명/후보/모름 **낱말**이다.
+   */
+  const verdictAt = new Map(a.judge.verdicts.map((v) => [v.ordinal, v]))
+  const TIER_WORD = { alias: "확정", identity: "증명", candidate: "후보", unknown: "모름" } as const
   vals.colRows = a.header.columns.map((h, col) => {
     const u = use?.byColumn.get(h.trim())
     const raw = first?.[col]
     const roles = u?.roles ?? []
+    const v = verdictAt.get(col)
     return {
       header: h,
       sample: raw === null || raw === undefined ? "—" : String(raw).slice(0, 24),
       // 저장되는 자리 — Canonical 필드가 있으면 그 이름, 없으면 **하는 일**을 말한다.
       // 매핑되지 않은 컬럼은 저장되지 않지만 **쓰이지 않는 것과는 다르다** (헌장 A-5)
-      //
-      // ★ 프로파일이 아예 없을 때는 «이 프로파일이 쓰지 않는다»가 할 말이 아니다 ★
-      // 그런 프로파일이 없기 때문이다. 판정이 실패했다는 사실을 그대로 말한다.
       field:
         use === null
-          ? "—"
+          ? (v?.target ?? (v && v.candidates.length > 0 ? `${v.candidates.join(" / ")} ?` : "—"))
           : u
             ? roles.includes("item-field") && !roles.includes("field")
               ? itemLabel(u.target)
@@ -419,19 +432,28 @@ export function importVals(
             : use.contentKeyed
               ? "행 식별에 참여"
               : "저장 안 함",
-      fieldColor: u || use?.contentKeyed ? "var(--fg-2)" : DIM,
+      fieldColor: u || use?.contentKeyed || v?.target ? "var(--fg-2)" : DIM,
       why:
         use === null
-          ? "맞는 프로파일이 없어 판정하지 못했다"
+          ? (v?.sentence ?? "맞는 프로파일이 없어 판정하지 못했다")
           : u
             ? roleWhy(roles, u.required === true)
             : use.contentKeyed
               ? "이 양식은 행 전체로 source_key를 만든다"
               : "이 프로파일이 쓰지 않는 컬럼",
-      // ★ 추정이 아니라 선언이다 ★ 컬럼 매핑은 프로파일 JSON이 정해둔 것이라
-      // 확신도라는 개념이 없다. %를 지어내면 «추론했다»는 거짓이 된다.
-      conf: u ? "선언" : "—",
-      color: u ? G : DIM,
+      // ★ 추정이 아니라 선언이다 ★ 프로파일이 있으면 «선언», 없으면 판정 낱말.
+      // %를 지어내면 «추론했다»는 거짓이 된다.
+      conf: use === null ? (v ? TIER_WORD[v.tier] : "—") : u ? "선언" : "—",
+      color:
+        use === null
+          ? v?.tier === "alias" || v?.tier === "identity"
+            ? G
+            : v?.tier === "candidate"
+              ? WARN
+              : DIM
+          : u
+            ? G
+            : DIM,
     }
   })
 
@@ -535,6 +557,7 @@ export function importVals(
       ? "확인하고 가져오기"
       : "확인하고 기준 데이터에 넣기"
   vals.impRun = act.confirm
+  vals.impEditMap = act.editMap
 
   // ── 결과: 다이제스트 ─────────────────────────────────────────────
   // ★ `batch_exclusion`을 **사유별로** 읽는 첫 화면이다 ★

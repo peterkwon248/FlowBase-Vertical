@@ -52,6 +52,8 @@ function analysisOf(profile: MappingProfile, headers: readonly string[]): Import
     sample: [["A1", "머그컵", "M-1", "3200", "0", "주방", "M-1"]],
     sampleExcluded: [],
     columns: [],
+    judge: { verdicts: [], tierCounts: { alias: 0, identity: 0, candidate: 0, unknown: 0 } },
+    identities: [],
     profiles: match,
   } as unknown as ImportAnalysis
 }

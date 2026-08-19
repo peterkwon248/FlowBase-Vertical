@@ -50,10 +50,12 @@ import {
 import type { ProductSkuRow, ProductView } from "@core/product/rows.js"
 import { marketDict } from "@packs/kr-marketplace/markets/index.js"
 import { importVals, BIG_FILE_BYTES, EMPTY_WIZARD, type ImportActions, type ImportWizardState } from "./import.js"
+import { fieldmapVals } from "./fieldmap.js"
 import { analyzeImport } from "@core/import/analyze.js"
 import { runImport } from "@core/import/run.js"
 import { runReferenceImport } from "@core/import/run-reference.js"
 import { loadProfiles } from "@packs/kr-marketplace/profiles/index.js"
+import { profileVersion } from "@core/import/mapping/index.js"
 import { DEV_LIBRARY, findPriorImports, isWebDemo, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
@@ -134,6 +136,9 @@ export function App(): React.JSX.Element {
   const [linking, setLinking] = useState<LinkingView | null>(null)
   /** 원가 대기 (011) — 연결 화면 「원가 대기」 탭의 재료. */
   const [pendingCost, setPendingCost] = useState<LoadResult["pendingCost"]>(null)
+  /** 필드 매핑 화면 (B1). 선택된 양식의 key — null이면 첫 양식. */
+  const [fieldmap, setFieldmap] = useState<LoadResult["fieldmap"]>(null)
+  const [fmSel, setFmSel] = useState<string | null>(null)
   const [coverage, setCoverage] = useState<readonly ConnectionCoverage[]>([])
   const [history, setHistory] = useState<readonly HistoryRow[]>([])
   const [products, setProducts] = useState<ProductView | null>(null)
@@ -262,6 +267,7 @@ export function App(): React.JSX.Element {
     setOrdRows(r.orders)
     setLinking(r.linking)
     setPendingCost(r.pendingCost)
+    setFieldmap(r.fieldmap)
     setCoverage(r.coverage)
     setHistory(r.history)
     setProducts(r.products)
@@ -775,6 +781,15 @@ export function App(): React.JSX.Element {
       })
     },
     pickProfile: (i) => setWiz((w) => ({ ...w, profileIndex: i })),
+    editMap: () => {
+      // 지금 보던 양식이 선택된 채 연다. 프로파일이 맞았으면 그 양식, 아니면
+      // 방금 목격된 파일(009에 이미 저장돼 있다 — «봤다 → 남는다»).
+      const a = wiz.analysis
+      const match = a?.profiles[wiz.profileIndex]
+      if (match !== undefined) setFmSel(profileVersion(match.profile))
+      else if (a !== null && a !== undefined) setFmSel(`file:${a.contentHash}:${a.sheetIndex}`)
+      go("fieldmap")
+    },
     setEffectiveFrom: (ev: unknown) => {
       const v = (ev as { target?: { value?: string } } | null)?.target?.value ?? ""
       setWiz((w) => ({ ...w, effectiveFrom: v }))
@@ -1003,6 +1018,7 @@ export function App(): React.JSX.Element {
   // 하나도 없으면 "연결할 것이 없습니다"가 떠야 하기 때문이다 — 목업의 빈 상태가
   // 그 자리에 이미 있다.
   if (linking) linkingVals(vals, linking, linkTab, picked, linkActions, pendingCost)
+  fieldmapVals(vals, fieldmap, fmSel, { pick: setFmSel })
   // §22-4 다이제스트 한 줄 — 방금 넣은 파일이 이 채널에서 무엇을 열었나.
   // 커버리지는 `take(r)`가 적재 뒤 다시 읽어 둔 것이라 DB가 아는 값이다.
   const doneProfile = wiz.digest ? wiz.analysis?.profiles[wiz.profileIndex]?.profile : undefined

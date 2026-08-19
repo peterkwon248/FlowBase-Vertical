@@ -345,6 +345,8 @@ export interface TemplateVals {
   impDigestTitle: string
   impDone: boolean
   impDupNote: string
+  /** «매핑 수정» — 필드 매핑 화면으로 (B1). 목업부터 있던 버튼의 첫 일. */
+  impEditMap: (...args: any[]) => void
   impError: string
   impExcludedLabel: string
   impHasError: boolean
@@ -917,6 +919,7 @@ export function emptyVals(): TemplateVals {
     impDigestTitle: "",
     impDone: false,
     impDupNote: "",
+    impEditMap: () => {},
     impError: "",
     impExcludedLabel: "",
     impHasError: false,

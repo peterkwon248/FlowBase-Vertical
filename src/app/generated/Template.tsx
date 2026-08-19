@@ -4648,7 +4648,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                         {" "}
                         <span style={{ flex: "1" }}></span>
                         {" "}
-                        <button className="v-btn">
+                        <button className="v-btn" onClick={vals.impEditMap}>
                           매핑 수정
                         </button>
                         {" "}

@@ -28,6 +28,8 @@ import { loadOrderRows } from "../../src/core/order/rows.js"
 import { loadLinkingView } from "../../src/core/linking/view.js"
 import { krLinkingMatcher, krCostBridgeMatcher } from "../../src/packs/kr-marketplace/linking-matcher.js"
 import { loadPendingCostView } from "../../src/core/linking/pending-cost.js"
+import { fieldmapVals, loadFieldmapView } from "../../src/app/fieldmap.js"
+import { Repository } from "../../src/core/store/repository.js"
 import { dashboardVals } from "../../src/app/dashboard.js"
 import { settlementVals } from "../../src/app/settlement.js"
 import { orderVals } from "../../src/app/order.js"
@@ -124,6 +126,7 @@ const settlement = await loadSettlementRows(db, "lib-1", PERIOD)
 const orders = await loadOrderRows(db, "lib-1", PERIOD)
 const linking = await loadLinkingView(db, "lib-1", krLinkingMatcher)
 const pendingCost = await loadPendingCostView(db, "lib-1", krCostBridgeMatcher)
+const fieldmap = await loadFieldmapView(new Repository(db), profiles, "lib-1")
 const coverage = await loadCoverage(db, "lib-1", resolveDocType)
 const history = await loadHistoryRows(db, "lib-1", resolveDocType)
 // 원가 기준일은 **고정한다** — 오늘을 쓰면 같은 DB에서 날마다 다른 HTML이 나와
@@ -176,6 +179,8 @@ historyVals(vals, history)
 productVals(vals, products, "list", new Map(), PERIOD.to, undefined, PERIOD)
 // 초안은 비어 있다 — 상호작용은 이 층이 증명하지 못한다. 적용일도 고정한다.
 costsVals(vals, costs, snap.pnl, emptyCostsDraft(PERIOD.to))
+// 선택은 상호작용이라 SSR에서는 첫 양식이다 (B1 배선 — 2026-08-19)
+fieldmapVals(vals, fieldmap, null)
 vals.firstRun = false
 vals.notFirstRun = true
 ;(vals.v as Record<string, boolean>)[VIEW] = true
