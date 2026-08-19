@@ -31,6 +31,7 @@ import type { MappingProfile } from "../src/core/import/mapping/index.js"
 import { importVals, EMPTY_WIZARD, noMatchLine } from "../src/app/import.js"
 import { emptyVals } from "../src/app/generated/vals.js"
 import { FIXTURES, fixturePath, CLEAN_DIR } from "./fixtures.js"
+import { cardSheet, coverSheet, workbookBytes } from "./synth.js"
 
 const PROFILE_DIR = "src/packs/kr-marketplace/profiles"
 const NAMES = [
@@ -132,9 +133,83 @@ run("전 시트 탐색 — 앱이 아는 만큼만 말한다", () => {
     const a = await analyzeImport(bytes, name, PROFILES)
     expect(a.profiles.length).toBeGreaterThan(0)
     expect(a.suggestedSheetIndex).toBeNull()
+    expect(a.autoSelected, "맞는 시트에서 자동 이동이 일어났다").toBeNull()
 
     const vals = emptyVals()
     importVals(vals, { ...EMPTY_WIZARD, analysis: a })
     expect(String(vals.profileMeta), "맞았는데 «없습니다»가 떴다").toContain("일치도")
+  })
+})
+
+/**
+ * ★ 자동 시트 선택 (ADR-019) — 「고르세요」가 말이 아니라 손이 된다 ★
+ *
+ * 실물: 15시트 단가표의 0번이 표지(「공유정보」)라 사용자가 이메일·img 태그를
+ * 미리보기로 봤다. 1~14번은 전부 100%로 맞는데, 앱은 「아래에서 그 시트를
+ * 고르세요」라고 말만 했다. 이제 시트를 지정하지 않은 분석은 그 시트를 **연다.**
+ *
+ * 실파일은 사업 데이터라 커밋하지 않는다 — 같은 구조(표지+카드 시트)를 합성한다.
+ */
+const COST_CARD = JSON.parse(
+  readFileSync(`${PROFILE_DIR}/cost-card@1.json`, "utf-8"),
+) as MappingProfile
+
+const coverAndCards = (): Uint8Array =>
+  workbookBytes([
+    ["공유정보", coverSheet],
+    ["충전기", cardSheet(["워치독", "MW-DOC", 9200], ["무선충전", "M-DOC", 13300])],
+    ["계절상품", cardSheet(["쿨매트", "CM-1", 7700], ["손선풍기", "HF-2", 3300])],
+  ])
+
+describe("자동 시트 선택 (ADR-019)", () => {
+  it("★ 표지 파일 — 시트를 지정하지 않으면 맞는 시트를 열어준다 ★", async () => {
+    const a = await analyzeImport(coverAndCards(), "단가표.xlsx", [COST_CARD])
+
+    expect(a.sheetIndex, "표지(0번)에 머물렀다").toBe(1)
+    expect(a.autoSelected, "옮겼다는 사실이 남지 않았다 (LOCK 6)").toEqual({ from: 0, to: 1 })
+    expect(a.profiles[0]?.profile.id).toBe("seller/cost/card")
+    // 이동의 흔적은 autoSelected가 단독으로 든다 — 매칭이 생겼으니 제안은 없다
+    expect(a.suggestedSheetIndex).toBeNull()
+  })
+
+  it("명시적으로 고른 시트는 옮기지 않는다 — 표지를 골랐으면 표지를 보여준다", async () => {
+    const a = await analyzeImport(coverAndCards(), "단가표.xlsx", [COST_CARD], { sheetIndex: 0 })
+
+    expect(a.sheetIndex).toBe(0)
+    expect(a.autoSelected).toBeNull()
+    // 「저기 있다」는 제안 경로가 그대로 산다 — pickSheet가 실존하므로 시험도 실존한다
+    expect(a.suggestedSheetIndex).toBe(1)
+    expect(noMatchLine(a)).toContain("아래에서 그 시트를 고르세요")
+  })
+
+  it("0번 시트가 비어 있어도 분석이 죽지 않는다 — 맞는 시트로 살린다", async () => {
+    const bytes = workbookBytes([
+      ["빈시트", [[]]],
+      ["충전기", cardSheet(["워치독", "MW-DOC", 9200], ["무선충전", "M-DOC", 13300])],
+    ])
+    const a = await analyzeImport(bytes, "단가표.xlsx", [COST_CARD])
+    expect(a.sheetIndex).toBe(1)
+    expect(a.autoSelected).toEqual({ from: 0, to: 1 })
+  })
+})
+
+/** §18-A 가드는 실픽스처 #3(파생 시트가 실존)이 필요하다 — 픽스처 가드를 같이 쓴다. */
+run("자동 시트 선택 — §18-A 가드", () => {
+  it("★ 파생으로 보이는 fact 시트로는 옮기지 않는다 ★", async () => {
+    // 픽스처 #3의 제안 시트는 esm/order 100%지만 **수식 77%** — 다른 시트에서
+    // 계산된 결과다. 사실로 넣으면 매출이 두 번 계산되는 바로 그 자리라,
+    // §18-A 경고 UI가 서기 전까지 자동 이동은 여기서 멈춘다. 말(제안)은 그대로 한다.
+    const { bytes, name } = bytesOf(MULTI)
+    const a = await analyzeImport(bytes, name, PROFILES)
+
+    expect(a.suggestedSheetIndex, "제안 자체는 살아 있어야 한다").not.toBeNull()
+    const target = a.sheets[a.suggestedSheetIndex!]!
+    expect(
+      target.formulaRatio !== null && target.formulaRatio > 0.5,
+      "전제 확인 — 이 픽스처의 제안 시트는 수식이 절반을 넘어야 한다",
+    ).toBe(true)
+
+    expect(a.sheetIndex, "파생 시트로 자동 이동했다 (§18-A)").toBe(0)
+    expect(a.autoSelected).toBeNull()
   })
 })

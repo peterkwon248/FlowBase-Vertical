@@ -140,6 +140,16 @@ export interface ImportAnalysis {
    * null이다 — 잘 고른 사람에게 다른 데를 가리키지 않는다.
    */
   readonly suggestedSheetIndex: number | null
+  /**
+   * 시트를 **지정하지 않은** 분석에서 기본(0번) 시트에 맞는 양식이 없어 다른
+   * 시트를 자동으로 열었다는 사실 (ADR-019). 옮기지 않았으면 null.
+   *
+   * 화면이 「어느 시트에서 어느 시트로 옮겼다」를 말할 재료다 — 조용히 옮기면
+   * 사용자는 자기가 0번 시트를 본 적이 없다는 걸 모른다 (LOCK 6). 갈아탄 뒤
+   * `suggestedSheetIndex`는 null이므로(매칭이 생겼다) 이동의 흔적은 이 필드가
+   * 단독으로 든다.
+   */
+  readonly autoSelected: { readonly from: number; readonly to: number } | null
   /** 파서가 남긴 말. 오늘까지 아무 호출부도 이걸 보지 않았다. */
   readonly warnings: readonly string[]
   /**
@@ -155,7 +165,14 @@ export interface ImportAnalysis {
 }
 
 export interface AnalyzeOptions {
-  /** 사람이 시트를 고른 뒤 다시 부를 때 쓴다. 기본은 0. */
+  /**
+   * 사람이 시트를 고른 뒤 다시 부를 때 쓴다 — 지정하면 **그 시트를 그대로** 본다.
+   *
+   * 지정하지 않으면 0번이 기본이되, 0번에 비차단 매칭이 없고 다른 시트에 있으면
+   * 그 시트로 자동 이동한다 (결과의 `autoSelected`가 말한다 · ADR-019).
+   * 0번에 차단(blockedBy) 후보만 있으면 머문다 — 처방이 다르다(파일명 복원).
+   * 파생으로 보이는 fact 시트(수식 비율 > 0.5)로도 옮기지 않는다 (§18-A 가드).
+   */
   readonly sheetIndex?: number
   readonly sampleRows?: number
   /**
@@ -304,12 +321,48 @@ export async function analyzeImport(
       })
     }
 
+    /**
+     * ★ 자동 시트 선택 — 시트를 **지정하지 않은** 분석에서만 (ADR-019) ★
+     *
+     * 실물: 15시트 단가표의 0번이 표지(「공유정보」)라 사용자가 이메일·img 태그를
+     * 미리보기로 봤다 — 1~14번은 전부 100%로 맞는데. 「아래에서 그 시트를
+     * 고르세요」는 말이지 손이 아니었다.
+     *
+     * 명시 인덱스는 절대 옮기지 않는다 (기존 규율 — 잘 고른 사람에게 다른 데를
+     * 가리키지 않는다). 0번에 차단 후보만 있어도 머문다 — 처방이 다르다.
+     *
+     * ★ §18-A 가드 ★ 제안 시트의 1순위 비차단 후보가 fact인데 그 시트의 수식
+     * 비율이 0.5를 넘으면 옮기지 않는다. 실물: 픽스처 #3의 제안 시트 「매출정리
+     * raw」는 esm/order 100%지만 수식 77% — 파생 시트를 사실로 넣으면 매출이
+     * 두 번 계산되는 바로 그 자리다. §18-A 경고 UI가 서기 전까지 자동 이동이
+     * 그 구멍을 넓히면 안 된다. 기준(reference) 프로파일은 해당 없음.
+     * `formulaRatio === null`(모름)은 통과 — §18-A 자체가 null이면 경고하지 않는다.
+     */
+    const autoTarget = (): SheetMatch | null => {
+      const mine0 = sheetMatches.find((m) => m.sheetIndex === sheetIndex)
+      // 차단 후보만 있어도 「매칭이 있다」 — suggestedSheetIndex와 같은 선이다.
+      if (mine0 !== undefined && mine0.profiles.length > 0) return null
+      const cand = sheetMatches.find((m) => m.profiles.some((p) => p.blockedBy === undefined))
+      if (cand === undefined) return null
+      const best = cand.profiles.find((p) => p.blockedBy === undefined)!
+      if (best.profile.reference === undefined) {
+        const ratio = src.sheets[cand.sheetIndex]?.formulaRatio
+        if (typeof ratio === "number" && ratio > 0.5) return null
+      }
+      return cand
+    }
+    const moved = opts.sheetIndex === undefined ? autoTarget() : null
+    const effectiveIndex = moved === null ? sheetIndex : moved.sheetIndex
+    const autoSelected = moved === null ? null : { from: sheetIndex, to: moved.sheetIndex }
+
     // 고른 시트가 상한 밖이면 훑기에 안 들어갔다 — 그 시트만 따로 읽는다.
     // 사람이 명시적으로 고른 것을 「상한 때문에」 못 보여줄 수는 없다.
-    const sum = picked ?? (await peekSheet(src, sheetIndex, sampleRows))
+    // (자동 이동했으면 picked는 옛 시트의 것이라 쓰지 않는다 — 새 시트를 peek한다.)
+    const sum =
+      (moved === null ? picked : null) ?? (await peekSheet(src, effectiveIndex, sampleRows))
     const sample = sum.sample
 
-    const mine = sheetMatches.find((m) => m.sheetIndex === sheetIndex)
+    const mine = sheetMatches.find((m) => m.sheetIndex === effectiveIndex)
     const matched = mine
       ? mine.profiles
       : matchProfiles(profiles, {
@@ -325,6 +378,8 @@ export async function analyzeImport(
      * 「넣을 수 없다」를 「저기 있다」로 바꾸는 자리다. 막힌 후보(`blockedBy`)는
      * 권하지 않는다 — 그 시트로 옮겨도 못 넣는 것은 같고, 사용자가 할 일은
      * 파일명을 되돌리는 것이라 완전히 다른 안내가 필요하다.
+     * (자동 이동한 뒤에는 매칭이 있으므로 자연히 null — 이동의 흔적은
+     * `autoSelected`가 든다.)
      */
     const suggestedSheetIndex =
       matched.length > 0
@@ -346,7 +401,7 @@ export async function analyzeImport(
     const numeric = sightings.filter((c) => c.kind === "number")
     if (proofRows > 0 && numeric.length >= 3) {
       try {
-        const { chunks: proofChunks } = streamSheet(src, sheetIndex, { chunkSize: proofRows })
+        const { chunks: proofChunks } = streamSheet(src, effectiveIndex, { chunkSize: proofRows })
         const matrix: (number | null)[][] = []
         for await (const chunk of proofChunks) {
           for (let i = 0; i < chunk.rowCount && matrix.length < proofRows; i++) {
@@ -376,7 +431,7 @@ export async function analyzeImport(
       formatCandidates: rec.candidates,
       identityNotes: rec.identityNotes,
       sheets: src.sheets,
-      sheetIndex,
+      sheetIndex: effectiveIndex,
       profiles: matched,
       header: sum.header,
       sample,
@@ -386,6 +441,7 @@ export async function analyzeImport(
       identities,
       sheetMatches,
       suggestedSheetIndex,
+      autoSelected,
       warnings: [...src.warnings, ...scanWarnings],
       contentHash: hex(sha1Bytes(bytes)),
     }
