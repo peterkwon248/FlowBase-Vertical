@@ -909,7 +909,8 @@ export function App(): React.JSX.Element {
               bytes,
               fileName: a.fileName,
               profile: match.profile,
-              sheetIndex: a.sheetIndex,
+              // 커밋 4(토글)에서 같은 프로파일로 매칭된 전 시트로 확장된다 (ADR-019 B4).
+              sheetIndexes: [a.sheetIndex],
               libraryId: DEV_LIBRARY,
               // 적용일은 화면이 물어서 받은 값이다 — 여기서 지어내지 않는다.
               effectiveFrom: wiz.effectiveFrom,

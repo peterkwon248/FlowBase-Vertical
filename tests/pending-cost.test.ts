@@ -62,7 +62,7 @@ run("원가 대기 — 못 붙은 행이 남는다", () => {
       bytes: bytes(),
       fileName: BOOK.file,
       profile: COST,
-      sheetIndex,
+      sheetIndexes: [sheetIndex],
       libraryId: LIB,
       effectiveFrom: "2026-01-01",
       now: NOW,

@@ -141,7 +141,7 @@ for (const t of TARGETS) {
       bytes,
       fileName: f.file,
       profile,
-      sheetIndex: hit.sheetIndex,
+      sheetIndexes: [hit.sheetIndex],
       libraryId: LIB,
       // 데모 데이터가 2025-10 ~ 2026-07에 걸쳐 있다. 그 앞에 세워야 전 기간에 붙는다.
       effectiveFrom: "2025-01-01",

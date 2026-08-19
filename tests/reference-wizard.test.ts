@@ -166,13 +166,14 @@ describe("기준 데이터 결과 — 못 찾은 것을 실패로 부르지 않�
     createdSkus: 35,
     badRows: 0,
     excluded: [],
-    header: { rowIndex: 0, columns: [], confidence: 1 } as never,
-    sheet: { index: 0, name: "상품별원가 raw" } as never,
     warnings: [],
     unmatchedSample: ["A1", "A2", "A3"],
     stashed: 171,
     bridged: 0,
     kind: "COGS",
+    perSheet: [],
+    conflicts: [],
+    conflictCount: 0,
   }
 
   it("★ «못 찾음»은 경고색이 아니다 — 정상인 것을 빨갛게 칠하지 않는다 ★", () => {
