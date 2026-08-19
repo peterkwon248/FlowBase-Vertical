@@ -15,6 +15,7 @@
  */
 
 import { openTauriDriver } from "@core/store/driver-tauri.js"
+import type { Driver } from "@core/store/driver.js"
 import { migrate } from "@core/store/migrate-web.js"
 import { loadPnlSnapshot, type PnlSnapshot } from "@core/profit/snapshot.js"
 import {
@@ -139,10 +140,56 @@ const thisMonth = (): Month => new Date().toISOString().slice(0, 7)
 let firstOpen = true
 
 /**
+ * ★ 웹판인가 — **Tauri가 없으면 브라우저다** (2026-08-18) ★
+ *
+ * 데스크톱 앱의 웹뷰에는 `window.__TAURI_INTERNALS__`가 주입돼 있다. 없으면
+ * 평범한 브라우저이고, 그쪽에는 파일시스템도 rusqlite도 없다.
+ *
+ * 판정을 **한 곳**에 둔다. 화면 여기저기서 다시 물으면 「앱에서는 되는데 웹에서는
+ * 안 되는」 자리가 갈래마다 생긴다.
+ */
+export const isWebDemo = (): boolean =>
+  typeof window !== "undefined" &&
+  (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ === undefined
+
+/**
+ * ★ 웹판의 연결은 **하나뿐이고 닫지 않는다** ★
+ *
+ * `sql.js`는 DB를 메모리에 들고 있어서 `close()`가 곧 **소멸**이다. 이 파일의
+ * 조회들은 전부 «열고 → 읽고 → 닫는» 모양인데, 그 규율은 파일 DB를 전제한다.
+ * 웹판에서 그대로 두면 **첫 조회 뒤 DB가 사라진다.**
+ *
+ * 그래서 웹판에서는 연결을 한 번만 만들고, 돌려주는 핸들의 `close()`를 아무 일도
+ * 하지 않게 감싼다 — 호출부를 고치지 않고도(그리고 데스크톱 동작을 건드리지 않고도)
+ * 같은 코드가 두 세계에서 돈다.
+ */
+let webDb: Promise<Driver> | null = null
+
+async function openWebDemo(): Promise<Driver> {
+  webDb ??= (async () => {
+    const [{ openWasmDriver }, wasmUrl] = await Promise.all([
+      import("@core/store/driver-wasm.js"),
+      import("sql.js/dist/sql-wasm.wasm?url").then((m) => m.default as string),
+    ])
+    // 동봉된 데모 DB. **비식별화 픽스처로 만든 것**이지 실데이터가 아니다
+    // (`tools/harness/demo-db.ts`). 없으면 빈 DB로 서고, 화면은 §22대로
+    // 「이 기간 파일 없음」을 말한다 — 조용히 0원을 그리지 않는다.
+    const res = await fetch(`${import.meta.env.BASE_URL}demo.sqlite`)
+    const bytes = res.ok ? new Uint8Array(await res.arrayBuffer()) : undefined
+    if (!res.ok) console.warn("[data] 데모 DB를 받지 못했다 — 빈 DB로 연다")
+    return openWasmDriver(bytes === undefined ? { wasmUrl } : { wasmUrl, bytes })
+  })()
+  const db = await webDb
+  // 닫기를 삼킨다 — 이유는 위 주석. 조용히 삼키는 것이 아니라 **여기서만** 삼킨다.
+  return { ...db, close: async (): Promise<void> => {} }
+}
+
+/**
  * DB를 연다. **모든 열기가 여기를 지난다** — 넘겨받기 조건이 한 곳에만 있어야
  * «첫 열기만»이라는 규칙이 갈리지 않는다.
  */
-async function open(): Promise<Awaited<ReturnType<typeof openTauriDriver>>> {
+async function open(): Promise<Driver> {
+  if (isWebDemo()) return openWebDemo()
   const force = firstOpen
   firstOpen = false
   return openTauriDriver(DEV_DB_PATH, {

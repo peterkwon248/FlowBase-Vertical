@@ -44,7 +44,7 @@ import { importVals, BIG_FILE_BYTES, EMPTY_WIZARD, type ImportActions, type Impo
 import { analyzeImport } from "@core/import/analyze.js"
 import { runImport } from "@core/import/run.js"
 import { loadProfiles } from "@packs/kr-marketplace/profiles/index.js"
-import { DEV_LIBRARY, findPriorImports, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
+import { DEV_LIBRARY, findPriorImports, isWebDemo, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
@@ -546,6 +546,21 @@ export function App(): React.JSX.Element {
       const input = (ev as { target?: { files?: FileList | null } } | null)?.target
       const file = input?.files?.[0]
       if (!file) return
+      /**
+       * ★ 웹판에서는 넣지 않는다 — **넣으면 사라지기 때문이다** ★
+       *
+       * 웹 데모의 DB는 메모리에 산다(`driver-wasm`). 적재는 성공하고 화면도 바뀌는데
+       * 새로고침하면 통째로 없다 — 사용자가 겪는 것은 «데이터가 조용히 사라짐»이고
+       * 그건 LOCK 6이 막으려는 모양 그대로다. 그래서 **하기 전에 멈추고 이유를 말한다.**
+       */
+      if (isWebDemo()) {
+        setWiz({
+          ...EMPTY_WIZARD,
+          error:
+            "이 웹 데모는 보기 전용입니다 — 넣은 데이터가 저장되지 않고 새로고침하면 사라지므로 가져오기를 막아 두었습니다. 데스크톱 앱에서는 그대로 동작합니다.",
+        })
+        return
+      }
       // ★ 열기 **전에** 판정한다 ★ 큰 파일이면 화면이 멈출 수 있다고 미리 말한다.
       // 메인 스레드에서 도는 동안은 이 고지가 유일한 방어다 (ADR-001 조건 2 부채).
       setWiz({ ...EMPTY_WIZARD, busy: true, bigFile: file.size >= BIG_FILE_BYTES })
