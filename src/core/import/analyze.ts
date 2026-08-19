@@ -34,6 +34,7 @@ import { parserFor } from "./parsers/index.js"
 import { streamSheet } from "./pipeline.js"
 import { matchProfiles, type MappingProfile, type ProfileMatch } from "./mapping/index.js"
 import { describeColumns, type ColumnSighting } from "./columns.js"
+import { buildAliasIndex, judgeColumns, type JudgeResult } from "./judge.js"
 import { sha1Bytes } from "./mapping/sha1.js"
 
 /** 지문은 사람이 보고 대조할 수 있어야 한다 — 16진 문자열로 남긴다. */
@@ -95,6 +96,13 @@ export interface ImportAnalysis {
    * 않는다는 계약이 위저드의 «시트 바꿔 다시 보기»를 싸게 만든다.
    */
   readonly columns: readonly ColumnSighting[]
+  /**
+   * 열 판정 4단 (계획 A · ADR-017) — 별칭 색인은 **프로파일에서 라이브로 유도**한다.
+   *
+   * ★ v1은 화면 주석일 뿐 적재를 바꾸지 않는다 ★ 적재는 프로파일이 정한다.
+   * 후보(candidate)는 자동으로 쓰이지 않는다 — 확정 UI가 B 세션이다.
+   */
+  readonly judge: JudgeResult
   /**
    * ★ **모든 시트**를 프로파일에 물어본 결과 ★
    *
@@ -325,6 +333,10 @@ export async function analyzeImport(
       sample,
       sampleExcluded: sum.excluded,
       columns: mine?.columns ?? describeColumns(sum.header.columns, sample),
+      judge: judgeColumns(
+        mine?.columns ?? describeColumns(sum.header.columns, sample),
+        buildAliasIndex(profiles),
+      ),
       sheetMatches,
       suggestedSheetIndex,
       warnings: [...src.warnings, ...scanWarnings],
