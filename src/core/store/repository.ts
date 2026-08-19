@@ -843,6 +843,195 @@ export class Repository {
     })
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // 고정비·운영비 (마이그레이션 010)
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * **이 날짜에 유효한** 고정비·운영비 항목들.
+   *
+   * ★ 「최신」이 아니라 「그날 유효했던 것」이다 ★
+   * 3월에 임대료가 올랐으면 2월 손익은 **2월에 유효했던 값**으로 계산돼야 한다.
+   * 오늘 값으로 지난달을 다시 그리면 그건 틀린 숫자다 — `costAt`과 같은 규율이고,
+   * 그래서 항목(`label`)마다 `effective_from <= asOf` 중 **가장 늦은 것** 하나를 고른다.
+   *
+   * 금액 0은 **지우지 않고 남긴다.** 「6월부터 사무실을 뺐다」가 0원 행이라
+   * 여기서 걸러 버리면 5월과 6월이 구별되지 않는다 — 화면이 「임대료 0원」을
+   * 그려야 사용자가 자기가 그렇게 넣었다는 것을 안다.
+   */
+  async overheads(
+    libraryId: string,
+    kind: "FIXED" | "OPS",
+    asOf: string,
+  ): Promise<
+    readonly {
+      readonly label: string
+      readonly basis: "MONTH" | "ORDER" | "UNIT"
+      readonly amount: number
+      readonly effectiveFrom: string
+      readonly note: string | null
+    }[]
+  > {
+    const rows = await this.db
+      .prepare(
+        `SELECT o.label, o.basis, o.amount, o.effective_from, o.note
+           FROM overhead o
+           JOIN (
+             SELECT label, MAX(effective_from) AS eff
+               FROM overhead
+              WHERE library_id = ? AND kind = ? AND effective_from <= ?
+              GROUP BY label
+           ) pick ON pick.label = o.label AND pick.eff = o.effective_from
+          WHERE o.library_id = ? AND o.kind = ?
+          ORDER BY o.label`,
+      )
+      .all(libraryId, kind, asOf, libraryId, kind)
+    return rows.map((r) => ({
+      label: String(r["label"]),
+      basis: String(r["basis"]) as "MONTH" | "ORDER" | "UNIT",
+      amount: Number(r["amount"] ?? 0),
+      effectiveFrom: String(r["effective_from"]),
+      note: r["note"] === null || r["note"] === undefined ? null : String(r["note"]),
+    }))
+  }
+
+  /** 항목의 전체 이력 — 화면이 「3월부터 220만」을 보이려면 필요하다. */
+  async overheadHistory(
+    libraryId: string,
+    kind: "FIXED" | "OPS",
+    label: string,
+  ): Promise<readonly { readonly amount: number; readonly effectiveFrom: string }[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT amount, effective_from FROM overhead
+          WHERE library_id = ? AND kind = ? AND label = ?
+          ORDER BY effective_from DESC`,
+      )
+      .all(libraryId, kind, label)
+    return rows.map((r) => ({
+      amount: Number(r["amount"] ?? 0),
+      effectiveFrom: String(r["effective_from"]),
+    }))
+  }
+
+  /**
+   * 항목을 넣거나 고친다.
+   *
+   * ★ `addCost`와 갈리는 자리 하나 ★
+   * 원가는 같은 적용일이 있으면 **묻고 나서** 덮는다(`replace`). 여기는 **그냥
+   * 덮는다.** 원가는 파일에서 대량으로 들어와 「35건 중 3건이 이미 있다」를
+   * 사람이 판단해야 하지만, 고정비는 사람이 칸 하나를 고쳐 저장하는 것이라
+   * 「이미 있습니다」를 되물으면 자기가 방금 친 값을 되묻는 꼴이다.
+   *
+   * 금액 0을 막지 않는다 — 「6월부터 임대료 없음」이 0원 행이다.
+   */
+  async setOverhead(o: {
+    libraryId: string
+    kind: "FIXED" | "OPS"
+    basis: "MONTH" | "ORDER" | "UNIT"
+    label: string
+    amount: number
+    effectiveFrom: string
+    note?: string | null
+    now: string
+    enteredBy?: "user" | "import"
+  }): Promise<void> {
+    if (!Number.isInteger(o.amount)) throw new Error(`금액은 원 단위 정수여야 한다: ${o.amount}`)
+    if (o.amount < 0) throw new Error(`금액은 0보다 작을 수 없다: ${o.amount}`)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(o.effectiveFrom)) {
+      throw new Error(`적용 시작일은 YYYY-MM-DD여야 한다: ${o.effectiveFrom}`)
+    }
+    if (o.label.trim() === "") throw new Error("항목 이름이 비어 있다")
+    /**
+     * ★ 종류와 basis는 **짝이 정해져 있다** ★
+     *
+     *   FIXED × MONTH            「얼마를 팔든 나가는 돈」이 고정비의 정의다
+     *   OPS   × ORDER | UNIT     「주문·개수에 따라 나가는 돈」이 운영비의 정의다
+     *
+     * 남는 칸(OPS × MONTH)은 **일부러 비워 둔다.** 「월 정액인데 상품에 배분하고
+     * 싶다」는 요구가 실재하지만(월 정액 3PL 계약) 그건 안분 기준을 정해야 하는
+     * 별개 설계다 — 매출 비례? 개수 비례? 답이 데이터에 없다. 지금 아무 기준이나
+     * 골라 넣으면 상품별 손익이 조용히 그 가정을 품는다.
+     */
+    if (o.kind === "FIXED" && o.basis !== "MONTH") {
+      throw new Error(`고정비는 월 단위만 쓴다 — 주문·개수에 비례하면 운영비다: ${o.basis}`)
+    }
+    if (o.kind === "OPS" && o.basis === "MONTH") {
+      throw new Error(
+        `운영비는 주문당·개당만 쓴다 — 월 정액이면 고정비이고, ` +
+          `상품에 배분해야 한다면 안분 기준부터 정해야 한다`,
+      )
+    }
+    await this.db
+      .prepare(
+        `INSERT INTO overhead
+           (library_id, kind, basis, label, amount, effective_from, note, entered_at, entered_by)
+         VALUES (?,?,?,?,?,?,?,?,?)
+         ON CONFLICT (library_id, kind, label, effective_from) DO UPDATE SET
+           basis = excluded.basis,
+           amount = excluded.amount,
+           note = excluded.note,
+           entered_at = excluded.entered_at,
+           entered_by = excluded.entered_by`,
+      )
+      .run(
+        o.libraryId,
+        o.kind,
+        o.basis,
+        o.label.trim(),
+        o.amount,
+        o.effectiveFrom,
+        o.note ?? null,
+        o.now,
+        o.enteredBy ?? "user",
+      )
+  }
+
+  /**
+   * ★ 「두지 않는다」도 입력이다 (§22) ★
+   *
+   * `null`이면 **미선언**이고, 그때만 앱이 물어본다. 「0원」과 「0원이 맞다」를
+   * 구분하지 못하면 일부러 안 넣은 사용자에게 영영 잔소리하게 되고, 지워지지
+   * 않는 경고 하나가 진단 화면 전체를 안 보게 만든다.
+   */
+  async overheadStance(
+    libraryId: string,
+    kind: "FIXED" | "OPS",
+  ): Promise<{ readonly stance: "none" | "later"; readonly reason: string | null } | null> {
+    const r = await this.db
+      .prepare(`SELECT stance, reason FROM overhead_stance WHERE library_id = ? AND kind = ?`)
+      .get(libraryId, kind)
+    if (r === undefined) return null
+    return {
+      stance: String(r["stance"]) as "none" | "later",
+      reason: r["reason"] === null || r["reason"] === undefined ? null : String(r["reason"]),
+    }
+  }
+
+  async setOverheadStance(s: {
+    libraryId: string
+    kind: "FIXED" | "OPS"
+    stance: "none" | "later"
+    reason?: string | null
+    now: string
+  }): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO overhead_stance (library_id, kind, stance, reason, declared_at)
+         VALUES (?,?,?,?,?)
+         ON CONFLICT (library_id, kind) DO UPDATE SET
+           stance = excluded.stance, reason = excluded.reason, declared_at = excluded.declared_at`,
+      )
+      .run(s.libraryId, s.kind, s.stance, s.reason ?? null, s.now)
+  }
+
+  /** 선언을 거둔다 — 다시 «미선언»으로 돌아가 앱이 묻는다. */
+  async clearOverheadStance(libraryId: string, kind: "FIXED" | "OPS"): Promise<void> {
+    await this.db
+      .prepare(`DELETE FROM overhead_stance WHERE library_id = ? AND kind = ?`)
+      .run(libraryId, kind)
+  }
+
   private async countListings(connectionId: string): Promise<number> {
     const r = await this.db
       .prepare(`SELECT COUNT(*) AS n FROM marketplace_listing WHERE connection_id = ?`)

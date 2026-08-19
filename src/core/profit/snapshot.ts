@@ -26,7 +26,7 @@ import { computePnl, prorateFixed, type Period, type Pnl } from "./index.js"
  * 품목 행의 «그 판매일에 유효한 매입원가» — 규칙은 `costAtSql`이 갖고 있다.
  *
  * `'COGS'`를 리터럴로 넣는 것은 이 자리가 손익 3층의 «매입원가»이기 때문이다.
- * 포장비·물류비는 상품 층의 «운영비»라 다른 자리에서 더해진다(오늘은 `base.ops`).
+ * 포장비·물류비는 상품 층의 «운영비»라 다른 자리에서 더해진다 (`overhead` kind='OPS').
  */
 const COST = costAtSql({
   libraryId: "oi.library_id",
@@ -67,28 +67,45 @@ const ITEM_JOIN =
 const SOLD = "oi.quantity > 0"
 
 /**
- * 사람이 넣는 기준 데이터 중 **아직 화면이 없는 것.**
+ * ★ 손익의 입력은 **전부 DB에서 온다** — 인자로 받는 두 번째 입구가 없다 ★
  *
- * ★ `cogs`가 여기서 빠졌다 (③④, 2026-08-14) ★
- * 매입원가는 이제 `cost_history`에 있고 이 함수가 **직접 조회한다.** 인자로도 받을 수
- * 있게 두면 «인자로 온 원가»와 «DB의 원가»가 갈리고, 그때 화면과 CLI가 다른 순이익을
- * 낸다 — 단일 계산기 원칙이 막으려는 바로 그 모양이다. 두 입구를 두지 않는다.
+ * 여기 `BaseCosts { ops, fixedMonthly }`가 있었는데 **전 호출부 20곳이 아무도
+ * 넘기지 않았다.** 그래서 고정비가 늘 0이었고 손익 3층의 마지막 줄이 구조적
+ * 항등식이었다 — 채널 기여이익 − 0 = 회사 순이익. 「입구가 있다」와 「입구가
+ * 쓰인다」는 다르고, 안 쓰이는 입구는 **없는 것보다 나쁘다**: 있으니까 됐다고
+ * 믿게 만든다.
+ *
+ * 이제 셋 다 표에서 직접 읽는다 — 원가는 `cost_history`(③④, 8/14), 고정비·운영비는
+ * `overhead`(010, 8/19). 인자로도 받을 수 있게 두면 «인자로 온 값»과 «DB의 값»이
+ * 갈리고, 그때 화면과 CLI가 다른 순이익을 낸다.
  */
-export interface BaseCosts {
-  /** 운영비 (포장·물류). */
-  readonly ops?: number
-  /** **월** 고정비. 기간 안분은 `prorateFixed`가 한다 — 8/31 고정이 아니다. */
-  readonly fixedMonthly?: number
-}
-
 /**
  * 손익과, **그 숫자가 담지 못한 것**.
  *
  * 후자를 함께 내는 이유는 헌장 A-5다 — 조인되지 않은 정산이 있으면 손익에서
  * 수수료가 빠지는데, 그 사실을 숨기면 화면이 조용히 거짓말을 한다.
  */
+/**
+ * 「고정비를 두지 않는다」는 **선언** (마이그레이션 010 · §22).
+ *
+ * `null`이면 미선언이다. 「0원」과 「0원이 맞다」를 구분하지 못하면 일부러 안 넣은
+ * 사용자에게 영영 「미입력」이라고 잔소리하게 되고, 지워지지 않는 경고 하나가
+ * 진단 화면 전체를 안 보게 만든다 — 경고 하나가 죽으면 옆의 진짜 경고도 죽는다.
+ *
+ * 계산에는 안 들어간다. **문장만 고른다.**
+ */
+export interface OverheadStance {
+  readonly stance: "none" | "later"
+  readonly reason: string | null
+}
+
 export interface PnlSnapshot {
   readonly pnl: Pnl
+  /** 고정비·운영비를 «두지 않는다»고 선언했나. `null` = 미선언. */
+  readonly overheadStance: {
+    readonly fixed: OverheadStance | null
+    readonly ops: OverheadStance | null
+  }
   /**
    * 기간 안 **판매** 건수 — 취소된 것도 «팔리기는 했다»이므로 포함된다.
    *
@@ -225,7 +242,6 @@ export async function loadPnlSnapshot(
   db: Driver,
   libraryId: string,
   period: Period,
-  base: BaseCosts = {},
 ): Promise<PnlSnapshot> {
   const repo = new Repository(db)
 
@@ -453,6 +469,50 @@ export async function loadPnlSnapshot(
 
   const num = (row: Record<string, unknown> | undefined, k: string): number => Number(row?.[k] ?? 0)
 
+  /**
+   * ── 고정비·운영비 (마이그레이션 010) ─────────────────────────────
+   *
+   * ★ 기준일은 **기간 시작**이다 ★
+   * 항목마다 «그날 유효했던 값» 하나를 고른다. 기간 중간에 임대료가 오르면 그
+   * 기간은 **시작 시점의 값**으로 계산된다 — 원가의 `periodApproxItems`와 같은
+   * 근사이고, 같은 이유로 정확히 맞추려면 적용일을 기간 경계에 맞추면 된다.
+   * 달 단위 조회가 기본이고 임대료·급여는 달 경계에서 바뀌므로 실용적으로 맞다.
+   *
+   * ★ 고정비는 «상품에 배분하지 않는다» ★
+   * 그래서 `loadProfitRows`(상품별 손익)에는 들어가지 않고 회사 순이익에서만
+   * 빠진다. 상품 손익의 합이 회사 순이익이 아닌 이유가 이것이고, 화면이 그
+   * 차이를 말한다 (헌장 손익 3층).
+   */
+  const fixedMonthly = (await repo.overheads(libraryId, "FIXED", period.from)).reduce(
+    (n, r) => n + r.amount,
+    0,
+  )
+
+  /**
+   * 운영비는 **요율**이다 — 「주문당 780원」은 주문 수를 곱해야 금액이 된다.
+   * 그래서 고정비처럼 더하기만 해서는 안 되고, 여기서 수량을 만나 금액이 된다.
+   */
+  const opsRates = await repo.overheads(libraryId, "OPS", period.from)
+  const unitCount =
+    opsRates.some((r) => r.basis === "UNIT")
+      ? // 팔린 개수. 수량 0인 품목 행은 «안 팔린 옵션»이라 빠진다 (`SOLD`).
+        num(
+          await db
+            .prepare(
+              `SELECT COALESCE(SUM(oi.quantity),0) AS q
+               ${ITEM_JOIN}
+                WHERE oi.library_id = ? AND ${SOLD}
+                  AND o.ordered_at >= ? AND o.ordered_at < date(?, '+1 day')`,
+            )
+            .get(libraryId, period.from, period.to),
+          "q",
+        )
+      : 0
+  const ops = opsRates.reduce(
+    (n, r) => n + r.amount * (r.basis === "ORDER" ? orderCount : unitCount),
+    0,
+  )
+
   const pnl = computePnl({
     period,
     revenue,
@@ -463,12 +523,16 @@ export async function loadPnlSnapshot(
     cogs: num(cogsRow, "cogs"),
     adDirect: 0,
     adUnallocated: adSpend,
-    ops: base.ops ?? 0,
-    fixed: prorateFixed(base.fixedMonthly ?? 0, period),
+    ops,
+    fixed: prorateFixed(fixedMonthly, period),
   })
 
   return {
     pnl,
+    overheadStance: {
+      fixed: await repo.overheadStance(libraryId, "FIXED"),
+      ops: await repo.overheadStance(libraryId, "OPS"),
+    },
     orderCount,
     claimCount: claimRows.length,
     settlement: {

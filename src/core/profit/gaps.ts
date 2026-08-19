@@ -36,6 +36,8 @@ export type PnlGapId =
   /** 기간 집계 행의 원가가 기간 시작일 단가로 계산됐다 — 조용한 근사 금지 (조건 2). */
   | "cogs-period-approx"
   | "overhead-missing"
+  /** 운영비의 부재는 고정비와 **따로** 센다 — 하나를 넣었다고 다른 하나가 메워지지 않는다. */
+  | "ops-missing"
   | "connections-mixed"
 
 /**
@@ -263,14 +265,79 @@ export function pnlGaps(snap: PnlSnapshot): PnlGap[] {
       })
     }
   }
-  if (pnl.fixed === 0 && pnl.ops === 0) {
+  /**
+   * ★ 「0원」에는 두 가지 뜻이 있다 (2026-08-19) ★
+   *
+   * 여기 조건은 `pnl.fixed === 0` 하나뿐이었다. 그래서 **일부러** 고정비를 두지
+   * 않는 사용자에게 — 원가에 이미 넣었거나, 임대료가 없는 1인 사업자거나 —
+   * 영영 「미입력」이라고 말했다. 지워지지 않는 줄이 진단 화면에 하나 박히면
+   * 사용자는 그 화면 전체를 안 보게 되고, **경고 하나가 죽으면 옆의 진짜 경고도
+   * 같이 죽는다.**
+   *
+   * 그래서 「두지 않는다」를 선언으로 받고(마이그레이션 010) 셋으로 가른다.
+   * 판정은 여기, 저장은 `overhead_stance`, 묻는 것은 화면이다.
+   */
+  const st = snap.overheadStance
+  const declared = (d: typeof st.fixed): string =>
+    d?.reason === "in-cogs"
+      ? "원가에 이미 포함돼 있다고 하셨습니다"
+      : d?.reason === "not-applicable"
+        ? "해당 없다고 하셨습니다"
+        : (d?.reason ?? "두지 않기로 하셨습니다")
+
+  if (pnl.fixed === 0 && st.fixed?.stance === "none") {
+    // ★ 이건 결손이 아니다 ★ 그래도 목록에서 빼지는 않는다 — 「고정비가 안 빠진
+    // 순이익」이라는 사실 자체는 숫자를 읽는 데 필요하고, 선언을 되짚을 자리도
+    // 여기밖에 없다. 「말하되 재촉하지 않는다」가 §22의 자세다.
     gaps.push({
       id: "overhead-missing",
-      label: "고정비·운영비",
+      label: "고정비",
+      state: "두지 않음",
+      note: declared(st.fixed),
+      tone: "info",
+      detail:
+        `고정비를 두지 않기로 선언돼 있어 **회사 순이익 = 채널 기여이익**입니다. ` +
+        (st.fixed.reason === "in-cogs"
+          ? "원가에 이미 들어 있다고 하셨으므로 여기 또 넣으면 두 번 빠집니다."
+          : "비용 화면에서 언제든 바꿀 수 있습니다."),
+    })
+  } else if (pnl.fixed === 0 && st.fixed?.stance === "later") {
+    // 나중에 넣겠다고 한 사람을 재촉하지 않는다. 사실만 남긴다.
+    gaps.push({
+      id: "overhead-missing",
+      label: "고정비",
+      state: "나중에",
+      note: "아직 0원",
+      tone: "info",
+      detail:
+        "고정비를 나중에 넣기로 하셨습니다. 넣기 전까지 회사 순이익은 채널 기여이익과 같습니다.",
+    })
+  } else if (pnl.fixed === 0) {
+    // 미선언 — **이때만 묻는다.**
+    gaps.push({
+      id: "overhead-missing",
+      label: "고정비",
       state: "미입력",
       note: "0원",
       tone: "info",
-      detail: "고정비·운영비 0 — 같은 이유. 기준 데이터 화면이 생기면 채워진다",
+      detail:
+        "임대료·인건비 같은 고정비가 0원이라 **회사 순이익이 채널 기여이익과 같습니다.** " +
+        "두 줄이 같은 수인 것은 고정비가 없어서가 아니라 아직 안 넣어서입니다 — " +
+        "비용 화면에서 넣거나, 「두지 않는다」를 선언하면 이 줄이 사라집니다.",
+    })
+  }
+
+  // 운영비는 따로 센다. 고정비를 넣었다고 운영비의 부재가 메워지지 않는다.
+  if (pnl.ops === 0 && st.ops === null) {
+    gaps.push({
+      id: "ops-missing",
+      label: "운영비",
+      state: "미입력",
+      note: "0원",
+      tone: "info",
+      detail:
+        "포장·부자재·물류 수수료 같은 운영비가 0원입니다. 원가에 이미 포함시켜 두셨다면 " +
+        "비용 화면에서 「두지 않는다」를 선언하면 이 줄이 사라집니다.",
     })
   }
 
