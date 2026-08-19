@@ -18,7 +18,8 @@
     "preview": "vite preview",
     "wiring": "tsx tools/harness/wiring.ts",
     "demo-db": "tsx tools/harness/demo-db.ts",
-    "prebuild": "npm run demo-db"
+    "prebuild": "npm run demo-db",
+    "single": "npm run demo-db && vite build --config vite.single.config.ts && tsx tools/harness/inline-build.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
