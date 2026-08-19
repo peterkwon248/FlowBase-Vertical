@@ -83,9 +83,14 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
     why: "컷 목록 — «없어도 손익이 보인다». 화면이 §21-7로 「준비 중」을 말하고 있다",
   },
   {
-    name: "미구현 화면 — 비용",
-    fields: /^(ad(Alloc|Count|Roas|Rows|Total|Unalloc)|cd[A-Z]|cost(Changes|Miss|Rows|Tabs|Total)|ct[A-Z]|fix(Rows|Total)|layer[A-Z]|ops(Rows|Total)|set(CdCost|CdFrom|CdMemo))/,
-    why: "컷 목록 — 고정비·운영비 입력 화면. 지금은 손익이 0원으로 정직하게 말한다",
+    // ★ 2026-08-19에 절반이 배선됐다 ★ 고정비 표·3층 표·「두지 않습니다」가 서고,
+    // `fix*`·`layer*`·`ops*`·`ctOps`·`costTabs`가 여기서 빠졌다. 도구가 앱보다 낡으면
+    // 「미구현」이라고 세면서 실제로는 배선된 화면을 안 보게 된다.
+    name: "미구현 화면 — 비용 (광고비 탭·원가 탭)",
+    fields: /^(ad(Alloc|Count|Roas|Rows|Total|Unalloc)|cd[A-Z]|cost(Changes|Miss|Rows|Total)|ct(Ad|Cogs)|set(CdCost|CdFrom|CdMemo))/,
+    why:
+      "컷 목록 — 비용 화면의 **남은 두 탭**. 운영·고정비 탭은 배선됐고(010), " +
+      "원가는 상품 화면에 이미 있으며, 광고비 배분은 재료(캠페인↔상품 연결)가 아직 없다",
   },
   {
     name: "미구현 화면 — 설정·라이선스·커맨드팔레트",
@@ -93,9 +98,17 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
     why: "컷 목록 — 설정 화면과 커맨드 팔레트. 배포 단계 일이다",
   },
   {
-    name: "미구현 화면 — 필드 매핑·내 필드·데이터 구조",
-    fields: /^(fm[A-Z]|diff[A-Z]|toggleDiff|applyUpdate|confirmFm|cf[A-Z]|addCf|entities|formula|pipeline)/,
-    why: "컷 목록 — «수동 매핑 편집·양식 구독»은 배포 단계 일. 데이터 구조는 읽기 전용 설명 화면",
+    // ★ 2026-08-19 B1에서 필드매핑 읽기 배선이, B2에서 확인 완료(confirmFm·
+    // fmConfirmable)가 끝났다 ★ 남는 것은 §20 트리거 게이트 안의 것뿐이다:
+    // 드리프트(diff*·toggleDiff·applyUpdate·fmUpdate*)와 질문 카드(cf*)는
+    // «8월 실전 실물 1회» 게이트다 — 컷에 남아 있는 것이 게이트 준수의 기계적
+    // 증거다. 확인 완료가 빠진 근거는 §20 규칙 1 개정(2026-08-18 사용자 확정) —
+    // «펼치면 전체 편집 표»는 게이트 밖이고, 그 표의 저장 버튼이 confirmFm이다.
+    name: "§20 게이트 — 드리프트·질문 카드 + 미구현(내 필드·데이터 구조)",
+    fields: /^(diff[A-Z]|toggleDiff|applyUpdate|fmUpdate|cf[A-Z]|addCf|entities|formula|pipeline)/,
+    why:
+      "드리프트·질문 카드는 §20 구현 트리거(8월 실전 실물 1회) 게이트 안이다. " +
+      "내 필드·데이터 구조 화면은 배포 단계 일",
   },
   {
     name: "헤더 부가 — 배지·팝오버·표시 메뉴",

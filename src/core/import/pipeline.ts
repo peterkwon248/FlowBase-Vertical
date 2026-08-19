@@ -28,6 +28,7 @@ import type {
   SheetInfo,
 } from "./types.js"
 import { KIND_NULL, KIND_TEXT } from "./types.js"
+import { readBlocks, type BlockReadRule } from "./extraction/blocks.js"
 import { detectHeader, headerSpan, type HeaderOptions } from "./extraction/header.js"
 import { isTotalRow, DEFAULT_TOTAL_LABELS } from "./extraction/totals.js"
 import { isBlankRow } from "./extraction/rows.js"
@@ -40,6 +41,17 @@ export interface StreamPipelineOptions extends ParseOptions, HeaderOptions {
   readonly totalLabels?: readonly string[]
   /** 정규화를 건너뛰고 원시 행만 흘린다 — 적재 비용만 재고 싶을 때. */
   readonly skipNormalization?: boolean
+  /**
+   * ★ 이 시트는 표가 아니라 **카드**다 (2026-08-19) ★
+   *
+   * 주면 파서와 헤더 탐지 **사이**에 블록 리더가 낀다 — 카드를 표로 펴고 합성
+   * 헤더 행을 앞에 붙인다. 그 뒤로는 평범한 표라서 이 파일의 나머지도, 뒤 단계도
+   * 아무것도 안 바뀐다.
+   *
+   * 블록 리더가 거부하면(주기가 고르지 않다 등) **그 예외가 그대로 올라온다.**
+   * 여기서 표로 물러나지 않는다 — 카드를 표로 읽으면 라벨 행이 데이터가 된다.
+   */
+  readonly blockRead?: BlockReadRule
 }
 
 export type { NormalizedChunk } from "./types.js"
@@ -60,6 +72,33 @@ const DEFAULT_PROLOGUE = 200
  * 제너레이터가 끝난 뒤 `getSummary()`를 부르면 헤더·컬럼 종류·제외 행 목록을
  * 받는다. 스트리밍 중에는 아직 확정되지 않은 값이 있으므로 끝난 뒤에 읽는다.
  */
+/**
+ * 카드 시트면 표로 펴서 한 덩어리로 흘리고, 아니면 파서를 그대로 통과시킨다.
+ *
+ * ★ 왜 통째로 모으나 ★
+ * 블록 주기를 판정하려면 **앵커 사이의 간격**을 봐야 하고, 그건 시트 전체를 봐야
+ * 나온다. 청크 경계에서 블록이 잘리면 그 블록만 짧게 읽혀 조용히 틀린다.
+ *
+ * 카드 시트는 사람이 손으로 만든 표라 크지 않다 — 실측 15시트 최대 205행이고,
+ * 전체 200블록이다. LOCK 5(전체 메모리 적재 금지)는 8만 행짜리 마켓 파일을 겨눈
+ * 규칙이고, 그 파일들은 카드가 아니라 표라 이 경로를 지나지 않는다.
+ */
+async function* blockAware(
+  source: ParsedSource,
+  sheetIndex: number,
+  opts: StreamPipelineOptions,
+): AsyncIterable<{ rows: readonly RawRow[] }> {
+  if (opts.blockRead === undefined) {
+    yield* source.stream(sheetIndex, opts)
+    return
+  }
+  const all: RawRow[] = []
+  for await (const c of source.stream(sheetIndex, opts)) all.push(...c.rows)
+  const r = readBlocks(all, opts.blockRead)
+  // 합성 헤더를 앞에 붙인다 — 뒤의 헤더 탐지가 평범하게 0행을 헤더로 잡는다.
+  yield { rows: [r.header, ...r.rows] }
+}
+
 export function streamSheet(
   source: ParsedSource,
   sheetIndex: number,
@@ -220,7 +259,7 @@ export function streamSheet(
       if (rowsInChunk >= cap) yield flush(false)
     }
 
-    for await (const chunk of source.stream(sheetIndex, opts)) {
+    for await (const chunk of blockAware(source, sheetIndex, opts)) {
       for (const row of chunk.rows) {
         const index = absoluteRow++
 

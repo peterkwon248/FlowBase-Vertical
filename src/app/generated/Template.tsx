@@ -3641,7 +3641,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   <span style={{ font: "var(--fw-semi) 12px var(--font-sans)", color: "var(--fg-2)" }}>
                                     이 기간 몫
                                     <span style={{ fontWeight: "var(--fw-medium)", color: "var(--fg-4)" }}>
-                                      8일 / 31일
+                                      {vals.fixDays}
                                     </span>
                                   </span>
                                   {" "}
@@ -3649,6 +3649,63 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                     {vals.fixTotal}
                                   </span>
                                 </span>
+                              </div>
+                              {" "}
+                              <div data-s21="cost-fixed-save" style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
+                                <span style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                                  <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-3)" }}>
+                                    언제부터
+                                  </span>
+                                  {" "}
+                                  <input className="v-input" type="date" style={{ height: "26px", fontSize: "11px", width: "138px" }} value={vals.fixDate} onChange={vals.setFixDate} />
+                                  {" "}
+                                  <span style={{ flex: "1" }}></span>
+                                  {" "}
+                                  <button className="v-btn v-btn--primary" style={{ height: "26px", padding: "0 10px", fontSize: "11px", opacity: vals.fixSaveOpacity }} onClick={vals.fixSave} disabled={!vals.fixCanSave}>
+                                    저장
+                                  </button>
+                                </span>
+                                {vals.fixSaveWhy !== "" && (
+                                    <span style={{ font: "var(--fw-regular) 10px/1.4 var(--font-sans)", color: "var(--pnl-neg)" }}>
+                                      {vals.fixSaveWhy}
+                                    </span>
+                                )}
+                                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <input className="v-input" style={{ height: "26px", fontSize: "12px", flex: "1", minWidth: "0" }} value={vals.fixNewName} onChange={vals.setFixNewName} placeholder="새 항목 (임대료 · 인건비 …)" />
+                                  {" "}
+                                  <input className="v-input" style={{ height: "26px", fontSize: "12px", width: "92px", textAlign: "right" }} value={vals.fixNewAmount} onChange={vals.setFixNewAmount} placeholder="월 금액" inputMode="numeric" />
+                                  {" "}
+                                  <button className="v-btn" style={{ height: "26px", padding: "0 9px", fontSize: "11px", opacity: vals.fixAddOpacity }} onClick={vals.fixAdd} disabled={!vals.fixCanAdd}>
+                                    추가
+                                  </button>
+                                </span>
+                                {vals.fixAddWhy !== "" && (
+                                    <span style={{ font: "var(--fw-regular) 10px/1.4 var(--font-sans)", color: "var(--pnl-neg)" }}>
+                                      {vals.fixAddWhy}
+                                    </span>
+                                )}
+                                <span style={{ display: "flex", alignItems: "center", gap: "7px", marginTop: "2px", cursor: "pointer" }} onClick={vals.toggleFixNone}>
+                                  <span style={{ width: "13px", height: "13px", borderRadius: "3px", border: "1px solid var(--border-strong)", background: vals.fixNoneBg, flex: "none" }}></span>
+                                  {" "}
+                                  <span style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-2)" }}>
+                                    고정비를 두지 않습니다
+                                  </span>
+                                  {vals.fixNone && (
+                                      <select className="v-input" style={{ height: "24px", fontSize: "11px" }} value={vals.fixNoneReason} onChange={vals.setFixNoneReason} onClick={vals.stopEvt}>
+                                        <option value="in-cogs">
+                                          원가에 이미 포함
+                                        </option>
+                                        <option value="not-applicable">
+                                          해당 없음
+                                        </option>
+                                      </select>
+                                  )}
+                                </span>
+                                {vals.fixNoneNote !== "" && (
+                                    <span style={{ font: "var(--fw-regular) 11px/1.6 var(--font-sans)", color: "var(--fg-4)", textWrap: "pretty" }}>
+                                      {vals.fixNoneNote}
+                                    </span>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -4552,6 +4609,24 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                         </div>
                       </div>
                       {" "}
+                      {vals.impRefer && (
+                          <div data-s21="import-reference" style={{ marginTop: "12px", border: "1px solid var(--border-strong)", borderRadius: "var(--r-md)", padding: "12px 14px", display: "grid", gap: "8px", background: "var(--bg-subtle)" }}>
+                            <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <Lic name="calendar" size={14} color="var(--accent)" />
+                              {" "}
+                              <span style={{ font: "var(--fw-semi) 13px var(--font-sans)", color: "var(--fg)" }}>
+                                언제부터 적용되나요
+                              </span>
+                              {" "}
+                              <input className="v-input" type="date" style={{ height: "28px", fontSize: "12px", width: "150px" }} value={vals.impReferDate} onChange={vals.setImpReferDate} />
+                            </span>
+                            {" "}
+                            <span style={{ font: "var(--fw-regular) 11px/1.6 var(--font-sans)", color: "var(--fg-3)" }}>
+                              {vals.impReferNote}
+                            </span>
+                          </div>
+                      )}
+                      {" "}
                       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "14px" }}>
                         <span style={{ font: "var(--fw-regular) 12px var(--font-sans)", color: "var(--fg-4)" }}>
                           {vals.impDupNote}
@@ -4573,7 +4648,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                         {" "}
                         <span style={{ flex: "1" }}></span>
                         {" "}
-                        <button className="v-btn">
+                        <button className="v-btn" onClick={vals.impEditMap}>
                           매핑 수정
                         </button>
                         {" "}
@@ -4842,6 +4917,85 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                   {vals.linkEmpty && (
                       <div style={{ border: "1px dashed var(--border)", borderRadius: "var(--r-md)", padding: "40px", textAlign: "center", font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-4)" }}>
                         {vals.linkEmptyMsg}
+                      </div>
+                  )}
+                  {" "}
+                  {vals.linkTabCost && (
+                      <div data-s21="link-cost-pending" style={{ display: "grid", gap: "10px" }}>
+                        {vals.linkCostNote !== "" && (
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "9px 12px", borderRadius: "var(--r-sm)", background: "var(--bg-subtle)", border: "1px solid var(--border)", font: "var(--fw-regular) 12px/1.6 var(--font-sans)", color: "var(--fg-3)" }}>
+                              <Lic name="check" size={13} color="var(--pnl-pos)" />
+                              {" "}
+                              <span>
+                                {vals.linkCostNote}
+                              </span>
+                            </div>
+                        )}
+                        {vals.linkCostRows.map((r: any, $index: number) => (
+                            <div key={$index} style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "12px 14px", display: "grid", gap: "8px" }}>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
+                                <span style={{ font: "var(--fw-semi) 13px var(--font-sans)", color: "var(--fg)" }}>
+                                  {r.title}
+                                </span>
+                                {" "}
+                                <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                                  {r.meta}
+                                </span>
+                                {" "}
+                                <span style={{ flex: "1" }}></span>
+                                {" "}
+                                <button className="v-btn" style={{ height: "24px", padding: "0 8px", fontSize: "11px" }} onClick={r.dismiss}>
+                                  쓰지 않음
+                                </button>
+                              </div>
+                              {r.hasCands && (
+                                  <div style={{ display: "grid", gap: "5px" }}>
+                                    {r.cands.map((c: any, $ci: number) => (
+                                        <span key={$ci} style={{ display: "flex", alignItems: "center", gap: "9px", minWidth: "0" }}>
+                                          <button className={c.cls} style={{ height: "25px", padding: "0 9px", fontSize: "11px", flex: "none" }} onClick={c.pick}>
+                                            연결
+                                          </button>
+                                          {" "}
+                                          <span style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                            {c.label}
+                                          </span>
+                                          {" "}
+                                          <span style={{ font: "var(--fw-regular) 11px var(--font-sans)", color: "var(--fg-4)", flex: "none" }}>
+                                            {c.why}
+                                          </span>
+                                          {" "}
+                                          <span style={{ font: "var(--fw-regular) 10px var(--font-sans)", color: "var(--fg-4)", flex: "none" }}>
+                                            {c.dest}
+                                          </span>
+                                        </span>
+                                    ))}
+                                  </div>
+                              )}
+                              {r.noCandNote !== "" && (
+                                  <span style={{ font: "var(--fw-regular) 11px/1.5 var(--font-sans)", color: "var(--fg-4)" }}>
+                                    {r.noCandNote}
+                                  </span>
+                              )}
+                            </div>
+                        ))}
+                        {vals.linkCostDismissed.length > 0 && (
+                            <div style={{ border: "1px dashed var(--border)", borderRadius: "var(--r-md)", padding: "10px 12px", display: "grid", gap: "5px" }}>
+                              <span style={{ font: "var(--fw-semi) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                                쓰지 않기로 한 것
+                              </span>
+                              {vals.linkCostDismissed.map((d: any, $di: number) => (
+                                  <span key={$di} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                    <span style={{ font: "var(--fw-regular) 12px var(--font-sans)", color: "var(--fg-4)" }}>
+                                      {d.label}
+                                    </span>
+                                    {" "}
+                                    <button className="v-btn" style={{ height: "22px", padding: "0 7px", fontSize: "10px" }} onClick={d.undo}>
+                                      되돌리기
+                                    </button>
+                                  </span>
+                              ))}
+                            </div>
+                        )}
                       </div>
                   )}
                   {" "}
@@ -5132,7 +5286,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                             <Lic name="triangle-alert" size={14} />
                             {" "}
                             <span style={{ flex: "1" }}>
-                              이 양식은 아직 확인되지 않았습니다. 확인 필요 열을 확정해야 다음 파일이 자동으로 처리됩니다.
+                              {vals.fmWarnText}
                             </span>
                             {" "}
                             {vals.fmConfirmable && (
@@ -5191,7 +5345,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   </td>
                                   {" "}
                                   <td className="db-td">
-                                    <select value={c.field} onChange={c.onPick} style={{ maxWidth: "240px", height: "26px", padding: "0 6px", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", background: "var(--bg-input)", color: c.fieldColor, font: "var(--fw-semi) 11px var(--font-mono)", outline: "none", cursor: "pointer" }}>
+                                    <select value={c.field} onChange={c.onPick} disabled={c.locked} style={{ maxWidth: "240px", height: "26px", padding: "0 6px", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", background: "var(--bg-input)", color: c.fieldColor, font: "var(--fw-semi) 11px var(--font-mono)", outline: "none", cursor: "pointer" }}>
                                       {vals.fmFieldOptions.map((o: any, $index: number) => (
                                           <option key={$index} value={o}>
                                             {o}

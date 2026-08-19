@@ -22,6 +22,7 @@
  */
 
 import type { ImportAnalysis } from "@core/import/analyze.js"
+import type { ReferenceRunResult } from "@core/import/run-reference.js"
 import { columnRoles, type ColumnRole } from "@core/import/mapping/index.js"
 import type { BatchDigest } from "@core/store/repository.js"
 import type { TemplateVals } from "./generated/vals.js"
@@ -47,6 +48,48 @@ const NEG = "var(--pnl-neg)"
  * 해야 하기 때문이다. 4MB는 실측 픽스처 중 #13(쿠팡 광고)만 넘는 값이다.
  */
 export const BIG_FILE_BYTES = 4 * 1024 * 1024
+
+/**
+ * 맞는 양식이 없을 때 **앱이 아는 만큼만** 말한다 (2026-08-18).
+ *
+ * ─────────────────────────────────────────────────────────────
+ * ★ 이 자리에 있던 문장은 거짓이었다 ★
+ *
+ *   "맞는 매핑 프로파일이 없습니다 — 이 **파일**은 넣을 수 없습니다"
+ *
+ * 앱이 아는 것은 「이 **시트**에서 못 찾았다」뿐이었는데 파일 전체를 단정했다.
+ * 사용자의 실파일 두 장이 그 문장 때문에 막혀 있었고 — 그 안의 시트 5·11은
+ * **확신도 100%로 맞았다.** 데이터가 틀리게 저장되는 게 아니라 **말이 틀렸고**,
+ * 그 말 때문에 되는 일을 안 된다고 믿게 만들었다 (LOCK 6 계열).
+ *
+ * 이제 판정이 전 시트를 훑으므로(`analyze.ts`) 세 경우가 갈린다:
+ *
+ *   ① 다른 시트에 답이 있다   → **어느 시트인지 말한다**. 이게 대부분이다
+ *   ② 어느 시트에서도 못 찾았다 → 그제서야 «이 파일은»이라고 말해도 참이다
+ *   ③ 시트가 하나뿐이다       → 「시트」를 말하는 게 오히려 헷갈린다
+ * ─────────────────────────────────────────────────────────────
+ */
+export function noMatchLine(a: ImportAnalysis): string {
+  const hit =
+    a.suggestedSheetIndex === null
+      ? undefined
+      : a.sheetMatches.find((m) => m.sheetIndex === a.suggestedSheetIndex)
+  const best = hit?.profiles.find((p) => p.blockedBy === undefined)
+
+  if (hit !== undefined && best !== undefined) {
+    return (
+      `이 시트에서는 맞는 양식을 찾지 못했습니다 — ` +
+      // `displayName`과 `label`을 나란히 쓰면 마켓 이름이 두 번 나온다
+      // ("ESM (G마켓·옥션) · ESM 주문통합검색 (G마켓·옥션)"). 문서 이름 하나면 충분하다.
+      `「${hit.sheetName}」 시트가 ${best.profile.label}와 ` +
+      `${Math.round(best.confidence * 100)}% 일치합니다. 아래에서 그 시트를 고르세요`
+    )
+  }
+  // 시트가 하나뿐이면 「이 시트에서는」이 군더더기다 — 파일과 시트가 같은 말이다.
+  if (a.sheets.length <= 1) return "맞는 매핑 프로파일이 없습니다 — 이 파일은 넣을 수 없습니다"
+  // ★ 여기서만 «파일 전체»를 말한다. 실제로 전부 봤기 때문이다.
+  return `${a.sheetMatches.length}개 시트를 모두 살펴봤지만 맞는 양식이 없습니다 — 이 파일은 넣을 수 없습니다`
+}
 
 export interface ImportWizardState {
   /** 고른 파일의 분석 결과. `null`이면 아직 아무것도 안 골랐다. */
@@ -77,6 +120,18 @@ export interface ImportWizardState {
     readonly at: string
     readonly undone: boolean
   }[]
+  /**
+   * ★ 기준 데이터의 **적용 시작일** — 파일에 없어서 사람이 정한다 ★
+   *
+   * 원가표에는 «언제부터 이 원가인가»가 없다. 지어내면 과거 주문에 새 원가가
+   * 소급되고 지난달 손익이 이번 달에 바뀐다 (`product.ts`의 목업 결함 ②와 같은
+   * 문제). 기본값은 오늘이지만 **숨기지 않는다** — 기본값을 숨기면 사용자는
+   * 자기가 「오늘부터」를 골랐다는 사실을 모른 채 저장하고, 7월 주문에 원가가
+   * 안 붙은 이유를 영영 모른다.
+   */
+  readonly effectiveFrom: string
+  /** 기준 데이터 적재 결과. 사실 경로의 `digest`와 **다른 모양**이라 따로 둔다. */
+  readonly refResult: ReferenceRunResult | null
 }
 
 export const EMPTY_WIZARD: ImportWizardState = {
@@ -87,12 +142,22 @@ export const EMPTY_WIZARD: ImportWizardState = {
   error: null,
   bigFile: false,
   priorSame: [],
+  effectiveFrom: "",
+  refResult: null,
 }
 
 export interface ImportActions {
   pickFile: (file: File) => void
   pickProfile: (index: number) => void
   pickSheet: (index: number) => void
+  /** 기준 데이터의 적용 시작일을 사람이 고친다 (`YYYY-MM-DD`). */
+  setEffectiveFrom: (date: string) => void
+  /**
+   * «매핑 수정» — 필드 매핑 화면으로 간다 (B1 · §20 «전부 보기»의 이행).
+   * 목업부터 있던 버튼인데 지금까지 아무 일도 안 했다 — 눌러도 조용한 버튼은
+   * 고장으로 읽힌다. 지금 보던 양식이 선택된 채 열린다.
+   */
+  editMap: () => void
   confirm: () => void
   reset: () => void
 }
@@ -101,6 +166,8 @@ export const NOOP_IMPORT_ACTIONS: ImportActions = {
   pickFile: () => {},
   pickProfile: () => {},
   pickSheet: () => {},
+  setEffectiveFrom: () => {},
+  editMap: () => {},
   confirm: () => {},
   reset: () => {},
 }
@@ -121,7 +188,8 @@ const FORMAT_LABEL: Record<string, string> = {
  * (그리고 파이프라인의 Validation은 아직 미구현이다).
  */
 function steps(state: ImportWizardState) {
-  const at = state.digest ? 4 : state.busy ? 3 : state.analysis ? 2 : 0
+  const at =
+    state.digest || state.refResult ? 4 : state.busy ? 3 : state.analysis ? 2 : 0
   const LABELS = [
     ["파일", "고르기"],
     ["판정", "형식과 프로파일"],
@@ -152,6 +220,10 @@ function steps(state: ImportWizardState) {
  * «저장 안 함»으로 뭉뚱그린 것이 결함 53이었다.
  */
 export function roleField(roles: readonly ColumnRole[]): string {
+  // 기준 데이터의 금액은 `target`(「매입원가」)이 이미 채워지므로 여기 오지 않지만,
+  // 순서상 앞에 둔다 — 원가표의 상품번호가 `listing-key`이기도 해서 뒤에 두면
+  // «리스팅 키»로 덮인다.
+  if (roles.includes("reference-amount")) return "기준 데이터"
   if (roles.includes("source-key")) return "행 식별 키"
   if (roles.includes("listing-title")) return "리스팅 제목"
   if (roles.includes("listing-key")) return "리스팅 키"
@@ -176,6 +248,11 @@ export function roleWhy(roles: readonly ColumnRole[], required: boolean): string
   if (roles.includes("listing-key")) parts.push("리스팅을 식별한다")
   if (roles.includes("listing-title")) parts.push("상품 연결에 뜨는 제목")
   if (roles.includes("routing")) parts.push("행이 갈 표를 정한다")
+  // 기준 데이터는 **batch에 안 실린다.** 되돌리기 목록에 안 나오는 이유가 여기 있고,
+  // 말하지 않으면 사용자가 「가져오기 기록」에서 찾다가 «안 들어갔다»고 읽는다.
+  if (roles.includes("reference-amount")) {
+    parts.push("기준 데이터로 저장된다 — batch가 아니라 이력으로 쌓인다")
+  }
   return parts.join(" · ")
 }
 
@@ -226,6 +303,10 @@ export function importVals(
     vals.impDone = false
     vals.impDigest = []
     vals.impDigestTitle = ""
+    vals.impRefer = false
+    vals.impReferDate = ""
+    vals.impReferNote = ""
+    vals.setImpReferDate = act.setEffectiveFrom
     vals.impPick = act.pickFile
     vals.impReset = act.reset
     return
@@ -233,6 +314,8 @@ export function importVals(
 
   const sheet = a.sheets[a.sheetIndex]
   const match = a.profiles[state.profileIndex]
+  /** 기준 데이터 프로파일인가 — 이 한 값이 아래 네 자리의 문구를 가른다. */
+  const ref = match?.profile.reference
 
   vals.srcName = a.fileName
   vals.srcMeta = [
@@ -266,27 +349,44 @@ export function importVals(
         : ` (예: ${match.profile.recognitionRules.fileNameExample})`)
     : match
       ? `일치도 ${Math.round(match.confidence * 100)}% · ${match.evidence.join(" · ")}`
-      : "맞는 매핑 프로파일이 없습니다 — 이 파일은 넣을 수 없습니다"
+      : `${noMatchLine(a)} · 열 판정: 확정 ${a.judge.tierCounts.alias} · 증명 ${a.judge.tierCounts.identity} · 후보 ${a.judge.tierCounts.candidate} · 모름 ${a.judge.tierCounts.unknown}`
 
   // ── §18 시트 선택 ────────────────────────────────────────────────
   // 시트가 여럿이면 사람이 고른다. 역할·사유·수식비율을 함께 보인다 —
   // 96%가 수식인 시트는 다른 시트에서 계산된 결과이고, 사실로 적재하면
   // 숫자가 두 번 더해진다.
   vals.impManySheets = a.sheets.length > 1
-  vals.impSheets = a.sheets.map((s, i) => ({
-    label: s.name,
-    on: i === a.sheetIndex ? "active" : "",
-    note: [
-      s.reason,
-      `${won(s.physicalRowCount)}행`,
-      s.formulaRatio === null ? "" : `수식 ${Math.round(s.formulaRatio * 100)}%`,
-    ]
-      .filter((t) => t !== "")
-      .join(" · "),
-    // 수식 비율이 높으면 눈에 띄게 — 판단 재료지 결정이 아니다 (§18-A)
-    color: s.formulaRatio !== null && s.formulaRatio > 0.5 ? WARN : DIM,
-    pick: () => act.pickSheet(i),
-  }))
+  vals.impSheets = a.sheets.map((s, i) => {
+    /**
+     * ★ 「이 시트가 무엇인지」를 목록에서 바로 말한다 ★
+     *
+     * 19장짜리 워크북에서 «시트를 골라 보세요»만 있으면 사용자는 열아홉 번을
+     * 눌러 봐야 한다. 판정은 이미 전 시트에 대해 끝나 있으므로(`sheetMatches`),
+     * 아는 것을 목록에 적는 것이 맞다 — 고르는 일이 **탐색이 아니라 확인**이 된다.
+     */
+    const m = a.sheetMatches.find((x) => x.sheetIndex === i)
+    const hit = m?.profiles.find((p) => p.blockedBy === undefined)
+    return {
+      label: s.name,
+      on: i === a.sheetIndex ? "active" : "",
+      note: [
+        hit === undefined
+          ? ""
+          : `★ ${hit.profile.label} ${Math.round(hit.confidence * 100)}%`,
+        // ★ 결함 62 ★ `reason`이 «1000행»이라 그대로 쓰면 행 수가 두 번 찍힌다
+        // ("1000행 · 1,000행"). 같은 사실이면 자릿수 구분이 있는 쪽만 남긴다.
+        s.reason === `${s.physicalRowCount}행` ? "" : s.reason,
+        `${won(s.physicalRowCount)}행`,
+        s.formulaRatio === null ? "" : `수식 ${Math.round(s.formulaRatio * 100)}%`,
+      ]
+        .filter((t) => t !== "")
+        .join(" · "),
+      // 맞는 양식이 있는 시트는 초록으로 — 수식 경고보다 이 신호가 앞선다.
+      // 수식 비율이 높으면 눈에 띄게 — 판단 재료지 결정이 아니다 (§18-A)
+      color: hit !== undefined ? G : s.formulaRatio !== null && s.formulaRatio > 0.5 ? WARN : DIM,
+      pick: () => act.pickSheet(i),
+    }
+  })
 
   // ── 확인: 무엇이 들어가나 ────────────────────────────────────────
   //
@@ -304,21 +404,27 @@ export function importVals(
 
   // 표본 값은 첫 데이터 행에서 뽑는다 — 「이 컬럼이 뭔지」는 이름보다 값이 말한다.
   const first = a.sample[0]
+  /**
+   * ★ 프로파일이 없으면 판정 4단이 말한다 (ADR-017) ★
+   * 예전 이 자리는 전 열이 «맞는 프로파일이 없어 판정하지 못했다»였다 — 참이지만
+   * 앱이 아는 것보다 적게 말했다. 별칭·항등식이 아는 열은 그만큼 말한다.
+   * 확신도 칸은 여전히 %가 아니다 — 선언/확정/증명/후보/모름 **낱말**이다.
+   */
+  const verdictAt = new Map(a.judge.verdicts.map((v) => [v.ordinal, v]))
+  const TIER_WORD = { alias: "확정", identity: "증명", candidate: "후보", unknown: "모름" } as const
   vals.colRows = a.header.columns.map((h, col) => {
     const u = use?.byColumn.get(h.trim())
     const raw = first?.[col]
     const roles = u?.roles ?? []
+    const v = verdictAt.get(col)
     return {
       header: h,
       sample: raw === null || raw === undefined ? "—" : String(raw).slice(0, 24),
       // 저장되는 자리 — Canonical 필드가 있으면 그 이름, 없으면 **하는 일**을 말한다.
       // 매핑되지 않은 컬럼은 저장되지 않지만 **쓰이지 않는 것과는 다르다** (헌장 A-5)
-      //
-      // ★ 프로파일이 아예 없을 때는 «이 프로파일이 쓰지 않는다»가 할 말이 아니다 ★
-      // 그런 프로파일이 없기 때문이다. 판정이 실패했다는 사실을 그대로 말한다.
       field:
         use === null
-          ? "—"
+          ? (v?.target ?? (v && v.candidates.length > 0 ? `${v.candidates.join(" / ")} ?` : "—"))
           : u
             ? roles.includes("item-field") && !roles.includes("field")
               ? itemLabel(u.target)
@@ -326,19 +432,28 @@ export function importVals(
             : use.contentKeyed
               ? "행 식별에 참여"
               : "저장 안 함",
-      fieldColor: u || use?.contentKeyed ? "var(--fg-2)" : DIM,
+      fieldColor: u || use?.contentKeyed || v?.target ? "var(--fg-2)" : DIM,
       why:
         use === null
-          ? "맞는 프로파일이 없어 판정하지 못했다"
+          ? (v?.sentence ?? "맞는 프로파일이 없어 판정하지 못했다")
           : u
             ? roleWhy(roles, u.required === true)
             : use.contentKeyed
               ? "이 양식은 행 전체로 source_key를 만든다"
               : "이 프로파일이 쓰지 않는 컬럼",
-      // ★ 추정이 아니라 선언이다 ★ 컬럼 매핑은 프로파일 JSON이 정해둔 것이라
-      // 확신도라는 개념이 없다. %를 지어내면 «추론했다»는 거짓이 된다.
-      conf: u ? "선언" : "—",
-      color: u ? G : DIM,
+      // ★ 추정이 아니라 선언이다 ★ 프로파일이 있으면 «선언», 없으면 판정 낱말.
+      // %를 지어내면 «추론했다»는 거짓이 된다.
+      conf: use === null ? (v ? TIER_WORD[v.tier] : "—") : u ? "선언" : "—",
+      color:
+        use === null
+          ? v?.tier === "alias" || v?.tier === "identity"
+            ? G
+            : v?.tier === "candidate"
+              ? WARN
+              : DIM
+          : u
+            ? G
+            : DIM,
     }
   })
 
@@ -380,30 +495,158 @@ export function importVals(
   // 이름만 다른 재가져오기는 UPSERT로 합쳐지지 않는다 — 파일명이 키에 들어가는
   // 양식에서는 **키가 갈라져 두 번 쌓인다.** 막지는 않되 알고 넣게 한다.
   const prior = state.priorSame
+  /**
+   * ★ 기준 데이터에는 `source_key`도 UPSERT도 없다 ★
+   *
+   * 이 줄은 사실 경로의 규칙을 말한다 — 같은 키면 갱신, 다시 넣으면 새 batch.
+   * 원가는 그 셋 중 어느 것도 아니다: 키가 (SKU · 종류 · 적용일)이고 같으면
+   * **건너뛴다**. 사실 경로의 문장을 그대로 두면 사용자는 «다시 넣으면 갱신되겠지»
+   * 하고 값을 고쳐 다시 넣는데, 적용일이 같으면 아무 일도 일어나지 않는다.
+   * 화면을 렌더해서 이 줄이 그대로 떠 있는 것을 보고 잡았다 (2026-08-19).
+   */
   vals.impDupNote =
-    prior.length === 0
+    ref !== undefined
+      ? "같은 적용일에 같은 값이 이미 있으면 건너뜁니다 — 원가를 고치려면 적용일을 다르게 두세요. " +
+        "그러면 이전 값은 이력으로 남고 그 날짜부터 새 값이 붙습니다."
+      : prior.length === 0
       ? "같은 source_key가 이미 있으면 덮어쓰지 않고 갱신됩니다 (UPSERT)."
       : `이 파일은 ${prior[0]!.at}에 「${prior[0]!.sourceName}」으로 이미 들어왔습니다` +
         (prior[0]!.sourceName === a.fileName ? "" : " — 내용은 같고 파일명만 다릅니다") +
         (prior[0]!.undone ? " (되돌려진 배치입니다)" : "") +
         ". 그래도 넣으면 새 batch로 쌓입니다."
 
+  /**
+   * ── 기준 데이터 — **적용일을 묻는다** ────────────────────────────
+   *
+   * ★ 이 물음이 없으면 넣을 수 없다 ★
+   * 원가표에는 «언제부터 이 원가인가»가 없다(실측 7열 전부 확인). 사실 파일은
+   * 행마다 날짜를 들고 오지만 기준 데이터는 **상태**라 날짜가 데이터 밖에 있다.
+   * 지어내면 과거 손익이 소급으로 바뀌므로 사람에게 묻는 것 말고 답이 없다.
+   *
+   * `impRunLabel`도 갈아끼운다 — 「가져오기」는 batch를 만든다는 말인데 여기서는
+   * 안 만든다. 되돌리기 목록에 안 나올 것을 「가져왔다」고 부르면 사용자가
+   * 기록에서 찾다가 «안 들어갔다»로 읽는다 (LOCK 2와 LOCK 10 계열).
+   */
+  vals.impRefer = ref !== undefined && state.refResult === null
+  vals.impReferDate = state.effectiveFrom
+  vals.setImpReferDate = act.setEffectiveFrom
+  vals.impReferNote =
+    ref === undefined
+      ? ""
+      : `${REF_KIND_LABEL[ref.kind] ?? "기준 데이터"}는 «언제부터»가 파일에 없습니다 — ` +
+        `이 날짜부터 적용되고, 이전 기간은 지금 값 그대로 남습니다. ` +
+        `batch로 쌓이지 않아 「가져오기 기록」에는 나오지 않습니다.`
+
   // 막힌 후보로는 넣을 수 없다. 버튼을 비활성으로 두고 이유는 위 판정 줄이 말한다.
+  //
+  // ★ 기준 데이터는 **적용일이 비면 못 누른다** ★ 날짜 없이 넣을 방법이 없고,
+  // 빈 채로 눌렀을 때 조용히 오늘로 채우면 그게 곧 «지어낸 값»이다.
+  const dateOk = ref === undefined || /^\d{4}-\d{2}-\d{2}$/.test(state.effectiveFrom)
   vals.impCanRun =
-    match !== undefined && blocked === undefined && !state.busy && state.digest === null
-  vals.impRunLabel = state.busy ? "가져오는 중…" : "확인하고 가져오기"
+    match !== undefined &&
+    blocked === undefined &&
+    dateOk &&
+    !state.busy &&
+    state.digest === null &&
+    state.refResult === null
+  vals.impRunLabel = state.busy
+    ? ref === undefined
+      ? "가져오는 중…"
+      : "넣는 중…"
+    : ref === undefined
+      ? "확인하고 가져오기"
+      : "확인하고 기준 데이터에 넣기"
   vals.impRun = act.confirm
+  vals.impEditMap = act.editMap
 
   // ── 결과: 다이제스트 ─────────────────────────────────────────────
   // ★ `batch_exclusion`을 **사유별로** 읽는 첫 화면이다 ★
   // 지금까지 이 테이블은 넣기만 하고 아무도 읽지 않았다. 「128행 적재」만 말하고
   // 제외 2건을 두고 오면 그게 곧 조용한 실패다 (LOCK 6).
   const d = state.digest
-  vals.impDone = d !== null
-  vals.impDigestTitle = d
-    ? `${d.sourceName} — ${won(d.rowCount)}행 적재${d.excludedCount > 0 ? ` · ${won(d.excludedCount)}행 제외` : ""}`
-    : ""
-  vals.impDigest = d === null ? [] : digestRows(d, opened)
+  const rr = state.refResult
+  vals.impDone = d !== null || rr !== null
+  vals.impDigestTitle = rr
+    ? `${a.fileName} — ${REF_KIND_LABEL[rr.kind] ?? "기준 데이터"} ${won(rr.inserted)}건 반영` +
+      (rr.unmatched > 0 ? ` · ${won(rr.unmatched)}건은 아직 판 적이 없어 못 붙였습니다` : "")
+    : d
+      ? `${d.sourceName} — ${won(d.rowCount)}행 적재${d.excludedCount > 0 ? ` · ${won(d.excludedCount)}행 제외` : ""}`
+      : ""
+  vals.impDigest = rr ? referenceRows(rr) : d === null ? [] : digestRows(d, opened)
+}
+
+/** 기준 데이터 종류 → 사람이 읽는 말. core의 코드값(`COGS`)을 화면에 내지 않는다. */
+export const REF_KIND_LABEL: Record<string, string> = {
+  COGS: "매입원가",
+  PACKAGING: "포장비",
+  LOGISTICS: "물류비",
+  OTHER: "기타 원가",
+}
+
+/**
+ * 기준 데이터 적재 결과 — **행 하나하나가 어떻게 됐는지.**
+ *
+ * ★ 「못 찾음」이 여기서 가장 중요한 줄이다 ★
+ * 253종짜리 원가표를 넣으면 대부분이 안 붙는 것이 **정상**이다 — 아직 안 판
+ * 상품·단종된 상품이 섞여 있기 때문이다. 그 수를 빨갛게 칠하면 사용자는
+ * «파일이 잘못됐다»로 읽고 멀쩡한 원가표를 고치려 든다. 그래서 색은 중립이고
+ * 문장이 이유를 든다 — 세되 실패로 부르지 않는다 (LOCK 6은 «숨기지 마라»이지
+ * «전부 빨갛게 칠하라»가 아니다).
+ *
+ * `importVals` 밖으로 뺀 이유는 `digestRows`와 같다 — 조기 반환 때문에 이 조립만
+ * 따로 확인할 길이 없어진다.
+ */
+export function referenceRows(
+  r: ReferenceRunResult,
+): { label: string; value: string; color: string }[] {
+  const rows = [
+    {
+      label: `${REF_KIND_LABEL[r.kind] ?? "기준 데이터"} 반영`,
+      value: `${won(r.inserted)}건`,
+      color: G,
+    },
+  ]
+  if (r.replaced > 0) {
+    rows.push({ label: "같은 적용일을 덮어씀", value: `${won(r.replaced)}건`, color: WARN })
+  }
+  if (r.skipped > 0) {
+    rows.push({ label: "이미 같은 값이 있어 그대로 둠", value: `${won(r.skipped)}건`, color: DIM })
+  }
+  if (r.createdSkus > 0) {
+    // SKU를 **만들었다**는 것은 되돌리기가 안 되는 일이라 반드시 말한다.
+    rows.push({
+      label: "상품(SKU)을 새로 만들어 붙임",
+      value: `${won(r.createdSkus)}개`,
+      color: "var(--fg-2)",
+    })
+  }
+  if (r.unmatched > 0) {
+    rows.push({
+      label: "아직 판 적이 없어 못 붙임 — 팔리면 그때 붙습니다",
+      value: `${won(r.unmatched)}건`,
+      color: DIM,
+    })
+    if (r.unmatchedSample.length > 0) {
+      // 무엇이 안 붙었는지 말하지 않으면 «171건»은 사용자가 손댈 수 없는 숫자다.
+      rows.push({
+        label: "못 붙은 상품번호 (앞의 몇 개)",
+        value: r.unmatchedSample.slice(0, 5).join(" · "),
+        color: DIM,
+      })
+    }
+  }
+  if (r.badRows > 0) {
+    // 이쪽은 진짜 결손이다 — 상품번호가 비었거나 금액을 못 읽었다.
+    rows.push({ label: "상품번호가 없거나 금액을 못 읽음", value: `${won(r.badRows)}행`, color: NEG })
+  }
+  if (r.excluded.length > 0) {
+    rows.push({
+      label: "파이프라인이 거른 행 (합계·빈 행)",
+      value: `${won(r.excluded.length)}행`,
+      color: WARN,
+    })
+  }
+  return rows
 }
 
 /**
@@ -516,8 +759,13 @@ const ISSUE_LABEL: Record<string, string> = {
   stale_batch_blocked: "끝나지 않은 이전 가져오기가 남아 있습니다 — 치우지 못했습니다",
 }
 
-/** 제외 사유 → 사람이 읽는 말. 코드값을 그대로 보이면 사용자가 알 수 없다. */
-const EXCLUSION_LABEL: Record<string, string> = {
+/**
+ * 제외 사유 → 사람이 읽는 말. 코드값을 그대로 보이면 사용자가 알 수 없다.
+ *
+ * **대시보드의 「일부 제외」 배너도 이걸 쓴다** — 같은 사유를 두 화면이 다른 말로
+ * 부르면 사용자는 서로 다른 일이 일어난 줄 안다.
+ */
+export const EXCLUSION_LABEL: Record<string, string> = {
   total: "합계 행",
   subtitle: "제목·설명 행",
   blank: "빈 행",

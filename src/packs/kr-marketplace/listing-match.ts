@@ -200,3 +200,154 @@ export function clusterByProduct<T extends { title: string; grain: "product" | "
   }
   return out
 }
+
+// ── 원가 다리 — 대기 행(011) → 리스팅 군집 ──────────────────────
+//
+// ★ 왜 별도 진입점인가 ★
+// 연결 화면의 suggest는 «카드 제목 ↔ SKU 이름»이다. 원가 대기 행은 SKU가 아직
+// 없는 리스팅에도 붙어야 하므로(319 vs 35 — 커버리지 9배) 비교 대상이 **리스팅
+// 제목의 상품부 군집**이고, 확정도 군집 단위다(그 군집의 리스팅 전부가 한 SKU).
+// 군집 기준은 `clusterByProduct` 그대로 — 유사도가 아니라 상품부 완전 일치다.
+
+/** 다리의 비교 대상 — 코어가 리스팅을 이 모양으로 넘긴다. */
+export interface BridgeListing {
+  readonly id: string
+  readonly title: string
+  readonly grain: "product" | "option"
+  readonly skuId: string | null
+}
+
+export interface BridgeCandidate {
+  /** 군집 키 (상품부). */
+  readonly key: string
+  /** 사람이 읽는 제목 — 군집의 상품부. */
+  readonly title: string
+  /** 이 군집의 리스팅 전부. 확정 시 SKU가 없으면 이들이 한 SKU가 된다. */
+  readonly listingIds: readonly string[]
+  /** 군집에 이미 SKU가 붙어 있으면 그 id. */
+  readonly skuId: string | null
+  readonly score: number
+  readonly shared: readonly string[]
+  /**
+   * 어떻게 찾았나 — 화면 문장이 갈린다.
+   * `model`이면 «모델 일치 「WT1080」»이고 %를 말하지 않는다 (§20 규칙 2 —
+   * 코드 일치는 확률이 아니라 사실이다). `name`이면 겹친 토큰이 근거다.
+   */
+  readonly via: "model" | "name"
+}
+
+export interface BridgeSuggestion {
+  readonly kind: SuggestionKind
+  readonly candidates: readonly BridgeCandidate[]
+}
+
+/**
+ * 모델 코드를 비교 가능한 변형들로 쪼갠다.
+ *
+ * 실측 모양: `MW-DOC` · `WH-DOC / S` · `BM-330 / MK-100` (슬래시 = 병기).
+ * 변형마다 토큰으로 나눠, 리스팅 제목 토큰이 **한 변형의 토큰을 전부** 품으면
+ * 일치로 본다 — 「doc」 하나 겹친 것은 일치가 아니다.
+ */
+function modelVariants(model: string): string[][] {
+  return model
+    .split("/")
+    .map((v) =>
+      v
+        .toLowerCase()
+        .replace(/[^0-9a-z가-힣]+/g, " ")
+        .split(/\s+/)
+        .filter((t) => t.length > 1),
+    )
+    .filter((v) => v.length > 0)
+}
+
+/**
+ * 원가 대기 행 하나에 대한 후보 군집들.
+ *
+ * ★ 모델 정확 일치가 이름 유사도를 이긴다 ★
+ * 모델 코드는 사람이 물건을 구별하려고 붙인 식별자라, 제목 문구가 아무리 달라도
+ * 코드가 맞으면 같은 물건이다(cost-card 실측 메모 — «이름 유사도로 못 잡는 것을
+ * 코드 일치가 잡는다»). 일치 군집이 하나면 `clear`, 복수면 `contested`다 —
+ * 복수 일치는 같은 코드를 두 군집이 쓰는 것이라 사람이 갈라야 한다.
+ *
+ * 모델이 없거나 안 맞으면 이름 유사도로 물러난다 — 절단점(0.74/0.15/겹침 2)은
+ * 실측 상수 그대로다. 재실측 없이 바꾸지 않는다.
+ *
+ * **연결하지 않는다 — 점수만 낸다.** 확정의 주체는 언제나 사람이다.
+ */
+export function prepareCostBridge(listings: readonly BridgeListing[]): {
+  suggest(pending: { readonly title: string; readonly model: string | null }): BridgeSuggestion
+} {
+  /**
+   * ★ 군집과 정규화는 **한 번만** 한다 ★
+   * 대기 행마다 다시 만들면 175행 × 군집 200개의 정규화가 반복된다 — 실측으로
+   * 조회가 479ms였고, 준비를 밖으로 빼면 행당 비용은 유사도 계산뿐이다.
+   */
+  const clusters = clusterByProduct(listings)
+  const prepared = [...clusters].map(([key, members]) => ({
+    key,
+    members,
+    norm: normalizeTitle(members[0]!.title, members[0]!.grain),
+    tokens: new Set(normalizeTitle(key, "product").tokens),
+    // 군집 안에 SKU가 이어진 리스팅이 있으면 그 SKU가 목적지다. 군집은 상품부
+    // 완전 일치라 서로 다른 SKU가 섞여 있을 수 없다 — 있다면 사람이 이미
+    // 갈라 붙인 것이므로 첫 것을 쓰지 않고 없는 것으로 둔다.
+    skuId: (() => {
+      const ids = [...new Set(members.map((m) => m.skuId).filter((x) => x !== null))]
+      return ids.length === 1 ? ids[0]! : null
+    })(),
+  }))
+
+  return {
+    suggest(pending) {
+      return suggestOne(pending, prepared)
+    },
+  }
+}
+
+function suggestOne(
+  pending: { readonly title: string; readonly model: string | null },
+  prepared: readonly {
+    readonly key: string
+    readonly members: readonly BridgeListing[]
+    readonly norm: NormalizedTitle
+    readonly tokens: ReadonlySet<string>
+    readonly skuId: string | null
+  }[],
+): BridgeSuggestion {
+  const a = normalizeTitle(pending.title, "product")
+
+  const scored: BridgeCandidate[] = prepared.map((c) => {
+    const s = similarity(a, c.norm)
+    return {
+      key: c.key,
+      title: c.key,
+      listingIds: c.members.map((m) => m.id),
+      skuId: c.skuId,
+      score: s.score,
+      shared: s.shared,
+      via: "name",
+    }
+  })
+
+  // ── 1층: 모델 정확 일치 ──────────────────────────────────────
+  if (pending.model !== null && pending.model.trim() !== "") {
+    const variants = modelVariants(pending.model)
+    if (variants.length > 0) {
+      const hits: BridgeCandidate[] = []
+      scored.forEach((c, i) => {
+        const titleTokens = prepared[i]!.tokens
+        const hit = variants.find((v) => v.every((t) => titleTokens.has(t)))
+        if (hit !== undefined) hits.push({ ...c, via: "model", shared: hit })
+      })
+      hits.sort((x, y) => y.score - x.score)
+      if (hits.length === 1) return { kind: "clear", candidates: hits }
+      if (hits.length > 1) return { kind: "contested", candidates: hits.slice(0, 4) }
+    }
+  }
+
+  // ── 2층: 이름 유사도 — 기존 절단점 그대로 ────────────────────
+  const s = suggest(scored.map((c) => ({ key: c.key, score: c.score, shared: c.shared })))
+  const byKey = new Map(scored.map((c) => [c.key, c]))
+  return { kind: s.kind, candidates: s.candidates.map((c) => byKey.get(c.key)!) }
+}

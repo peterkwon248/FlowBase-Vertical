@@ -129,7 +129,16 @@ describe("스키마 — 헌장 B부 대조", () => {
     const all = await tableNames(db, "")
     // 목업의 분열(costAdds/costQuick · linked/linkedHere · adjust/setAdj)이
     // 스키마에 재현되지 않았는지 본다.
-    expect(all.filter((t) => t.includes("cost"))).toEqual(["cost_history"])
+    //
+    // ★ `pending_cost`(011)는 두 번째 원가 저장소가 아니다 ★
+    // costAdds/costQuick은 **확정된 원가**를 두 곳에 두는 분열이었다. pending_cost는
+    // 확정 «전» 대기실(메타 — file_sighting 등급)이고, 유효값 계산(costAt·손익)은
+    // 여전히 cost_history만 읽는다. 확정은 resolvePendingCost가 addCost로 넣는
+    // 순간이며 그때부터는 cost_history의 행이다 — 저장소는 하나다.
+    expect(all.filter((t) => t.includes("cost")).sort()).toEqual([
+      "cost_history",
+      "pending_cost",
+    ])
     expect(all.filter((t) => t.includes("adjust"))).toEqual(["adjustment"])
     expect(all.filter((t) => t.includes("listing"))).toEqual(["marketplace_listing"])
     await db.close()

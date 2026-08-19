@@ -111,6 +111,55 @@ run("analyzeImport — 넣기 전에 보여준다", () => {
     expect(a.sample.length).toBeGreaterThan(0)
   })
 
+  // ═══════════════════════════════════════════════════════════════
+  /**
+   * ★ 전 시트 훑기 — 「이 파일은 넣을 수 없습니다」가 거짓이던 자리 ★
+   *
+   * 사용자의 실파일 두 장이 시트 0에 후보가 없다는 이유로 통째로 막혀 있었다.
+   * 그 안의 시트 5·11(그리고 3·7)은 확신도 100%로 맞았다 — 애매해서 못 고른 게
+   * 아니라 **안 본 것**이다.
+   */
+  it("★ 모든 시트를 프로파일에 물어본다 — 후보 0인 시트도 남긴다", async () => {
+    const { bytes, name } = bytesOf(3) // 19시트
+    const a = await analyzeImport(bytes, name, PROFILES)
+
+    expect(a.sheetMatches.length, "훑은 시트 수가 시트 수와 다르다").toBe(a.sheets.length)
+    expect(a.sheetMatches.map((m) => m.sheetIndex)).toEqual(a.sheets.map((_, i) => i))
+    // 맞은 것만 남기면 「전부 봤다」와 「몇 개만 봤다」를 구별할 수 없다
+    expect(a.sheetMatches.every((m) => Array.isArray(m.profiles))).toBe(true)
+  })
+
+  it("★ 훑은 시트마다 열이 서술된다 — 안 고른 시트에서 드리프트가 보인다", async () => {
+    const { bytes, name } = bytesOf(3)
+    const a = await analyzeImport(bytes, name, PROFILES)
+
+    // 고르지 않은 시트에도 열 이름이 남는다 — 이게 §20 드리프트의 재료다
+    const others = a.sheetMatches.filter((m) => m.sheetIndex !== a.sheetIndex)
+    expect(others.length).toBeGreaterThan(0)
+    expect(others.some((m) => m.columns.length > 0), "안 고른 시트의 열이 비었다").toBe(true)
+    // 고른 시트의 서술은 최상위 `columns`와 같은 것이어야 한다 (두 벌이면 갈린다)
+    const mine = a.sheetMatches.find((m) => m.sheetIndex === a.sheetIndex)
+    expect(mine?.columns).toEqual(a.columns)
+  })
+
+  it("고른 시트가 이미 맞으면 다른 시트를 권하지 않는다", async () => {
+    const { bytes, name } = bytesOf(6) // 11번가 정산 — 시트 0이 맞는다
+    const a = await analyzeImport(bytes, name, PROFILES)
+    expect(a.profiles.length, "이 픽스처는 시트 0이 맞아야 한다").toBeGreaterThan(0)
+    expect(a.suggestedSheetIndex, "잘 고른 사람에게 딴 데를 가리켰다").toBeNull()
+  })
+
+  it("★ 어느 시트에도 없으면 권하지 않는다 — 「저기 있다」를 지어내지 않는다", async () => {
+    const { bytes, name } = bytesOf(3)
+    // 이 워크북과 무관한 프로파일만 준다
+    const only = PROFILES.filter((p) => p.marketplaceKey === "coupang")
+    const a = await analyzeImport(bytes, name, only)
+    expect(a.profiles).toHaveLength(0)
+    expect(a.suggestedSheetIndex).toBeNull()
+    // 그래도 훑기는 했다 — 그 사실이 「전부 봤지만 없다」는 말의 근거다
+    expect(a.sheetMatches.length).toBe(a.sheets.length)
+  })
+
   it("DB를 건드리지 않는다 — 리포지토리를 받지 않는다", () => {
     // (bytes, fileName, profiles, opts) — 쓰기 대상이 인자에 없다
     expect(analyzeImport.length).toBe(3)

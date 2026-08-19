@@ -66,6 +66,27 @@ const CASES = [
     lostRows: 5, listings: 42,
     reasons: { error: 5 },
   },
+  {
+    /**
+     * ★ 자사몰 — 라인 금액이 파일에 **없는** 첫 양식 ★
+     *
+     * `총 품목 금액`은 주문 단위 합계라 라인에 쓰면 다품목 주문에서 매출이 겹친다.
+     * 그래서 `판매가 × 상품수량`을 곱해서 만든다 (`derive.from === "multiply"`).
+     *
+     * 검증 문장(실측 1,197행 / 주문 1,071건): 주문 단위로 묶으면
+     * `Σ(판매가 × 상품수량) == 총 품목 금액`이 **1,054건 일치**하고, 어긋나는 17건은
+     * 16건이 취소(총액 0) · 1건이 옵션 추가금이다.
+     */
+    fixture: 9, profile: "selfshop-order@1.json", conn: "conn-selfshop",
+    fileRows: 1197,
+    /**
+     * 클레임 57 = 환불완료 34 + 고객요청취소 14 + 관리자취소 2 + 고객결제중단 4 + 결제실패 3.
+     * 품목 1,140 = 구매확정만 — 취소된 판매의 원가를 계상하지 않는다 (`hit === undefined` 조건).
+     */
+    expect: { fact_order: 1197, fact_claim: 57, fact_order_item: 1140 },
+    pipelineExcluded: 0, lostRows: 0, listings: 233,
+    reasons: {},
+  },
 ] as const
 
 const ready = CASES.every((c) => {

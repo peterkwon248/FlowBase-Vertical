@@ -16,7 +16,9 @@
  */
 
 import type { LinkingCard, LinkingView, ViewCandidate } from "@core/linking/view.js"
+import type { PendingCostCard, PendingCostView } from "@core/linking/pending-cost.js"
 import type { TemplateVals } from "./generated/vals.js"
+import { won } from "./format.js"
 
 const DIM = "var(--fg-4)"
 const G = "var(--pnl-pos)"
@@ -28,6 +30,14 @@ const TABS = [
   { id: "todo", label: "확인 필요" },
   { id: "done", label: "연결됨" },
   { id: "skip", label: "무시함" },
+  /**
+   * ★ 신설 (2026-08-19, D2) — 원가 대기 (011) ★
+   * «이 품명 = 이 상품»은 리스팅 연결과 같은 종류의 판단이라(§21-6 — 데이터에
+   * 답이 없어 사람이 정한다) 같은 화면의 탭으로 들어온다. 새 판단 표면을 만들지
+   * 않는다. 목업에 없는 탭이지만 탭 바는 배열을 그대로 그리므로 마크업 이탈이
+   * 아니고, 본문 구간만 `link-cost-pending`으로 신설한다.
+   */
+  { id: "cost", label: "원가 대기" },
 ] as const
 
 export type LinkTab = (typeof TABS)[number]["id"]
@@ -47,6 +57,13 @@ export interface LinkingActions {
   toggleAll: () => void
   /** 선택된 카드들을 **각각** 새 SKU로 등록한다. 하나로 합치지 않는다. */
   bulkNewSku: () => void
+  /**
+   * 원가 대기 행을 후보 군집에 잇는다 — 군집에 SKU가 없으면 만들고(1:1) 원가를
+   * 넣는다. 점수는 넘기지 않는다 — 자동 확정은 구조적으로 불가능해야 한다.
+   */
+  resolveCost: (card: PendingCostCard, cand: PendingCostCard["candidates"][number]) => void
+  dismissCost: (card: PendingCostCard) => void
+  undoDismissCost: (id: number) => void
 }
 
 export const NOOP_LINKING_ACTIONS: LinkingActions = {
@@ -58,6 +75,9 @@ export const NOOP_LINKING_ACTIONS: LinkingActions = {
   toggle: () => {},
   toggleAll: () => {},
   bulkNewSku: () => {},
+  resolveCost: () => {},
+  dismissCost: () => {},
+  undoDismissCost: () => {},
 }
 
 /**
@@ -239,29 +259,42 @@ export function linkingVals(
   tab: LinkTab,
   picked: ReadonlySet<string>,
   act: LinkingActions = NOOP_LINKING_ACTIONS,
+  /** 원가 대기 (011). `null`이면 못 읽은 것이고 탭은 0으로 그린다. */
+  pendingCost: PendingCostView | null = null,
 ): void {
-  const cards = tab === "todo" ? view.todo : tab === "done" ? view.done : view.ignored
+  const cards =
+    tab === "todo" ? view.todo : tab === "done" ? view.done : tab === "skip" ? view.ignored : []
 
   vals.linkTabs = TABS.map((t) => ({
     label: t.label,
-    // ★ 카드 수다. 화면이 다시 세지 않는다 — `view.counts`가 유일한 출처다 ★
-    count: String(t.id === "skip" ? view.counts.ignored : view.counts[t.id]),
+    // ★ 카드 수다. 화면이 다시 세지 않는다 — `view.counts`·`pendingCost`가 유일한 출처다 ★
+    count: String(
+      t.id === "cost"
+        ? (pendingCost?.pending.length ?? 0)
+        : t.id === "skip"
+          ? view.counts.ignored
+          : view.counts[t.id],
+    ),
     on: tab === t.id ? "active" : "",
     pick: () => act.pickTab(t.id),
   }))
   vals.linkTabTodo = tab === "todo"
   vals.linkTabDone = tab === "done"
   vals.linkTabSkip = tab === "skip"
+  vals.linkTabCost = tab === "cost"
 
-  vals.linkEmpty = cards.length === 0
+  vals.linkEmpty = tab === "cost" ? (pendingCost?.pending.length ?? 0) === 0 : cards.length === 0
   vals.linkEmptyMsg =
     tab === "todo"
       ? "연결을 기다리는 리스팅이 없습니다."
       : tab === "done"
         ? "아직 연결한 리스팅이 없습니다."
-        : "무시한 리스팅이 없습니다."
+        : tab === "skip"
+          ? "무시한 리스팅이 없습니다."
+          : "확인을 기다리는 원가가 없습니다. 원가 파일을 가져오면 상품에 못 붙은 행이 여기 쌓입니다."
 
   vals.linkRows = cards.map((c) => cardRow(c, tab, picked, act))
+  costVals(vals, tab, pendingCost, act)
 
   // ── §21-6 ② 일괄형 ──────────────────────────────────────────────
   // "선택 N개를 **각각** 새 SKU로 등록" — 하나로 합치지 않는다. 합치는 것은
@@ -276,4 +309,69 @@ export function linkingVals(
   // 상단 안내문과 done 탭 꼬리말은 **정적 텍스트**라 `Template.tsx`에 산다 —
   // 목업 원문이 두 가지를 약속했다: "동기화"(LOCK 10 · 우리는 파일만 가져온다)와
   // "자동으로 붙습니다"(ADR-012가 보증하지 않는다). 결함 48, `DEVIATIONS`가 지킨다.
+}
+
+// ── 원가 대기 탭 (D2 · 마이그레이션 011) ─────────────────────────
+
+/** 후보의 근거 한 줄 — %가 아니라 문장이 우선이다 (§20 규칙 2). */
+function candWhy(c: PendingCostCard["candidates"][number]): string {
+  if (c.via === "model") {
+    // 코드 일치는 확률이 아니라 사실이다 — %를 말하지 않는다.
+    return `모델 일치 「${c.shared.join(" ")}」`
+  }
+  return `겹침: ${c.shared.slice(0, 4).join(" · ")} — ${Math.round(c.score * 100)}%`
+}
+
+function costVals(
+  vals: TemplateVals,
+  tab: LinkTab,
+  pc: PendingCostView | null,
+  act: LinkingActions,
+): void {
+  if (tab !== "cost" || pc === null) {
+    vals.linkCostRows = []
+    vals.linkCostDismissed = []
+    vals.linkCostNote = ""
+    return
+  }
+
+  vals.linkCostRows = pc.pending.map((card) => ({
+    title: card.title,
+    meta: [
+      card.model === null ? "" : `모델 ${card.model}`,
+      `${won(card.amount)}원`,
+      `${card.effectiveFrom}부터`,
+      card.sourceName,
+    ]
+      .filter((x) => x !== "")
+      .join(" · "),
+    cands: card.candidates.map((c) => ({
+      label: c.title,
+      why: candWhy(c),
+      // 목적지를 말한다 — SKU가 있으면 잇고, 없으면 만든다는 사실을 숨기지 않는다.
+      dest: c.skuId === null ? `리스팅 ${c.listingIds.length}개 · SKU 새로 만듦` : "기존 SKU에 연결",
+      // clear만 primary — 경합을 골라주면 사람은 그대로 누른다 (연결 화면 규율).
+      cls: card.kind === "clear" ? "v-btn v-btn--primary" : "v-btn",
+      pick: () => act.resolveCost(card, c),
+    })),
+    hasCands: card.candidates.length > 0,
+    // 후보가 없다고 침묵하지 않는다 — 왜 없는지, 무엇을 할 수 있는지 (LOCK 6).
+    noCandNote:
+      card.candidates.length > 0
+        ? ""
+        : "닮은 리스팅이 없습니다 — 아직 안 팔았거나 다른 채널 상품입니다. 팔리면 후보가 생깁니다.",
+    dismiss: () => act.dismissCost(card),
+  }))
+
+  vals.linkCostDismissed = pc.dismissed.map((d) => ({
+    label: `${d.title} · ${won(d.amount)}원`,
+    undo: () => act.undoDismissCost(d.id),
+  }))
+
+  // 지난 판단(다리 사전)의 크기 — «한 번 이으면 다음 파일부터 저절로»가 실제로
+  // 쌓이고 있음을 말한다. 0이면 줄 자체가 없다 (빈 섹션 금지, §21-7).
+  vals.linkCostNote =
+    pc.resolvedCount > 0
+      ? `지난 판단 ${won(pc.resolvedCount)}건 — 같은 품명은 다음 가져오기부터 저절로 붙습니다.`
+      : ""
 }

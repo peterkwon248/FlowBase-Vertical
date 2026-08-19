@@ -19,6 +19,10 @@ import type { Driver, Row, SqlValue } from "./driver.js"
  * CHECK가 없어(008 참조) **이 타입이 유일한 잠금**이라 부탁으로 둘 수 없다.
  */
 import type { IssueCode } from "../import/issues.js"
+/** 열 서술의 모양은 `import/columns.ts`가 정한다 — 저장은 그걸 그대로 받아 적는다. */
+import type { ColumnSighting } from "../import/columns.js"
+/** 개인 프로파일(B2)의 본문 모양. 저장은 JSON 문자열로 하고 여기선 타입만 안다. */
+import type { MappingProfile } from "../import/mapping/index.js"
 
 /** 적재 가능한 Fact 테이블. 여기 없는 이름은 적재할 수 없다. */
 export const FACT_TABLES = [
@@ -144,6 +148,31 @@ export interface IssueRecord {
   readonly scope: "row" | "file"
   readonly rowIndex: number | null
   readonly detail: string
+}
+
+/**
+ * 「이 파일의 이 시트를 봤다」 — **적재와 무관하게 남는 사실** (마이그레이션 009).
+ *
+ * `profileId`와 `batchId`가 **둘 다 null인 것이 정상 경우**다. 맞는 양식이 없어
+ * 넣지 못한 파일이야말로 지금까지 통째로 증발하던 쪽이고, 이 기록을 만든 이유다.
+ */
+export interface FileSightingRecord {
+  readonly libraryId: string
+  /** 파일 지문 (SHA-1 hex) — `batch.source_hash`와 같은 값·같은 표기. */
+  readonly sourceHash: string
+  readonly sourceName: string
+  readonly sourceBytes: number
+  readonly containerFormat: string
+  readonly sheetIndex: number
+  readonly sheetName: string | null
+  /** 헤더 줄. **못 찾으면 null** — 0으로 넘겨짚지 않는다. */
+  readonly headerRowIndex: number | null
+  /** 맞은 프로파일. 없으면 null. */
+  readonly profileId: string | null
+  /** 적재까지 갔다면 그 배치. 안 갔으면 null. */
+  readonly batchId: string | null
+  readonly at: string
+  readonly columns: readonly ColumnSighting[]
 }
 
 /**
@@ -816,6 +845,387 @@ export class Repository {
     })
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // 원가 대기 (마이그레이션 011) — 못 붙은 원가를 버리지 않는다
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * 못 붙은 원가 행들을 쌓는다 (UPSERT — 재가져오기는 행을 늘리지 않는다).
+   *
+   * ★ resolved·dismissed 행의 상태는 **덮지 않는다** ★
+   * 사람이 「이 상품이다」·「쓰지 않음」이라고 판단한 것이 재가져오기 한 번에
+   * 초기화되면 판단이 아니라 메모다. 값(amount·effective_from)만 최신으로 따라간다 —
+   * 대기실의 금액은 확정 전이라 «마지막으로 본 값»이 맞다.
+   */
+  async stashPendingCosts(
+    rows: readonly {
+      readonly libraryId: string
+      readonly sourceKey: string
+      readonly kind: string
+      readonly title: string
+      readonly modelCode: string | null
+      readonly amount: number
+      readonly effectiveFrom: string
+      readonly sourceHash: string
+      readonly sourceName: string
+      readonly profileVersion: string
+      readonly now: string
+    }[],
+  ): Promise<{ inserted: number; updated: number }> {
+    let inserted = 0
+    let updated = 0
+    await this.db.transaction(async () => {
+      for (const r of rows) {
+        const prior = await this.db
+          .prepare(
+            `SELECT id FROM pending_cost
+              WHERE library_id = ? AND kind = ? AND source_key = ?`,
+          )
+          .get(r.libraryId, r.kind, r.sourceKey)
+        if (prior === undefined) inserted++
+        else updated++
+        await this.db
+          .prepare(
+            `INSERT INTO pending_cost
+               (library_id, source_key, kind, title, model_code, amount, effective_from,
+                source_hash, source_name, profile_version, first_seen_at, last_seen_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+             ON CONFLICT (library_id, kind, source_key) DO UPDATE SET
+               title = excluded.title,
+               model_code = excluded.model_code,
+               amount = excluded.amount,
+               effective_from = excluded.effective_from,
+               source_hash = excluded.source_hash,
+               source_name = excluded.source_name,
+               profile_version = excluded.profile_version,
+               last_seen_at = excluded.last_seen_at`,
+          )
+          .run(
+            r.libraryId,
+            r.sourceKey,
+            r.kind,
+            r.title,
+            r.modelCode,
+            r.amount,
+            r.effectiveFrom,
+            r.sourceHash,
+            r.sourceName,
+            r.profileVersion,
+            r.now,
+            r.now,
+          )
+      }
+    })
+    return { inserted, updated }
+  }
+
+  async pendingCosts(
+    libraryId: string,
+    state?: "pending" | "resolved" | "dismissed",
+  ): Promise<
+    readonly {
+      readonly id: number
+      readonly sourceKey: string
+      readonly kind: string
+      readonly title: string
+      readonly modelCode: string | null
+      readonly amount: number
+      readonly effectiveFrom: string
+      readonly sourceName: string
+      readonly state: string
+      readonly resolvedSkuId: string | null
+    }[]
+  > {
+    const rows =
+      state === undefined
+        ? await this.db
+            .prepare(`SELECT * FROM pending_cost WHERE library_id = ? ORDER BY title`)
+            .all(libraryId)
+        : await this.db
+            .prepare(
+              `SELECT * FROM pending_cost WHERE library_id = ? AND state = ? ORDER BY title`,
+            )
+            .all(libraryId, state)
+    return rows.map((r) => ({
+      id: Number(r["id"]),
+      sourceKey: String(r["source_key"]),
+      kind: String(r["kind"]),
+      title: String(r["title"]),
+      modelCode: r["model_code"] === null || r["model_code"] === undefined ? null : String(r["model_code"]),
+      amount: Number(r["amount"] ?? 0),
+      effectiveFrom: String(r["effective_from"]),
+      sourceName: String(r["source_name"]),
+      state: String(r["state"]),
+      resolvedSkuId:
+        r["resolved_sku_id"] === null || r["resolved_sku_id"] === undefined
+          ? null
+          : String(r["resolved_sku_id"]),
+    }))
+  }
+
+  /**
+   * ★ 과거의 사람 판단을 되찾는다 — 다리 사전 ★
+   *
+   * 같은 source_key가 resolved 상태면 그 SKU를 돌려준다. run-reference가 이걸로
+   * 「지난달에 이었던 품명」을 곧장 붙인다 — 점수 자동 확정이 아니라 §20 규칙 4
+   * («답 = 갱신, 다음 파일부터 질문 0»)의 원가판이다.
+   */
+  async resolvedCostBridge(
+    libraryId: string,
+    kind: string,
+    sourceKey: string,
+  ): Promise<string | null> {
+    const r = await this.db
+      .prepare(
+        `SELECT resolved_sku_id FROM pending_cost
+          WHERE library_id = ? AND kind = ? AND source_key = ? AND state = 'resolved'`,
+      )
+      .get(libraryId, kind, sourceKey)
+    const id = r?.["resolved_sku_id"]
+    return id === null || id === undefined ? null : String(id)
+  }
+
+  /**
+   * 사람이 「이 상품이다」를 확정한다 — **한 트랜잭션**에서 원가를 넣고 상태를
+   * 바꾼다. 두 호출로 가르면 하나만 성공한 어중간(원가는 들어갔는데 대기가
+   * 남아 두 번 넣게 되는 상태)이 생긴다.
+   *
+   * 점수를 인자로 받지 않는다 — 자동 확정은 구조적으로 불가능해야 한다.
+   */
+  async resolvePendingCost(o: {
+    id: number
+    skuId: string
+    now: string
+  }): Promise<{ costInserted: boolean; previous: number | null }> {
+    return this.db.transaction(async () => {
+      const row = await this.db.prepare(`SELECT * FROM pending_cost WHERE id = ?`).get(o.id)
+      if (row === undefined) throw new Error(`대기 행이 없다: ${o.id}`)
+      if (String(row["state"]) === "resolved") {
+        throw new Error(`이미 확정된 행이다: ${o.id} — 되돌리기는 v2다`)
+      }
+      const r = await this.addCost({
+        libraryId: String(row["library_id"]),
+        skuId: o.skuId,
+        kind: String(row["kind"]),
+        amount: Number(row["amount"] ?? 0),
+        effectiveFrom: String(row["effective_from"]),
+        note: `${String(row["source_name"])} · 대기에서 확정`,
+        now: o.now,
+        enteredBy: "user",
+      })
+      await this.db
+        .prepare(
+          `UPDATE pending_cost SET state = 'resolved', resolved_sku_id = ?, resolved_at = ?
+            WHERE id = ?`,
+        )
+        .run(o.skuId, o.now, o.id)
+      return { costInserted: r.inserted, previous: r.previous }
+    })
+  }
+
+  /** 「쓰지 않음」 — 삭제가 아니라 세고 있는 부재다 (§20 규칙 3). */
+  async dismissPendingCost(id: number): Promise<void> {
+    await this.db
+      .prepare(`UPDATE pending_cost SET state = 'dismissed' WHERE id = ? AND state = 'pending'`)
+      .run(id)
+  }
+
+  /** 무시를 거둔다 — 다시 pending으로. resolved는 못 되돌린다 (v2). */
+  async undoDismissPendingCost(id: number): Promise<void> {
+    await this.db
+      .prepare(`UPDATE pending_cost SET state = 'pending' WHERE id = ? AND state = 'dismissed'`)
+      .run(id)
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 고정비·운영비 (마이그레이션 010)
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * **이 날짜에 유효한** 고정비·운영비 항목들.
+   *
+   * ★ 「최신」이 아니라 「그날 유효했던 것」이다 ★
+   * 3월에 임대료가 올랐으면 2월 손익은 **2월에 유효했던 값**으로 계산돼야 한다.
+   * 오늘 값으로 지난달을 다시 그리면 그건 틀린 숫자다 — `costAt`과 같은 규율이고,
+   * 그래서 항목(`label`)마다 `effective_from <= asOf` 중 **가장 늦은 것** 하나를 고른다.
+   *
+   * 금액 0은 **지우지 않고 남긴다.** 「6월부터 사무실을 뺐다」가 0원 행이라
+   * 여기서 걸러 버리면 5월과 6월이 구별되지 않는다 — 화면이 「임대료 0원」을
+   * 그려야 사용자가 자기가 그렇게 넣었다는 것을 안다.
+   */
+  async overheads(
+    libraryId: string,
+    kind: "FIXED" | "OPS",
+    asOf: string,
+  ): Promise<
+    readonly {
+      readonly label: string
+      readonly basis: "MONTH" | "ORDER" | "UNIT"
+      readonly amount: number
+      readonly effectiveFrom: string
+      readonly note: string | null
+    }[]
+  > {
+    const rows = await this.db
+      .prepare(
+        `SELECT o.label, o.basis, o.amount, o.effective_from, o.note
+           FROM overhead o
+           JOIN (
+             SELECT label, MAX(effective_from) AS eff
+               FROM overhead
+              WHERE library_id = ? AND kind = ? AND effective_from <= ?
+              GROUP BY label
+           ) pick ON pick.label = o.label AND pick.eff = o.effective_from
+          WHERE o.library_id = ? AND o.kind = ?
+          ORDER BY o.label`,
+      )
+      .all(libraryId, kind, asOf, libraryId, kind)
+    return rows.map((r) => ({
+      label: String(r["label"]),
+      basis: String(r["basis"]) as "MONTH" | "ORDER" | "UNIT",
+      amount: Number(r["amount"] ?? 0),
+      effectiveFrom: String(r["effective_from"]),
+      note: r["note"] === null || r["note"] === undefined ? null : String(r["note"]),
+    }))
+  }
+
+  /** 항목의 전체 이력 — 화면이 「3월부터 220만」을 보이려면 필요하다. */
+  async overheadHistory(
+    libraryId: string,
+    kind: "FIXED" | "OPS",
+    label: string,
+  ): Promise<readonly { readonly amount: number; readonly effectiveFrom: string }[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT amount, effective_from FROM overhead
+          WHERE library_id = ? AND kind = ? AND label = ?
+          ORDER BY effective_from DESC`,
+      )
+      .all(libraryId, kind, label)
+    return rows.map((r) => ({
+      amount: Number(r["amount"] ?? 0),
+      effectiveFrom: String(r["effective_from"]),
+    }))
+  }
+
+  /**
+   * 항목을 넣거나 고친다.
+   *
+   * ★ `addCost`와 갈리는 자리 하나 ★
+   * 원가는 같은 적용일이 있으면 **묻고 나서** 덮는다(`replace`). 여기는 **그냥
+   * 덮는다.** 원가는 파일에서 대량으로 들어와 「35건 중 3건이 이미 있다」를
+   * 사람이 판단해야 하지만, 고정비는 사람이 칸 하나를 고쳐 저장하는 것이라
+   * 「이미 있습니다」를 되물으면 자기가 방금 친 값을 되묻는 꼴이다.
+   *
+   * 금액 0을 막지 않는다 — 「6월부터 임대료 없음」이 0원 행이다.
+   */
+  async setOverhead(o: {
+    libraryId: string
+    kind: "FIXED" | "OPS"
+    basis: "MONTH" | "ORDER" | "UNIT"
+    label: string
+    amount: number
+    effectiveFrom: string
+    note?: string | null
+    now: string
+    enteredBy?: "user" | "import"
+  }): Promise<void> {
+    if (!Number.isInteger(o.amount)) throw new Error(`금액은 원 단위 정수여야 한다: ${o.amount}`)
+    if (o.amount < 0) throw new Error(`금액은 0보다 작을 수 없다: ${o.amount}`)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(o.effectiveFrom)) {
+      throw new Error(`적용 시작일은 YYYY-MM-DD여야 한다: ${o.effectiveFrom}`)
+    }
+    if (o.label.trim() === "") throw new Error("항목 이름이 비어 있다")
+    /**
+     * ★ 종류와 basis는 **짝이 정해져 있다** ★
+     *
+     *   FIXED × MONTH            「얼마를 팔든 나가는 돈」이 고정비의 정의다
+     *   OPS   × ORDER | UNIT     「주문·개수에 따라 나가는 돈」이 운영비의 정의다
+     *
+     * 남는 칸(OPS × MONTH)은 **일부러 비워 둔다.** 「월 정액인데 상품에 배분하고
+     * 싶다」는 요구가 실재하지만(월 정액 3PL 계약) 그건 안분 기준을 정해야 하는
+     * 별개 설계다 — 매출 비례? 개수 비례? 답이 데이터에 없다. 지금 아무 기준이나
+     * 골라 넣으면 상품별 손익이 조용히 그 가정을 품는다.
+     */
+    if (o.kind === "FIXED" && o.basis !== "MONTH") {
+      throw new Error(`고정비는 월 단위만 쓴다 — 주문·개수에 비례하면 운영비다: ${o.basis}`)
+    }
+    if (o.kind === "OPS" && o.basis === "MONTH") {
+      throw new Error(
+        `운영비는 주문당·개당만 쓴다 — 월 정액이면 고정비이고, ` +
+          `상품에 배분해야 한다면 안분 기준부터 정해야 한다`,
+      )
+    }
+    await this.db
+      .prepare(
+        `INSERT INTO overhead
+           (library_id, kind, basis, label, amount, effective_from, note, entered_at, entered_by)
+         VALUES (?,?,?,?,?,?,?,?,?)
+         ON CONFLICT (library_id, kind, label, effective_from) DO UPDATE SET
+           basis = excluded.basis,
+           amount = excluded.amount,
+           note = excluded.note,
+           entered_at = excluded.entered_at,
+           entered_by = excluded.entered_by`,
+      )
+      .run(
+        o.libraryId,
+        o.kind,
+        o.basis,
+        o.label.trim(),
+        o.amount,
+        o.effectiveFrom,
+        o.note ?? null,
+        o.now,
+        o.enteredBy ?? "user",
+      )
+  }
+
+  /**
+   * ★ 「두지 않는다」도 입력이다 (§22) ★
+   *
+   * `null`이면 **미선언**이고, 그때만 앱이 물어본다. 「0원」과 「0원이 맞다」를
+   * 구분하지 못하면 일부러 안 넣은 사용자에게 영영 잔소리하게 되고, 지워지지
+   * 않는 경고 하나가 진단 화면 전체를 안 보게 만든다.
+   */
+  async overheadStance(
+    libraryId: string,
+    kind: "FIXED" | "OPS",
+  ): Promise<{ readonly stance: "none" | "later"; readonly reason: string | null } | null> {
+    const r = await this.db
+      .prepare(`SELECT stance, reason FROM overhead_stance WHERE library_id = ? AND kind = ?`)
+      .get(libraryId, kind)
+    if (r === undefined) return null
+    return {
+      stance: String(r["stance"]) as "none" | "later",
+      reason: r["reason"] === null || r["reason"] === undefined ? null : String(r["reason"]),
+    }
+  }
+
+  async setOverheadStance(s: {
+    libraryId: string
+    kind: "FIXED" | "OPS"
+    stance: "none" | "later"
+    reason?: string | null
+    now: string
+  }): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO overhead_stance (library_id, kind, stance, reason, declared_at)
+         VALUES (?,?,?,?,?)
+         ON CONFLICT (library_id, kind) DO UPDATE SET
+           stance = excluded.stance, reason = excluded.reason, declared_at = excluded.declared_at`,
+      )
+      .run(s.libraryId, s.kind, s.stance, s.reason ?? null, s.now)
+  }
+
+  /** 선언을 거둔다 — 다시 «미선언»으로 돌아가 앱이 묻는다. */
+  async clearOverheadStance(libraryId: string, kind: "FIXED" | "OPS"): Promise<void> {
+    await this.db
+      .prepare(`DELETE FROM overhead_stance WHERE library_id = ? AND kind = ?`)
+      .run(libraryId, kind)
+  }
+
   private async countListings(connectionId: string): Promise<number> {
     const r = await this.db
       .prepare(`SELECT COUNT(*) AS n FROM marketplace_listing WHERE connection_id = ?`)
@@ -1024,6 +1434,281 @@ export class Repository {
       `INSERT INTO batch_issue (batch_id, code, scope, row_index, detail) VALUES (?,?,?,?,?)`,
       issues.map((i) => [batchId, i.code, i.scope, i.rowIndex, i.detail]),
     )
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 파일이 가진 열 — **매핑 이전의 사실** (마이그레이션 009)
+  // ─────────────────────────────────────────────────────────
+
+  /**
+   * 「이 파일의 이 시트를 봤다」를 남긴다. **적재와 무관하게** 남는다.
+   *
+   * ★ 프로파일이 없어도 부른다 — 그게 이 함수의 존재 이유다 ★
+   * 지금까지 프로파일 미일치는 「맞는 양식 없음」 한 문장으로 끝나고 기록이 0이라,
+   * 같은 파일을 다시 넣어도 앱은 처음 보는 것처럼 굴었다. `profileId: null`은
+   * 실패 표시가 아니라 **우리가 기록하려던 바로 그 사실**이다.
+   *
+   * 같은 `(라이브러리, 지문, 시트)`를 다시 보면 행을 늘리지 않고 갱신한다.
+   * 열은 **통째로 갈아 끼운다** — 헤더 판정이 달라졌다면(시트를 다시 고름) 옛
+   * 열이 남아 있는 편보다 없는 편이 정직하다.
+   *
+   * @returns `file_sighting.id` — 열이 매달린 자리
+   */
+  async recordFileSighting(s: FileSightingRecord): Promise<number> {
+    return this.db.transaction(async () => {
+      await this.db
+        .prepare(
+          `INSERT INTO file_sighting
+             (library_id, source_hash, source_name, source_bytes, container_format,
+              sheet_index, sheet_name, header_row_index, column_count,
+              profile_id, batch_id, first_seen_at, last_seen_at, seen_count)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+           ON CONFLICT(library_id, source_hash, sheet_index) DO UPDATE SET
+             -- 이름은 바뀔 수 있다 (이름만 바꿔 재가져오기 — 006). 마지막 이름을 쓴다.
+             source_name      = excluded.source_name,
+             sheet_name       = excluded.sheet_name,
+             header_row_index = excluded.header_row_index,
+             column_count     = excluded.column_count,
+             -- 현재 판정으로 덮는다. 프로파일이 늘거나 바뀌면 답도 바뀌는 게 맞다.
+             profile_id       = excluded.profile_id,
+             -- ★ 배치는 덮지 않는다 ★ 적재가 **일어났다**는 것은 되돌릴 수 없는
+             -- 사실이라, 뒤이은 «그냥 열어보기»가 그것을 NULL로 지우면 안 된다.
+             batch_id         = COALESCE(excluded.batch_id, file_sighting.batch_id),
+             last_seen_at     = excluded.last_seen_at,
+             seen_count       = file_sighting.seen_count + 1`,
+        )
+        .run(
+          s.libraryId,
+          s.sourceHash,
+          s.sourceName,
+          s.sourceBytes,
+          s.containerFormat,
+          s.sheetIndex,
+          s.sheetName,
+          s.headerRowIndex,
+          s.columns.length,
+          s.profileId,
+          s.batchId,
+          s.at,
+          s.at,
+        )
+
+      // 드라이버 계약은 `lastInsertRowid`를 노출하지 않는다(`RunResult`는 `changes`
+      // 뿐이다). UPSERT라 새 행인지 갱신인지도 갈리므로, 유일키로 되찾는 것이
+      // 두 경우 모두에 맞는 유일한 방법이다.
+      const row = await this.db
+        .prepare(
+          `SELECT id FROM file_sighting
+            WHERE library_id = ? AND source_hash = ? AND sheet_index = ?`,
+        )
+        .get(s.libraryId, s.sourceHash, s.sheetIndex)
+      const id = Number(row?.["id"])
+      if (!Number.isInteger(id)) throw new Error("목격 기록을 되찾지 못했다")
+
+      await this.db.prepare(`DELETE FROM file_column WHERE sighting_id = ?`).run(id)
+      if (s.columns.length > 0) {
+        await this.db.runMany(
+          `INSERT INTO file_column
+             (sighting_id, ordinal, header, sample_value, kind, kind_confidence, kind_reason)
+           VALUES (?,?,?,?,?,?,?)`,
+          s.columns.map((c) => [
+            id,
+            c.ordinal,
+            c.header,
+            c.sample,
+            c.kind,
+            c.confidence,
+            c.reason,
+          ]),
+        )
+      }
+      return id
+    })
+  }
+
+  /**
+   * 리스팅 키로 리스팅 하나를 찾는다 — **기준 데이터가 상품에 닿는 유일한 다리.**
+   *
+   * 원가 파일은 SKU를 모르고 마켓의 상품번호만 안다. 그 번호가 곧 리스팅 키이므로,
+   * 「리스팅을 찾아 그 SKU에 붙인다」가 성립한다. 없으면 `null`이고, **그것은
+   * 오류가 아니다** — 아직 팔지 않아 리스팅이 없는 상품이 원가표에 있는 것은 정상이다.
+   */
+  async listingByKey(
+    libraryId: string,
+    listingKey: string,
+  ): Promise<{ readonly id: string; readonly title: string; readonly skuId: string | null } | null> {
+    const r = await this.db
+      .prepare(
+        `SELECT id, title, sku_id FROM marketplace_listing
+          WHERE library_id = ? AND listing_key = ?
+          LIMIT 1`,
+      )
+      .get(libraryId, listingKey)
+    if (r === undefined) return null
+    const sku = r["sku_id"]
+    return {
+      id: String(r["id"]),
+      title: String(r["title"] ?? ""),
+      skuId: sku === null || sku === undefined ? null : String(sku),
+    }
+  }
+
+  /**
+   * **파일에서 제외된 행의 총계** — 대시보드의 「일부 제외」 배너가 쓴다.
+   *
+   * ★ 왜 기간을 안 받는가 ★
+   * 제외는 **파일의 성질**이지 달의 성질이 아니다. 한 파일의 행이 여러 달에
+   * 걸치므로 기간으로 자르면 「7월에 3행 제외」 같은 말이 나오는데, 그 3이
+   * 무엇의 3인지 아무도 설명할 수 없다. 그래서 배너 문구도 달을 말하지 않는다
+   * (`linking`·`coverage`가 기간을 안 받는 것과 같은 판단).
+   *
+   * `undone` 배치는 세지 않는다 — 되돌린 파일의 제외는 지금 화면의 숫자와 무관하다.
+   */
+  async exclusionTotals(libraryId: string): Promise<{
+    readonly files: number
+    readonly rows: number
+    readonly reasons: readonly { readonly reason: string; readonly count: number }[]
+  }> {
+    const head = await this.db
+      .prepare(
+        `SELECT COUNT(*) AS files, COALESCE(SUM(excluded_count), 0) AS rows
+           FROM batch
+          WHERE library_id = ? AND status = 'committed' AND excluded_count > 0`,
+      )
+      .get(libraryId)
+
+    const reasons = await this.db
+      .prepare(
+        `SELECT e.reason AS reason, COUNT(*) AS count
+           FROM batch_exclusion e
+           JOIN batch b ON b.id = e.batch_id
+          WHERE b.library_id = ? AND b.status = 'committed'
+          GROUP BY e.reason
+          ORDER BY count DESC`,
+      )
+      .all(libraryId)
+
+    return {
+      files: Number(head?.["files"] ?? 0),
+      rows: Number(head?.["rows"] ?? 0),
+      reasons: reasons.map((r) => ({
+        reason: String(r["reason"] ?? ""),
+        count: Number(r["count"] ?? 0),
+      })),
+    }
+  }
+
+  /** 이 라이브러리에서 본 파일들. 최근 본 것부터. */
+  async fileSightings(libraryId: string, limit = 200): Promise<readonly Row[]> {
+    return this.db
+      .prepare(
+        `SELECT id, source_hash, source_name, source_bytes, container_format,
+                sheet_index, sheet_name, header_row_index, column_count,
+                profile_id, batch_id, first_seen_at, last_seen_at, seen_count
+           FROM file_sighting
+          WHERE library_id = ?
+          ORDER BY last_seen_at DESC, id DESC
+          LIMIT ?`,
+      )
+      .all(libraryId, limit)
+  }
+
+  /** 목격 하나의 열 전부. **순번 순서다** — 화면이 파일과 같은 순서로 그려야 한다. */
+  async fileColumns(sightingId: number): Promise<readonly Row[]> {
+    return this.db
+      .prepare(
+        `SELECT ordinal, header, sample_value, kind, kind_confidence, kind_reason
+           FROM file_column WHERE sighting_id = ? ORDER BY ordinal`,
+      )
+      .all(sightingId)
+  }
+
+  /**
+   * 개인 프로파일 저장 — **`mapping_profile` 표의 첫 사용자** (계획 B2).
+   *
+   * 001부터 `source='user'` 칸이 파여 있었고 오늘까지 사용처 0이었다. 사용자가
+   * 필드매핑 화면에서 확정한 파생판이 여기로 들어온다.
+   *
+   * ★ 버전은 `u1`·`u2`… **단조 증가**이고 기존 버전은 수정하지 않는다 (헌장 B-6) ★
+   * batch가 `mapping_version=…@u1`을 기록하므로, u1을 고치면 그 batch의 해석
+   * 이력이 거짓이 된다 — 재편집은 언제나 새 판이다. 다음 번호는 여기서 센다:
+   * 파생(`deriveProfile`)이 지어내면 «다음 번호의 진실»이 두 곳이 된다.
+   *
+   * @returns 부여된 버전 문자열 (`u1` 등)
+   */
+  async saveUserProfile(profile: MappingProfile, now: string): Promise<string> {
+    return this.db.transaction(async () => {
+      const rows = await this.db
+        .prepare(
+          `SELECT version FROM mapping_profile
+            WHERE pack_id = ? AND marketplace_key = ? AND doc_type = ? AND grain = ?
+              AND source = 'user'`,
+        )
+        .all(profile.packId, profile.marketplaceKey, profile.docType, profile.grain)
+      let max = 0
+      for (const r of rows) {
+        const m = /^u(\d+)$/.exec(String(r["version"]))
+        if (m !== null) max = Math.max(max, Number(m[1]))
+      }
+      const version = `u${max + 1}`
+      // 본문에도 같은 버전을 박는다 — `profileVersion(p)`이 batch의
+      // `mapping_version`을 만들므로 행의 키와 본문이 갈리면 이력이 거짓이 된다.
+      const stored: MappingProfile = { ...profile, version }
+      await this.db
+        .prepare(
+          `INSERT INTO mapping_profile
+             (version, pack_id, marketplace_key, doc_type, grain, definition, source, installed_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'user', ?)`,
+        )
+        .run(
+          version,
+          profile.packId,
+          profile.marketplaceKey,
+          profile.docType,
+          profile.grain,
+          JSON.stringify(stored),
+          now,
+        )
+      return version
+    })
+  }
+
+  /**
+   * 저장된 개인 프로파일 전부 — **최신이 앞** (`mergeProfiles`가 그 순서를 가정한다).
+   *
+   * 본문이 JSON으로 안 읽히는 행은 **세어서 넘긴다** — 조용히 버리면 사용자의
+   * 확정이 소리 없이 사라진 것이 되고(LOCK 6), 여기서 던지면 썩은 행 하나가
+   * 앱 전체를 막는다. 의미 검증(`validateProfiles`)은 문(호출부)에서 한다 —
+   * 저장 계층은 프로파일의 뜻을 모른다.
+   */
+  async userProfiles(): Promise<{
+    readonly profiles: readonly MappingProfile[]
+    readonly broken: number
+  }> {
+    const rows = await this.db
+      .prepare(
+        `SELECT definition, installed_at, version FROM mapping_profile
+          WHERE source = 'user'
+          ORDER BY installed_at DESC`,
+      )
+      .all()
+    // 같은 시각에 저장된 두 판은 `installed_at`으로 못 가른다 — 번호로 가른다.
+    // 문자열 정렬은 u10 < u2라 쓸 수 없다.
+    const un = (v: SqlValue | undefined): number => Number(/^u(\d+)$/.exec(String(v))?.[1] ?? 0)
+    const sorted = [...rows].sort((a, b) => {
+      const at = String(b["installed_at"]).localeCompare(String(a["installed_at"]))
+      return at !== 0 ? at : un(b["version"]) - un(a["version"])
+    })
+    const profiles: MappingProfile[] = []
+    let broken = 0
+    for (const r of sorted) {
+      try {
+        profiles.push(JSON.parse(String(r["definition"])) as MappingProfile)
+      } catch {
+        broken += 1
+      }
+    }
+    return { profiles, broken }
   }
 
   async commitBatch(batchId: string, at: string): Promise<void> {

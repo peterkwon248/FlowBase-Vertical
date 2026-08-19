@@ -272,6 +272,8 @@ export interface TemplateVals {
   fmUpdateBody: string
   fmUpdateTitle: string
   fmWarn: boolean
+  /** 배너 문장 (B2 — 손으로 더한 홀). 미확인 안내 또는 초안 저장 안내/거절 이유. */
+  fmWarnText: string
   formula: readonly any[]
   freshness: readonly any[]
   genRows: readonly any[]
@@ -314,6 +316,29 @@ export interface TemplateVals {
   heroLabel: string
   heroNet: string
   heroRev: string
+  /** §21 «cost-fixed-save» — 목업의 고정비 표가 못 하는 것들(적용일·항목 추가·저장·선언). */
+  fixAdd: (...args: any[]) => void
+  fixAddWhy: string
+  fixCanAdd: boolean
+  fixAddOpacity: string
+  fixSaveOpacity: string
+  fixCanSave: boolean
+  fixDate: string
+  /** 「이 기간 몫」의 분수. 달을 걸치면 빈 문자열 — 분수를 지어내지 않는다. */
+  fixDays: string
+  fixNewAmount: string
+  fixNewName: string
+  fixNone: boolean
+  fixNoneBg: string
+  fixNoneNote: string
+  fixNoneReason: string
+  fixSave: (...args: any[]) => void
+  fixSaveWhy: string
+  setFixDate: (...args: any[]) => void
+  setFixNewAmount: (...args: any[]) => void
+  setFixNewName: (...args: any[]) => void
+  setFixNoneReason: (...args: any[]) => void
+  toggleFixNone: (...args: any[]) => void
   impBig: boolean
   impBusy: boolean
   impCanRun: boolean
@@ -322,12 +347,19 @@ export interface TemplateVals {
   impDigestTitle: string
   impDone: boolean
   impDupNote: string
+  /** «매핑 수정» — 필드 매핑 화면으로 (B1). 목업부터 있던 버튼의 첫 일. */
+  impEditMap: (...args: any[]) => void
   impError: string
   impExcludedLabel: string
   impHasError: boolean
   impManySheets: boolean
   importCounts: readonly any[]
   impPick: (...args: any[]) => void
+  /** §21 «import-reference» — 기준 데이터 프로파일일 때만 참. 적용일을 묻는다. */
+  impRefer: boolean
+  impReferDate: string
+  impReferNote: string
+  setImpReferDate: (...args: any[]) => void
   impReset: (...args: any[]) => void
   impRun: (...args: any[]) => void
   impRunLabel: string
@@ -363,6 +395,11 @@ export interface TemplateVals {
   licTabs: readonly any[]
   linkBadge: string
   linkBulkNewSku: (...args: any[]) => void
+  /** §21 «link-cost-pending» — 원가 대기 탭 (011 · D2). */
+  linkCostDismissed: readonly any[]
+  linkCostNote: string
+  linkCostRows: readonly any[]
+  linkTabCost: boolean
   linkEmpty: boolean
   linkEmptyMsg: string
   linkPickAll: (...args: any[]) => void
@@ -813,6 +850,7 @@ export function emptyVals(): TemplateVals {
     fmUpdateBody: "",
     fmUpdateTitle: "",
     fmWarn: false,
+    fmWarnText: "",
     formula: [],
     freshness: [],
     genRows: [],
@@ -855,6 +893,27 @@ export function emptyVals(): TemplateVals {
     heroLabel: "",
     heroNet: "",
     heroRev: "",
+    fixAdd: () => {},
+    fixAddWhy: "",
+    fixCanAdd: false,
+    fixAddOpacity: "",
+    fixSaveOpacity: "",
+    fixCanSave: false,
+    fixDate: "",
+    fixDays: "",
+    fixNewAmount: "",
+    fixNewName: "",
+    fixNone: false,
+    fixNoneBg: "",
+    fixNoneNote: "",
+    fixNoneReason: "",
+    fixSave: () => {},
+    fixSaveWhy: "",
+    setFixDate: () => {},
+    setFixNewAmount: () => {},
+    setFixNewName: () => {},
+    setFixNoneReason: () => {},
+    toggleFixNone: () => {},
     impBig: false,
     impBusy: false,
     impCanRun: false,
@@ -863,12 +922,17 @@ export function emptyVals(): TemplateVals {
     impDigestTitle: "",
     impDone: false,
     impDupNote: "",
+    impEditMap: () => {},
     impError: "",
     impExcludedLabel: "",
     impHasError: false,
     impManySheets: false,
     importCounts: [],
     impPick: () => {},
+    impRefer: false,
+    impReferDate: "",
+    impReferNote: "",
+    setImpReferDate: () => {},
     impReset: () => {},
     impRun: () => {},
     impRunLabel: "",
@@ -898,6 +962,10 @@ export function emptyVals(): TemplateVals {
     licTabs: [],
     linkBadge: "",
     linkBulkNewSku: () => {},
+    linkCostDismissed: [],
+    linkCostNote: "",
+    linkCostRows: [],
+    linkTabCost: false,
     linkEmpty: false,
     linkEmptyMsg: "",
     linkPickAll: () => {},

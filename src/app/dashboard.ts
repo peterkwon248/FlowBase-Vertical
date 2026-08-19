@@ -22,6 +22,7 @@ import type { ConnectionCoverage } from "@core/coverage/load.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
 import type { TemplateVals } from "./generated/vals.js"
 import { compact, pct, signed, won } from "./format.js"
+import { EXCLUSION_LABEL } from "./import.js"
 
 /** 목업 L4201~4208의 팔레트. 색은 표기이므로 그대로 옮긴다. */
 const MIX_COLORS = {
@@ -147,6 +148,10 @@ export function dashboardVals(
     /** 지금 호버 중인 일자 index. -1이면 안 떠 있다 (화면 상태라 App이 갖는다). */
     trendIdx?: number
     onTrend?: (i: number) => void
+    /** 파일에서 제외된 행 — 「일부 제외」 배너의 재료 (LOCK 6). */
+    excluded?: { files: number; rows: number; reasons: readonly { reason: string; count: number }[] }
+    /** 배너의 [양식 확인] — 「필드 매핑」 화면으로 간다. */
+    goFieldmap?: () => void
   } = { products: [], channels: [] },
 ): void {
   const p = snap.pnl
@@ -474,6 +479,39 @@ export function dashboardVals(
   // ★ 커버리지가 여기 합류한다 (§22-4) ★
   // 새 카드를 만들지 않는다. 같은 질문(«이 숫자가 무엇을 담지 못했나»)에 대한
   // 다른 사유일 뿐이라, 사유가 늘 때마다 표면이 늘면 사용자는 세 군데를 봐야 한다.
+  /**
+   * ★ 「일부 제외」 배너 — **읽지 못한 행이 있으면 말한다** (LOCK 6) ★
+   *
+   * ─────────────────────────────────────────────────────────────
+   * 파이프라인은 합계 행·소제목 행·빈 행을 걸러내고, 매핑이 버린 행도 있다.
+   * 그 수는 `batch_exclusion`에 남아 있었지만 **대시보드는 한 번도 말하지 않았다** —
+   * 「가져오기 기록」 화면까지 들어가야 보였다. 순이익을 보는 사람은 그 숫자가
+   * 파일 전체에서 나온 줄 안다.
+   *
+   * ★ 아래 「이 숫자가 담지 못한 것」과 무엇이 다른가 ★
+   * 그 카드는 **적재된 뒤** 생기는 결손(조인 실패·원가 미입력·추정 날짜)을 말한다.
+   * 이 배너는 **적재 이전**, 파일에서 아예 빠진 행이다. 원인도 처방도 달라서
+   * (전자는 파일을 더 넣기, 후자는 **양식 해석 확인**) 버튼이 필드 매핑으로 간다.
+   *
+   * ★ 달을 말하지 않는다 ★ 제외는 파일의 성질이라 한 파일의 행이 여러 달에
+   * 걸친다. 「7월에 3행 제외」는 그 3이 무엇의 3인지 설명할 수 없는 문장이 된다.
+   * ─────────────────────────────────────────────────────────────
+   */
+  const ex = rows.excluded
+  vals.partial = ex !== undefined && ex.rows > 0
+  if (ex !== undefined && ex.rows > 0) {
+    vals.partialTitle = `파일에서 ${ex.rows.toLocaleString("ko-KR")}행이 제외됐습니다`
+    // 사유를 그대로 보인다 — 「몇 행」만 말하면 사용자가 할 수 있는 일이 없다.
+    // 합계·빈 행이면 정상이고, 오류가 섞여 있으면 양식 해석을 봐야 한다.
+    const why = ex.reasons
+      .map((r) => `${EXCLUSION_LABEL[r.reason] ?? r.reason} ${r.count.toLocaleString("ko-KR")}행`)
+      .join(" · ")
+    vals.partialBody =
+      `파일 ${ex.files}개에서 걸러졌습니다${why === "" ? "" : ` — ${why}`}. ` +
+      `합계·빈 행이면 정상이고, «읽지 못함»이 섞여 있으면 양식 해석을 확인해야 합니다.`
+  }
+  if (rows.goFieldmap !== undefined) vals.goFieldmap = rows.goFieldmap
+
   vals.freshness = [
     ...pnlGaps(snap).map((g) => ({
       name: g.label,

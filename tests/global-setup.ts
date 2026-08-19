@@ -10,9 +10,25 @@
  * **다만 조용히 넘기지 않고 이유를 적는다** (LOCK 6과 같은 태도).
  */
 
+import { mkdirSync } from "node:fs"
 import { snapshotDevDb, DEV_DB } from "./dev-db.js"
 
+/**
+ * ★ `.tmp/`를 만든다 — **새로 clone한 기기에서 두 게이트가 깨지던 자리** ★
+ *
+ * `linking-screen`·`screen-safety`는 `.tmp/*.sqlite`에 자기 세계를 짓는데,
+ * 그 디렉터리는 gitignore라 **저장소에 없다.** 개발 기기에서는 e2e나 하네스가
+ * 이미 만들어 둬서 보이지 않았고, 처음 clone한 기기에서만
+ * `unable to open database file`로 죽었다 — 실제로 그렇게 발견됐다.
+ *
+ * 「내 기기에서는 되는데」의 교과서적 모양이라, 고치는 자리도 개별 테스트가 아니라
+ * **워커가 뜨기 전 한 곳**이어야 한다. 나중에 `.tmp/`를 쓰는 테스트가 하나 더
+ * 생겨도 같은 함정에 다시 빠지지 않는다.
+ */
+const TMP = ".tmp"
+
 export async function setup(): Promise<void> {
+  mkdirSync(TMP, { recursive: true })
   try {
     const at = await snapshotDevDb()
     if (at === null) {

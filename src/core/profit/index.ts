@@ -168,6 +168,23 @@ export function daysInPeriod(p: Period): number {
  * 기간이 여러 달에 걸치면 달마다 안분해 더한다. 달의 길이가 다르므로
  * "기간 일수 / 30" 같은 근사를 쓰지 않는다.
  */
+/**
+ * 이 기간이 한 달 안이면 **며칠 / 그 달 며칠**인지. 달을 걸치면 `null`.
+ *
+ * 화면이 「이 기간 몫 8일 / 31일」을 말하려면 이 두 수가 필요한데, 앱에서 다시
+ * 세면 안분과 표기가 갈릴 수 있다 — 「8일 몫」이라 써 놓고 9일치를 빼는 화면이
+ * 나온다. 그래서 안분 로직과 **같은 파일**에서 낸다.
+ *
+ * 달을 걸치면 하나의 분수로 말할 수 없다(7월 20일~8월 10일 = 12/31 + 10/31).
+ * 그때는 `null`이고 **화면이 분수를 지어내지 않는다** — 문장을 바꾼다.
+ */
+export function proratedSpan(p: Period): { covered: number; inMonth: number } | null {
+  const [fy, fm, fd] = p.from.split("-").map(Number) as [number, number, number]
+  const [ty, tm, td] = p.to.split("-").map(Number) as [number, number, number]
+  if (fy !== ty || fm !== tm) return null
+  return { covered: td - fd + 1, inMonth: new Date(Date.UTC(fy, fm, 0)).getUTCDate() }
+}
+
 export function prorateFixed(monthlyFixed: number, p: Period): number {
   if (!Number.isInteger(monthlyFixed)) throw new Error(`고정비는 정수여야 한다: ${monthlyFixed}`)
   if (monthlyFixed === 0) return 0

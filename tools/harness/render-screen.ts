@@ -26,7 +26,10 @@ import { loadPnlSnapshot } from "../../src/core/profit/snapshot.js"
 import { loadSettlementRows } from "../../src/core/settlement/rows.js"
 import { loadOrderRows } from "../../src/core/order/rows.js"
 import { loadLinkingView } from "../../src/core/linking/view.js"
-import { krLinkingMatcher } from "../../src/packs/kr-marketplace/linking-matcher.js"
+import { krLinkingMatcher, krCostBridgeMatcher } from "../../src/packs/kr-marketplace/linking-matcher.js"
+import { loadPendingCostView } from "../../src/core/linking/pending-cost.js"
+import { fieldmapVals, loadFieldmapView } from "../../src/app/fieldmap.js"
+import { Repository } from "../../src/core/store/repository.js"
 import { dashboardVals } from "../../src/app/dashboard.js"
 import { settlementVals } from "../../src/app/settlement.js"
 import { orderVals } from "../../src/app/order.js"
@@ -35,12 +38,14 @@ import { channelVals } from "../../src/app/channel.js"
 import { loadCoverage } from "../../src/core/coverage/load.js"
 import { historyVals } from "../../src/app/history.js"
 import { productVals } from "../../src/app/product.js"
+import { costsVals, emptyCostsDraft, type CostsView } from "../../src/app/costs.js"
 import { loadProductRows } from "../../src/core/product/rows.js"
 import { loadChannelRows, loadDailySeries, loadProfitRows } from "../../src/core/profit/rows.js"
 import { loadHistoryRows } from "../../src/core/history/rows.js"
 import type { DocType } from "../../src/core/coverage/index.js"
 import type { MarketDict } from "../../src/packs/kr-marketplace/markets/index.js"
 import { profileVersion, type MappingProfile } from "../../src/core/import/mapping/index.js"
+import { mergeProfiles } from "../../src/core/import/mapping/derive.js"
 import { Template } from "../../src/app/generated/Template.js"
 import { shellVals, shellStateFor } from "../../src/app/shell.js"
 
@@ -121,6 +126,15 @@ const snap = await loadPnlSnapshot(db, "lib-1", PERIOD)
 const settlement = await loadSettlementRows(db, "lib-1", PERIOD)
 const orders = await loadOrderRows(db, "lib-1", PERIOD)
 const linking = await loadLinkingView(db, "lib-1", krLinkingMatcher)
+const pendingCost = await loadPendingCostView(db, "lib-1", krCostBridgeMatcher)
+// ★ 앱과 같은 병합 (B2) — 개인 프로파일이 내장을 가린다 (`data.ts profileWorld`).
+// 이걸 빼먹으면 이 도구가 앱보다 낡는다 — 사용자가 확정한 판이 화면에 안 보인다.
+const { profiles: userProfiles } = await new Repository(db).userProfiles()
+const merged = mergeProfiles(profiles, userProfiles)
+const userVersions = new Set(userProfiles.map(profileVersion))
+// `…@u1`로 적재된 batch의 종류도 풀려야 한다 — 앱의 resolveDocType 확장과 같은 이유.
+for (const p of userProfiles) docTypeByVersion.set(profileVersion(p), p.docType)
+const fieldmap = await loadFieldmapView(new Repository(db), merged, "lib-1", userVersions)
 const coverage = await loadCoverage(db, "lib-1", resolveDocType)
 const history = await loadHistoryRows(db, "lib-1", resolveDocType)
 // 원가 기준일은 **고정한다** — 오늘을 쓰면 같은 DB에서 날마다 다른 HTML이 나와
@@ -132,6 +146,24 @@ const products = await loadProductRows(db, "lib-1", PERIOD, PERIOD.to)
 const profitRows = await loadProfitRows(db, "lib-1", PERIOD)
 const channelRows = await loadChannelRows(db, "lib-1", PERIOD)
 const daily = await loadDailySeries(db, "lib-1", PERIOD)
+/**
+ * ★ 2026-08-19에 배선된 비용 화면 — 위 경고의 두 번째 적용 ★
+ * 고정비를 안 먹이면 이 도구로 본 화면은 영영 「고정비 0원」이고, 클라우드
+ * 세션에서는 그게 사람이 보는 유일한 화면이다.
+ */
+const repo = new (await import("../../src/core/store/repository.js")).Repository(db)
+const withHistory = async (kind: "FIXED" | "OPS") =>
+  Promise.all(
+    (await repo.overheads("lib-1", kind, PERIOD.from)).map(async (o) => ({
+      ...o,
+      historyCount: (await repo.overheadHistory("lib-1", kind, o.label)).length,
+    })),
+  )
+const costs: CostsView = {
+  fixed: await withHistory("FIXED"),
+  ops: await withHistory("OPS"),
+  stance: { fixed: await repo.overheadStance("lib-1", "FIXED") },
+}
 await db.close()
 
 const noop = (): void => {}
@@ -149,10 +181,14 @@ settlementVals(vals, settlement, PERIOD)
 orderVals(vals, orders, PERIOD)
 // 선택 상태는 상호작용이라 SSR에서는 늘 비어 있다 — 일괄 바의 «모두 선택»은
 // 그려지지만 눌린 뒤의 모습은 이 층이 증명하지 못한다 (2d에서 사람이 본다).
-linkingVals(vals, linking, TAB, new Set())
+linkingVals(vals, linking, TAB, new Set(), undefined, pendingCost)
 channelVals(vals, coverage, { goImport: noop }, dictOf)
 historyVals(vals, history)
 productVals(vals, products, "list", new Map(), PERIOD.to, undefined, PERIOD)
+// 초안은 비어 있다 — 상호작용은 이 층이 증명하지 못한다. 적용일도 고정한다.
+costsVals(vals, costs, snap.pnl, emptyCostsDraft(PERIOD.to))
+// 선택은 상호작용이라 SSR에서는 첫 양식이다 (B1 배선 — 2026-08-19)
+fieldmapVals(vals, fieldmap, null)
 vals.firstRun = false
 vals.notFirstRun = true
 ;(vals.v as Record<string, boolean>)[VIEW] = true

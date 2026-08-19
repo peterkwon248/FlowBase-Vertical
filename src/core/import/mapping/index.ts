@@ -27,6 +27,30 @@ export interface FieldMapping {
   readonly derive?:
     | { readonly from: "fileName"; readonly capture: string }
     | { readonly from: "constant"; readonly value: RawCell }
+    /**
+     * ★ 여러 열의 **곱** (2026-08-18) ★
+     *
+     * ─────────────────────────────────────────────────────────────
+     * 어떤 양식은 라인 합계를 주지 않고 **단가와 수량만** 준다. 자사몰 주문
+     * 파일이 그렇다 — `판매가`(단가) · `상품수량`은 있는데 라인 금액 열이 없고,
+     * `총 품목 금액`은 **주문 단위 합계**다.
+     *
+     * 실측(B2B 픽스처 1,197행 · 주문 1,071건): 주문 단위로 묶으면
+     * `Σ(판매가 × 상품수량) == 총 품목 금액`이 **1,054건 일치**한다. 어긋나는
+     * 17건은 전부 설명된다 — 16건은 취소되어 총액이 0이고, 1건은 옵션 추가금이다.
+     *
+     * 그래서 라인 금액에 `총 품목 금액`을 쓰면 **다품목 주문에서 매출이 겹쳐
+     * 계상된다**(품목 2개짜리 주문이 두 줄 모두 주문 총액을 갖는다). 단가×수량이
+     * 라인의 진실이고, 그걸 표현할 방법이 없어서 이 갈래를 만들었다.
+     * ─────────────────────────────────────────────────────────────
+     *
+     * ★ 마켓을 모른다 (LOCK 4) ★ 「단가 × 수량」은 어느 마켓에나 있는 모양이고,
+     * 여기 있는 것은 **곱셈**뿐이다. 어떤 열을 곱할지는 프로파일이 정한다.
+     *
+     * 열이 없거나 숫자가 아니면 **조용히 0으로 만들지 않는다** — 다른 매핑과
+     * 같은 경로로 오류를 남긴다. 0은 「안 팔렸다」로 읽히므로 가장 위험한 기본값이다.
+     */
+    | { readonly from: "multiply"; readonly columns: readonly string[] }
   /**
    * 원본 값 → Canonical 값 사전. 스키마가 `CHECK`로 값을 제한하는 컬럼이
    * 있어서 필요하다 — 예: `claim_type IN ('CANCEL','RETURN','EXCHANGE','REFUND')`인데
@@ -86,6 +110,36 @@ export interface MappingProfile {
   readonly recognitionRules: {
     readonly containerFormats: readonly string[]
     readonly requiredHeaders: readonly string[]
+    /**
+     * ★ **이 헤더가 있으면 이 양식이 아니다** (2026-08-18) ★
+     *
+     * ─────────────────────────────────────────────────────────────
+     * `requiredHeaders`는 «있으면 통과»라, **좁은 양식이 넓은 양식에 삼켜진다.**
+     *
+     * 실측으로 부딪혔다: 원가표는 `상품번호|상품명|모델명|원가|배송비|카테고리|Model`
+     * 7열인데, 사용자 워크북의 `B2B_매출정리`(101열)에 **그 7열이 전부 들어 있다.**
+     * 그래서 매출 파일이 원가표로 100% 판정됐다 — 필수 헤더를 아무리 고쳐도
+     * 부분집합 관계라 갈리지 않는다.
+     *
+     * ★ 열 수로 막지 않는다 ★ 「7열 이하만 원가표」로 하면 마켓이 열 하나만 더해도
+     * 양식이 통째로 안 붙는다 — 「열 추가는 공짜」라는 이 앱의 성질과 정면으로 충돌한다.
+     *
+     * 대신 **의미로 막는다**: 원가는 상품 단위라 「주문 번호」가 있을 수 없다.
+     * 있으면 그건 거래 파일이지 원가 마스터가 아니다. 열이 늘어도 이 판정은 안 흔들린다.
+     * ─────────────────────────────────────────────────────────────
+     */
+    readonly forbiddenHeaders?: readonly string[]
+    /**
+     * ★ **헤더 행이 없는 파일**을 알아보는 길 (2026-08-19) ★
+     *
+     * 카드 레이아웃에는 헤더 행이 없어서 `requiredHeaders`가 원리적으로 못 맞춘다.
+     * 대신 시트 앞부분 **아무 칸에나** 이 문자열들이 있는지 본다 — 라벨이 값 옆에
+     * 반복해서 적혀 있으므로 그게 곧 양식의 지문이다.
+     *
+     * `requiredHeaders`와 **함께 쓸 수 있다**: 둘 다 선언하면 둘 다 만족해야 한다.
+     * 표 양식이 이 필드를 쓸 일은 없다 — 헤더가 이미 지문이기 때문이다.
+     */
+    readonly requiredCellTexts?: readonly string[]
     readonly headerMatch: "all" | "any"
     readonly fileNamePattern?: string
     /**
@@ -98,10 +152,68 @@ export interface MappingProfile {
     readonly fileNameExample?: string
     readonly minConfidence: number
   }
+  /**
+   * ★ 이 시트는 **표가 아니다** — 카드 레이아웃이다 (2026-08-19) ★
+   *
+   * 있으면 Extraction이 블록 리더를 지나 **표로 펴서** 뒤 단계에 넘긴다. 그래서
+   * Normalization·Mapping·Load는 이 필드의 존재를 모른다 — 어댑터가 앞에서 끝낸다.
+   * 라벨 문자열이 여기 있는 이유는 LOCK 4다: 규칙은 core, 어휘는 팩.
+   */
+  readonly blockRead?: {
+    readonly anchorColumn: number
+    readonly anchorAs: string
+    readonly fields: readonly { readonly label: string; readonly as: string }[]
+    readonly maxSpan?: number
+    readonly skipRows?: number
+    readonly maxIrregular?: number
+    readonly positionConfidence?: number
+    readonly note?: string
+  }
   readonly extractionRules: {
     readonly sheetSelector: { readonly kind: string; readonly name?: string }
     readonly headerRowHint?: number
     readonly detectUnlabeledAggregates?: boolean
+  }
+  /**
+   * ★ **기준 데이터** 양식임을 선언한다 (2026-08-18) ★
+   *
+   * ─────────────────────────────────────────────────────────────
+   * 데이터 3종(헌장)에서 «사실»과 «기준»은 적재 규칙이 다르다:
+   *
+   * ```
+   * 사실  주문·정산   batch로 쌓고 되돌린다 · 원본 불변 · append-only
+   * 기준  원가·상품   덮어쓴다 · 이력이 남는다 · 적용일이 있다
+   * ```
+   *
+   * 지금까지 가져오기는 사실 전용이었다(`FACT_TABLES`가 5표로 닫아 둔다).
+   * 그래서 앱이 «원가 파일이 필요합니다»라고 말해 놓고 **넣을 문이 없었다** —
+   * 말과 행동이 어긋난 자리였다.
+   *
+   * 이 블록이 있으면 `runReferenceImport`가 맡는다. 없으면 종전대로 `runImport`다.
+   * 판정·파싱·정규화(①~④)는 **완전히 같은 코드**를 지나고, 갈라지는 것은 적재뿐이다.
+   * ─────────────────────────────────────────────────────────────
+   */
+  readonly reference?: {
+    /** 무엇을 넣는가. v1은 원가뿐이다 (ADR-005 — 이력 범위를 원가로 좁힌 결정). */
+    readonly target: "cost"
+    /**
+     * 상품을 가리키는 열. **리스팅 키와 같은 값**이어야 한다.
+     *
+     * 원가는 SKU에 붙는데 파일은 SKU를 모른다 — 파일이 아는 것은 마켓의 상품번호이고,
+     * 그건 곧 리스팅 키다. 그래서 «리스팅을 찾아 그 SKU에 붙인다».
+     */
+    readonly listingKeyColumn: string
+    /** 금액 열. 원 단위 정수로 읽는다. */
+    readonly amountColumn: string
+    /**
+     * 모델 코드 열 (선택). 대기 행(011)에 실려 **정확 일치 매칭**의 재료가 된다 —
+     * 이름 유사도로 못 잡는 것을 코드 일치가 잡는다 (cost-card의 실측 메모).
+     */
+    readonly modelColumn?: string
+    /** `cost_history.kind`. 스키마가 CHECK로 네 종을 닫아 뒀다. */
+    readonly kind: "COGS" | "PACKAGING" | "LOGISTICS" | "OTHER"
+    /** 사람이 알아볼 이름을 만들 때 쓴다 (SKU를 새로 만드는 경우). */
+    readonly titleColumn?: string
   }
   readonly sourceKey: {
     readonly strategy: SourceKeyStrategy
@@ -260,6 +372,14 @@ export type ColumnRole =
    * 되고, 그건 어느 표를 봐도 그 값이 없는 이유를 설명하지 못한다.
    */
   | "item-field"
+  /**
+   * `reference.amountColumn` — **기준 데이터의 값**이 여기서 온다 (원가 등).
+   *
+   * `field`와 갈라 두는 이유는 `item-field`와 같다: 이 값은 Fact 표가 아니라
+   * `cost_history`로 가고, 되돌리기도 batch도 걸리지 않는다. 같은 `field`로
+   * 뭉치면 확인 화면이 «주문 표에 저장된다»고 말하게 된다.
+   */
+  | "reference-amount"
 
 export interface ColumnUse {
   readonly roles: readonly ColumnRole[]
@@ -288,6 +408,17 @@ export interface ProfileColumnUse {
  * `rowRouting.routes[].fieldMappings`도 센다 — 클레임 경로에서만 쓰는 컬럼을
  * «버렸다»고 세면 숫자가 거짓말을 한다.
  */
+/**
+ * 기준 데이터 종류 → **저장되는 자리**의 이름. 화면이 「어디에 들어가나」를
+ * 말할 때 쓴다 — `cost_history.kind`의 코드값을 그대로 보이면 아무 뜻도 없다.
+ */
+const REFERENCE_TARGET: Record<string, string> = {
+  COGS: "매입원가",
+  PACKAGING: "포장비",
+  LOGISTICS: "물류비",
+  OTHER: "기타 원가",
+}
+
 export function columnRoles(profile: MappingProfile): ProfileColumnUse {
   const byColumn = new Map<string, ColumnUse>()
 
@@ -320,6 +451,24 @@ export function columnRoles(profile: MappingProfile): ProfileColumnUse {
   for (const c of profile.listing?.keyColumns ?? []) add(c, "listing-key")
   for (const c of profile.listing?.titleColumns ?? []) add(c, "listing-title")
   if (profile.rowRouting) add(profile.rowRouting.column, "routing")
+
+  /**
+   * ★ 기준 데이터 프로파일은 `fieldMappings`가 비어 있다 ★
+   *
+   * 원가표는 Canonical 필드로 저장되는 것이 하나도 없다 — 상품번호로 리스팅을
+   * 찾고 금액을 `cost_history`에 넣을 뿐이다. 그래서 이 블록이 없으면 확인
+   * 화면이 **모든 컬럼을 «이 프로파일이 쓰지 않는 컬럼»이라고 말한다.** 실제로는
+   * 셋을 읽고 그중 둘이 없으면 한 행도 못 넣는데도. 결함 53과 같은 계보다.
+   */
+  const ref = profile.reference
+  if (ref) {
+    add(ref.listingKeyColumn, "listing-key")
+    add(ref.amountColumn, "reference-amount", {
+      target: REFERENCE_TARGET[ref.kind] ?? "기준 데이터",
+      required: true,
+    })
+    add(ref.titleColumn, "listing-title")
+  }
 
   return { byColumn, contentKeyed: profile.sourceKey.strategy === "content" }
 }
@@ -354,10 +503,20 @@ export interface ProfileMatch {
  */
 export function matchProfiles(
   profiles: readonly MappingProfile[],
-  ctx: { containerFormat: string; headers: readonly string[]; fileName: string },
+  ctx: {
+    containerFormat: string
+    headers: readonly string[]
+    fileName: string
+    /**
+     * 시트 앞부분의 **모든 셀 텍스트**. 헤더 행이 없는 양식(카드 레이아웃)은
+     * 이걸로만 알아볼 수 있다 — 주지 않으면 `requiredCellTexts` 선언은 늘 실패한다.
+     */
+    cellTexts?: readonly string[]
+  },
 ): ProfileMatch[] {
   const out: ProfileMatch[] = []
   const present = new Set(ctx.headers.map((h) => h.trim()))
+  const cells = new Set((ctx.cellTexts ?? []).map((c) => c.trim()))
 
   for (const p of profiles) {
     const evidence: string[] = []
@@ -365,12 +524,39 @@ export function matchProfiles(
 
     if (!r.containerFormats.includes(ctx.containerFormat)) continue
 
+    // ★ 금지 헤더가 하나라도 있으면 이 양식이 아니다 — 필수 헤더를 보기 전에 자른다.
+    // 넓은 양식이 좁은 양식을 삼키는 것을 막는 유일한 장치다 (위 주석 참조).
+    const banned = (r.forbiddenHeaders ?? []).filter((h) => present.has(h))
+    if (banned.length > 0) continue
+
+    // 헤더가 없는 양식의 지문. 하나라도 없으면 이 양식이 아니다.
+    const wantCells = r.requiredCellTexts ?? []
+    if (wantCells.length > 0) {
+      const missingCells = wantCells.filter((c) => !cells.has(c))
+      if (missingCells.length > 0) continue
+      evidence.push(`라벨 ${wantCells.length}개 일치`)
+    }
+
     const hit = r.requiredHeaders.filter((h) => present.has(h))
-    const ratio = r.requiredHeaders.length === 0 ? 0 : hit.length / r.requiredHeaders.length
+    /**
+     * ★ 분모가 0일 때의 신뢰도 ★
+     *
+     * 헤더가 없는 양식은 `requiredHeaders`가 비어 있고, 그러면 예전 식은 0을 냈다 —
+     * `minConfidence: 0.8`에 걸려 **라벨이 다 맞아도 탈락**한다. 지문이 라벨 쪽에
+     * 있으면 그쪽으로 잰다. 둘 다 없는 프로파일은 애초에 판정 근거가 없으므로 0이다.
+     */
+    const ratio =
+      r.requiredHeaders.length > 0
+        ? hit.length / r.requiredHeaders.length
+        : wantCells.length > 0
+          ? 1
+          : 0
     if (r.headerMatch === "all" && hit.length !== r.requiredHeaders.length) {
       continue
     }
-    evidence.push(`필수 헤더 ${hit.length}/${r.requiredHeaders.length} 일치`)
+    if (r.requiredHeaders.length > 0) {
+      evidence.push(`필수 헤더 ${hit.length}/${r.requiredHeaders.length} 일치`)
+    }
 
     let confidence = ratio
     let captures: Record<string, string> = {}
@@ -703,6 +889,34 @@ export function mapRows(
     const rowIndex = chunk.rowIndices[i] ?? startRowIndex + i
     const base = i * chunk.width
 
+    /**
+     * 여러 열의 곱. **전부 숫자로 읽혔을 때만** 값이 된다 (`derive.from === "multiply"`).
+     *
+     * 하나라도 못 읽으면 `null`이다 — 0이나 부분곱을 돌려주면 «작게 팔렸다»라는
+     * 거짓이 되고, 그건 조용한 실패다. 주문 행과 품목 행이 **같은 함수**를 쓰므로
+     * 라인 금액이 두 표에서 갈리지 않는다.
+     */
+    const multiplied = (
+      columns: readonly string[],
+      target: string,
+    ): number | null => {
+      let acc = 1
+      for (const name of columns) {
+        const col = index.get(name)
+        if (col === undefined || col >= chunk.width) {
+          if (!missingReported.has(name)) {
+            missingReported.add(name)
+            errors.push({ rowIndex, field: target, reason: `컬럼 "${name}"가 없다`, code: "missing_column" })
+          }
+          return null
+        }
+        const one = coerce(chunk.values[base + col] ?? null, chunk.raws[base + col] ?? null, "number")
+        if (typeof one !== "number") return null
+        acc *= one
+      }
+      return acc
+    }
+
     /** 매핑 한 벌을 적용한다. **두 번 부를 수 있다** — 이중 기록이 그래서 가능하다. */
     const apply = (mappings: readonly FieldMapping[]): { fields: Record<string, RawCell>; fatal: boolean } => {
       const fields: Record<string, RawCell> = {}
@@ -713,6 +927,8 @@ export function mapRows(
         if (m.derive) {
           if (m.derive.from === "constant") {
             value = m.derive.value
+          } else if (m.derive.from === "multiply") {
+            value = multiplied(m.derive.columns, m.target)
           } else {
             const raw = ctx.fileNameCaptures[m.derive.capture]
             value = raw === undefined ? null : (looseDate(raw) ?? raw)
@@ -876,6 +1092,9 @@ export function mapRows(
         for (const m of itemRule!.fieldMappings) {
           let value: RawCell = null
           if (m.derive?.from === "constant") value = m.derive.value
+          // 라인 금액이 «단가 × 수량»인 양식은 품목 쪽도 같은 곱이 필요하다.
+          // 주문 행과 **같은 함수**를 쓰므로 두 표의 금액이 갈릴 수 없다.
+          else if (m.derive?.from === "multiply") value = multiplied(m.derive.columns, m.target)
           else if (m.source !== undefined) {
             const col = index.get(m.source)
             if (col !== undefined && col < chunk.width) {
