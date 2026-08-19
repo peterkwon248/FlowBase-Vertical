@@ -36,8 +36,10 @@ import { wiringReport } from "../tools/harness/wiring.js"
  * 2026-08-17 기준 9 = 부분 데이터 고지 3 + 정산 조정 6.
  * 2026-08-18 기준 6 = 정산 조정 6. **부분 데이터 고지 3이 배선됐다** —
  * `partial` 배너가 `batch_exclusion`을 읽어 「파일에서 N행이 제외됐습니다」를 말한다.
+ * 2026-08-20 기준 0 = **정산 조정 6이 배선됐다** (ADR-020 — 조정 레이어의 쓰기
+ * 경로). 소비되는 자리는 전부 채워졌거나 컷으로 선언됐다.
  */
-const TODO_MAX = 6
+const TODO_MAX = 0
 
 describe("배선 커버리지 — 마크업이 쓰는 자리에 값이 들어오는가", () => {
   const r = wiringReport()

@@ -23,7 +23,7 @@ import { createElement } from "react"
 import { renderToString } from "react-dom/server"
 import { openNodeDriver } from "../../src/core/store/driver-node.js"
 import { loadPnlSnapshot } from "../../src/core/profit/snapshot.js"
-import { loadSettlementRows } from "../../src/core/settlement/rows.js"
+import { loadSettlementRows, adjustmentKey } from "../../src/core/settlement/rows.js"
 import { loadOrderRows } from "../../src/core/order/rows.js"
 import { loadLinkingView } from "../../src/core/linking/view.js"
 import { krLinkingMatcher, krCostBridgeMatcher } from "../../src/packs/kr-marketplace/linking-matcher.js"
@@ -31,7 +31,7 @@ import { loadPendingCostView } from "../../src/core/linking/pending-cost.js"
 import { fieldmapVals, loadFieldmapView } from "../../src/app/fieldmap.js"
 import { Repository } from "../../src/core/store/repository.js"
 import { dashboardVals } from "../../src/app/dashboard.js"
-import { settlementVals } from "../../src/app/settlement.js"
+import { settlementVals, emptyAdjDraft } from "../../src/app/settlement.js"
 import { orderVals } from "../../src/app/order.js"
 import { linkingVals, type LinkTab } from "../../src/app/linking.js"
 import { channelVals } from "../../src/app/channel.js"
@@ -51,8 +51,12 @@ import { shellVals, shellStateFor } from "../../src/app/shell.js"
 
 const VIEW = process.argv[2] ?? "dash"
 const DB = process.argv[3] ?? ".tmp/pnl.sqlite"
-/** 상품 연결은 탭이 셋이라 하나를 골라야 한다 — `… linking done`. */
-const TAB = (process.argv[4] ?? "todo") as LinkTab
+/**
+ * 화면별 «상태» 인자. 상품 연결은 탭이 넷이라 하나를 골라야 하고(`… linking done`),
+ * 정산은 `adj`로 조정 팝오버를 연다.
+ */
+const STATE = process.argv[4] ?? "todo"
+const TAB = STATE as LinkTab
 const PERIOD = { from: "2026-07-01", to: "2026-07-31" }
 const STYLES = "src/app/styles"
 
@@ -177,7 +181,23 @@ dashboardVals(vals, snap, PERIOD, coverage, {
   // 호버는 상호작용이라 SSR에서는 늘 꺼져 있다 (툴팁은 사람이 실기기에서 본다).
   trendIdx: -1,
 })
-settlementVals(vals, settlement, PERIOD)
+/**
+ * 정산의 **조정 팝오버**만 SSR에서 열 수 있다 — `… settlement <DB> adj`.
+ *
+ * 다른 상호작용 상태(호버·선택)와 달리 이것은 열어 볼 값이 있다: 팝오버는 조정
+ * 스택·유효값·막힘 사유를 한꺼번에 그리는데, 닫혀 있으면 그 마크업이 아예 렌더되지
+ * 않아 **눈으로 확인할 길이 없다** (ADR-020). 위치 계산만은 DOM이 필요해
+ * 기본 좌표로 뜬다.
+ */
+const adjRow = STATE === "adj" ? settlement.find((r) => r.adjustments.length > 0) : undefined
+settlementVals(
+  vals,
+  settlement,
+  PERIOD,
+  adjRow === undefined
+    ? emptyAdjDraft()
+    : { ...emptyAdjDraft(), openKey: adjustmentKey(adjRow.settledOn, adjRow.connectionId) },
+)
 orderVals(vals, orders, PERIOD)
 // 선택 상태는 상호작용이라 SSR에서는 늘 비어 있다 — 일괄 바의 «모두 선택»은
 // 그려지지만 눌린 뒤의 모습은 이 층이 증명하지 못한다 (2d에서 사람이 본다).

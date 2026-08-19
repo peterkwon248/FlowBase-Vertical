@@ -538,6 +538,79 @@ const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[
     to: ["c.onPick", "c.locked", "c.fieldColor"],
     why: "위 «드롭다운 잠금»의 holes 쪽 짝 — `disabled` 속성의 동적 자리",
   },
+
+  // ── 정산 조정 팝오버 (ADR-020) ────────────────────────────────────
+  {
+    field: "attrs",
+    from: ["placeholder=사유 (선택)", "class=v-btn v-btn--primary", "onClick={s.addAdj}"],
+    to: [
+      "placeholder=사유 (필수)",
+      "class=v-btn v-btn--primary",
+      "onClick={s.addAdj}",
+      "disabled={adjBlocked}",
+    ],
+    why:
+      "★ 조정의 **사유를 필수로 만든다** (2026-08-20 · ADR-020 A5) ★ 목업은 「사유 " +
+      "(선택)」이고 사유 없이 넣으면 스택에 «사유 없음»으로 남는다. 목업 시절에는 그게 " +
+      "무해했다 — 저장이 없었으므로 새로고침이면 사라지는 화면 상태였다. 우리는 이것을 " +
+      "**장부에 영구히 쌓는다.** 사유 없는 조정은 몇 달 뒤에 오타와 구별되지 않고, " +
+      "애초에 조정 레이어를 «복제 시트에서 값 고치기» 대신 고른 근거 셋 중 하나가 " +
+      "「`reason`이 NOT NULL이라 왜 고쳤는지가 반드시 남는다」였다. 선택으로 열면 그 " +
+      "근거가 무너지고 NOT NULL은 장식이 된다. 필수로 만든 이상 버튼도 따라간다 — " +
+      "`disabled`는 위 «드롭다운 잠금»과 같은 처방이고, 왜 막혔는지는 바로 위 " +
+      "`data-s21=\"settle-adj-guard\"` 한 줄이 말한다 (§21-1)",
+  },
+  {
+    field: "styles",
+    from: [
+      "flex:1",
+      "minWidth:0",
+      "height:27px",
+      "fontSize:12px",
+      "display:flex",
+      "alignItems:center",
+      "gap:6px",
+      "height:27px",
+      "height:27px",
+    ],
+    to: [
+      "flex:1",
+      "minWidth:0",
+      "height:27px",
+      "fontSize:12px",
+      "display:flex",
+      "alignItems:center",
+      "gap:6px",
+      "height:27px",
+      "opacity:{adjAddOpacity}",
+      "height:27px",
+    ],
+    why:
+      "위 «사유 필수»의 styles 쪽 짝 — 「조정 추가」 버튼의 `opacity`. `disabled`만으로는 " +
+      "파란 primary 버튼이 그대로 파랗게 남아 눌리는 줄 알고 누른다 (`fixSaveOpacity` · " +
+      "`product.ts`의 `saveOpacity`와 같은 판례). 앞뒤 항목을 길게 붙인 것은 " +
+      "「height:27px」가 팝오버 안에만 네 곳이라 구간을 유일하게 짚기 위해서다",
+  },
+  {
+    field: "holes",
+    from: ["adjWhy", "setAdjWhy", "s.addAdj", "s.hasAdj", "s.resetAdj"],
+    to: [
+      "adjWhy",
+      "setAdjWhy",
+      "adjBlockWhy",
+      "adjAddOpacity",
+      "s.addAdj",
+      "adjBlocked",
+      "s.hasAdj",
+      "s.resetAdj",
+    ],
+    why:
+      "위 «사유 필수»의 holes 쪽 짝. `adjBlockWhy`가 **구간 밖에 한 번 더** 나오는 것은 " +
+      "`data-s21=\"settle-adj-guard\"`를 **감싼 조건**이기 때문이다 — 구간 자체는 대조에서 " +
+      "빠지지만 감싼 `{vals.adjBlockWhy && …}`는 부모에 남는다 (`periodPick` 판례). " +
+      "막힐 이유가 없으면 그 줄을 아예 그리지 않는다: 아무것도 안 쓴 상태는 «틀림»이 " +
+      "아니라 «아직»이라, 팝오버를 열자마자 빨간 줄이 뜨면 그게 거짓말이다",
+  },
 ]
 
 /**
@@ -777,6 +850,20 @@ const S21_REGIONS = [
       "「두지 않습니다」가 함께 있는 이유는 §22다: 「0원」과 「0원이 맞다」를 구분하지 " +
       "못하면 일부러 안 넣는 사용자에게 진단이 영영 「미입력」이라고 잔소리하고, " +
       "지워지지 않는 경고 하나가 화면 전체를 안 보게 만든다",
+  },
+  {
+    id: "settle-adj-guard",
+    mockupStyle: null,
+    removeWhenWired: null,
+    why:
+      "정산 조정 팝오버의 **「왜 못 누르나」 한 줄** — 신설 (2026-08-20 · ADR-020 A5). " +
+      "목업 팝오버에는 금액·사유 입력과 「조정 추가」 버튼만 있고 막힌 이유를 말할 자리가 " +
+      "없다. 목업에서는 사유가 **선택**이라 막힐 일 자체가 없었기 때문인데, 우리는 사유를 " +
+      "**필수**로 만들었다 — 사유 없는 조정은 나중에 오타와 구별되지 않고, 조정 레이어를 " +
+      "복제 시트 대신 고른 근거 자체가 「왜 고쳤는지가 반드시 남는다」였다. 필수로 만든 " +
+      "이상 §21-1이 요구한다: **누를 수 없으면 사유를 함께** 낸다. 아무 말 없이 회색인 " +
+      "버튼은 «고장»으로 읽힌다. 열자마자 뜨지는 않는다 — 아직 아무것도 안 쓴 상태는 " +
+      "«틀림»이 아니라 «아직»이다",
   },
   {
     id: "link-cost-pending",

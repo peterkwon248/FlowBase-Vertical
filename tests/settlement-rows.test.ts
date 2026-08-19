@@ -21,7 +21,7 @@ import { loadPnlSnapshot } from "../src/core/profit/snapshot.js"
 import { loadSettlementRows } from "../src/core/settlement/rows.js"
 import { pnlGaps } from "../src/core/profit/gaps.js"
 import type { Period } from "../src/core/profit/index.js"
-import { settlementVals } from "../src/app/settlement.js"
+import { settlementVals, effectivePayout } from "../src/app/settlement.js"
 import { Template } from "../src/app/generated/Template.js"
 import { shellVals, shellStateFor } from "../src/app/shell.js"
 import { DEV_SNAPSHOT } from "./dev-db.js"
@@ -119,17 +119,30 @@ run("정산 화면 — 화면 숫자 = 손익 단서 숫자", () => {
     expect(html, "대사 상태가 없다").toContain("주문 미연결")
   })
 
-  it("조정 어포던스를 그리지 않는다 — 쓰기 경로가 아직 없다 (§21-1)", async () => {
+  /**
+   * ★ 2026-08-20에 **뒤집힌 시험이다** ★
+   * 여기 있던 「조정 어포던스를 그리지 않는다」는 *쓰기 경로가 없는 동안* 참이어야
+   * 할 문장이었다. ADR-020이 그 경로를 열었으므로 이제 지켜야 할 것이 바뀐다 —
+   * 조정이 **없는** 행은 여전히 「—」이고, 대사 「확인함으로」는 아직 범위 밖이라
+   * 그대로 어포던스를 그리지 않는다 (§21-1).
+   */
+  it("조정이 없으면 «—»이고, 대사 확인 어포던스는 아직 그리지 않는다 (§21-1)", async () => {
     const { rows } = await load()
     const vals = shellVals(shellStateFor(false), {
       go: () => {}, toggleNav: () => {}, closeNav: () => {},
       openNav: () => {}, goImport: () => {}, toggleTheme: () => {},
     } as never)
     settlementVals(vals, rows, PERIOD)
+    for (const r of rows) expect(r.adjustments, "개발 DB에는 조정이 없다").toHaveLength(0)
     for (const r of vals.setRows as { hasAdj: boolean; canAck: boolean; adj: string }[]) {
-      expect(r.hasAdj, "조정 마커를 그리면 안 된다").toBe(false)
-      expect(r.canAck, "확인함 버튼을 그리면 안 된다").toBe(false)
+      expect(r.hasAdj, "조정이 없으면 마커도 없다").toBe(false)
+      expect(r.canAck, "확인함 버튼은 아직 범위 밖이다 (ADR-020)").toBe(false)
       expect(r.adj, "조정 값이 없으면 —").toBe("—")
     }
+  })
+
+  it("조정이 없으면 지급액은 원본 그대로다 — 얹을 것이 없다", async () => {
+    const { rows } = await load()
+    for (const r of rows) expect(effectivePayout(r), r.settledOn).toBe(r.net)
   })
 })
