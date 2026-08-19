@@ -36,6 +36,19 @@ export const FACT_TABLES = [
 export type FactTable = (typeof FACT_TABLES)[number]
 
 /**
+ * 조정이 가리킬 수 있는 대상 (ADR-020 A1·A3).
+ *
+ * ★ `settlement_daily`는 **실재하는 표가 아니다** ★
+ * 정산 화면의 한 줄은 `GROUP BY settled_on, connection_id`의 결과라 Fact 행이
+ * 아니다. 그 집계행에 붙는 조정을 Fact 행 조정과 구별하는 판별자가 이 이름이고,
+ * **의미론도 여기서 갈린다** — `settlement_daily`는 delta 합산,
+ * `fact_*`는 절대값 대체(`applyAdjustments`)다. 섞으면 조용히 틀린 금액이 된다.
+ */
+export const SETTLEMENT_DAILY = "settlement_daily"
+
+export type AdjustmentTarget = FactTable | typeof SETTLEMENT_DAILY
+
+/**
  * **지울 때의 순서** — 자식이 먼저다 (`PRAGMA foreign_keys = ON`).
  *
  * ─────────────────────────────────────────────────────────────
@@ -1877,7 +1890,7 @@ export class Repository {
   async addAdjustment(a: {
     libraryId: string
     connectionId: string
-    table: FactTable
+    table: AdjustmentTarget
     sourceKey: string
     field: string
     previousValue: SqlValue
@@ -1905,16 +1918,56 @@ export class Repository {
   }
 
   /** 한 행에 쌓인 조정 스택. 시간순이며 무효화된 것은 뺀다. */
-  async adjustmentsFor(connectionId: string, table: FactTable, sourceKey: string): Promise<Row[]> {
+  async adjustmentsFor(
+    connectionId: string,
+    table: AdjustmentTarget,
+    sourceKey: string,
+  ): Promise<Row[]> {
     return this.db
       .prepare(
-        `SELECT field, previous_value, new_value, reason, created_at
+        `SELECT id, field, previous_value, new_value, reason, created_at
            FROM adjustment
           WHERE target_connection_id = ? AND target_table = ? AND target_source_key = ?
             AND revoked_at IS NULL
           ORDER BY id`,
       )
       .all(connectionId, table, sourceKey)
+  }
+
+  /**
+   * 조정 하나를 **무효화한다 — 지우지 않는다** (ADR-020 A6).
+   *
+   * 001의 주석이 정한 규율이다: 「조정을 되돌리는 것도 조정이다」. 화면에서
+   * 사라지는 것은 `adjustmentsFor`가 `revoked_at IS NULL`로 거르기 때문이고,
+   * DB에는 **누가 언제 무엇을 얹었다가 거뒀는지가 남는다.**
+   *
+   * 이미 무효화된 것은 다시 무효화하지 않는다 — 그러면 거둔 시각이 덮어써진다.
+   */
+  async revokeAdjustment(id: number, now: string): Promise<void> {
+    await this.db
+      .prepare(`UPDATE adjustment SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`)
+      .run(now, id)
+  }
+
+  /**
+   * 한 대상의 활성 조정을 **전부** 무효화한다 — 「원본으로 복원」.
+   *
+   * 한 문장이므로 한 번의 UPDATE다. 항목마다 따로 돌면 중간에 실패했을 때
+   * 절반만 거둬진 스택이 남고, 그 합계는 사용자가 의도한 어느 쪽도 아니다.
+   */
+  async revokeAdjustmentsFor(
+    connectionId: string,
+    table: AdjustmentTarget,
+    sourceKey: string,
+    now: string,
+  ): Promise<void> {
+    await this.db
+      .prepare(
+        `UPDATE adjustment SET revoked_at = ?
+          WHERE target_connection_id = ? AND target_table = ? AND target_source_key = ?
+            AND revoked_at IS NULL`,
+      )
+      .run(now, connectionId, table, sourceKey)
   }
 
   // ─────────────────────────────────────────────────────────
