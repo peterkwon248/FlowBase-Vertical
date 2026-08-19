@@ -24,7 +24,15 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Template } from "./generated/Template.js"
 import { dashboardVals } from "./dashboard.js"
-import { settlementVals } from "./settlement.js"
+import {
+  settlementVals,
+  emptyAdjDraft,
+  parseDelta,
+  type AdjDraft,
+  type AdjActions,
+} from "./settlement.js"
+import { SETTLEMENT_DAILY } from "@core/store/repository.js"
+import { ADJUSTED_FIELD } from "@core/settlement/rows.js"
 import { orderVals } from "./order.js"
 import { linkingVals, type LinkTab, type LinkingActions } from "./linking.js"
 import { channelVals } from "./channel.js"
@@ -713,6 +721,98 @@ export function App(): React.JSX.Element {
     },
   }
 
+  // ── 정산 조정 (ADR-020) ─────────────────────────────────────────
+  //
+  // ★ 조정 레이어의 **쓰기 경로가 여기서 처음 열린다** ★
+  // LOCK 3(원본 불변)·LOCK 9(Fact 인라인 편집 금지)와 닿는 자리라 무엇을 열고
+  // 무엇을 잠글지는 ADR-020이 정했다 — 대상은 정산일×연결 집계행, 값은 delta,
+  // 여는 필드는 지급액 하나, 사유는 필수, 취소는 무효화다.
+  const [adjDraft, setAdjDraft] = useState<AdjDraft>(emptyAdjDraft)
+
+  const adjActions: AdjActions = {
+    open: (key, pos) =>
+      setAdjDraft((d) =>
+        // 같은 칸을 다시 누르면 닫는다. 열 때는 초안을 비운다 — 다른 묶음에서
+        // 쓰던 금액이 남아 있으면 엉뚱한 곳에 얹힌다.
+        d.openKey === key
+          ? { ...d, openKey: null }
+          : {
+              openKey: key,
+              amount: "",
+              why: "",
+              top: pos?.top ?? d.top,
+              left: pos?.left ?? d.left,
+            },
+      ),
+    setAmount: (v) => setAdjDraft((d) => ({ ...d, amount: v })),
+    setWhy: (v) => setAdjDraft((d) => ({ ...d, why: v })),
+
+    add: (row) => {
+      const delta = parseDelta(adjDraft.amount)
+      const reason = adjDraft.why.trim()
+      if (delta === null || reason === "" || !acquire()) return
+      const stamp = nowStamp()
+      void writeThenReload(async (repo) => {
+        await repo.addAdjustment({
+          libraryId: DEV_LIBRARY,
+          connectionId: row.connectionId,
+          table: SETTLEMENT_DAILY,
+          sourceKey: row.settledOn,
+          field: ADJUSTED_FIELD,
+          // ★ 계산에 쓰지 않는다 ★ 「고칠 때 원본이 얼마였나」의 스냅샷이다.
+          // 유효값은 언제나 **지금의 원본 + delta**라, 재가져오기로 원본이
+          // 갱신되면 이 값과 갈린다 — 그 갈림 자체가 남길 만한 사실이다.
+          previousValue: row.net,
+          newValue: delta,
+          reason,
+          createdAt: stamp,
+        })
+      }, monthRef.current)
+        .then((r) => {
+          if (r.error) {
+            setConfirm(sayConfirm("조정하지 못했습니다", r.error, () => setConfirm(null)))
+            return
+          }
+          take(r)
+          // 팝오버는 열어 둔다 — 스택에 쌓인 것을 눈으로 확인하는 자리다.
+          setAdjDraft((d) => ({ ...d, amount: "", why: "" }))
+        })
+        .finally(release)
+    },
+
+    revoke: (id) => {
+      if (!acquire()) return
+      const stamp = nowStamp()
+      void writeThenReload(async (repo) => {
+        await repo.revokeAdjustment(id, stamp)
+      }, monthRef.current)
+        .then((r) => {
+          if (r.error) setConfirm(sayConfirm("거두지 못했습니다", r.error, () => setConfirm(null)))
+          else take(r)
+        })
+        .finally(release)
+    },
+
+    reset: (row) => {
+      if (!acquire()) return
+      const stamp = nowStamp()
+      void writeThenReload(async (repo) => {
+        await repo.revokeAdjustmentsFor(
+          row.connectionId,
+          SETTLEMENT_DAILY,
+          row.settledOn,
+          stamp,
+        )
+      }, monthRef.current)
+        .then((r) => {
+          if (r.error)
+            setConfirm(sayConfirm("되돌리지 못했습니다", r.error, () => setConfirm(null)))
+          else take(r)
+        })
+        .finally(release)
+    },
+  }
+
   // ── 가져오기 위저드 ──────────────────────────────────────────────
   // 파일은 **웹 표준 `<input type="file">`**로 받는다 (ADR-013 — IPC 표면 0).
   const [wiz, setWiz] = useState<ImportWizardState>(EMPTY_WIZARD)
@@ -1051,7 +1151,7 @@ export function App(): React.JSX.Element {
   }
   // 정산은 손익과 **다른 조회**라 따로 배선한다. 둘 다 같은 순간의 같은 DB를
   // 읽으므로(loadDevSnapshot이 연결을 한 번만 연다) 화면끼리 어긋나지 않는다.
-  if (setRows.length > 0) settlementVals(vals, setRows, per)
+  if (setRows.length > 0) settlementVals(vals, setRows, per, adjDraft, adjActions)
   if (ordRows.length > 0) orderVals(vals, ordRows, per)
   // 연결은 **0장도 사실**이다. 다른 화면과 달리 길이로 거르지 않는 이유는, 리스팅이
   // 하나도 없으면 "연결할 것이 없습니다"가 떠야 하기 때문이다 — 목업의 빈 상태가

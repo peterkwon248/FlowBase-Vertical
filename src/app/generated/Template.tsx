@@ -2207,7 +2207,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                             </span>
                                             {" "}
                                             <span className="v-num" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)" }}>
-                                              원본{s.origAdj}→{s.effAdjLabel}
+                                              원본 {s.origAdj} → {s.effAdjLabel}
                                             </span>
                                           </span>
                                           {" "}
@@ -2233,11 +2233,17 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                             <span style={{ display: "flex", gap: "6px" }}>
                                               <input className="v-input" style={{ width: "96px", height: "27px", fontSize: "12px" }} value={vals.adjDraft} onChange={vals.setAdjDraft} placeholder="+/− 금액" />
                                               {" "}
-                                              <input className="v-input" style={{ flex: "1", minWidth: "0", height: "27px", fontSize: "12px" }} value={vals.adjWhy} onChange={vals.setAdjWhy} placeholder="사유 (선택)" />
+                                              <input className="v-input" style={{ flex: "1", minWidth: "0", height: "27px", fontSize: "12px" }} value={vals.adjWhy} onChange={vals.setAdjWhy} placeholder="사유 (필수)" />
                                             </span>
                                             {" "}
+                                            {vals.adjBlockWhy && (
+                                                <span data-s21="settle-adj-guard" style={{ font: "var(--fw-medium) 10px/1.5 var(--font-sans)", color: "var(--pnl-warn)", textWrap: "pretty" }}>
+                                                  {vals.adjBlockWhy}
+                                                </span>
+                                            )}
+                                            {" "}
                                             <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                              <button className="v-btn v-btn--primary" style={{ height: "27px" }} onClick={s.addAdj}>
+                                              <button className="v-btn v-btn--primary" style={{ height: "27px", opacity: vals.adjAddOpacity }} onClick={s.addAdj} disabled={vals.adjBlocked}>
                                                 조정 추가
                                               </button>
                                               {" "}

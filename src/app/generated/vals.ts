@@ -48,6 +48,9 @@ export interface TemplateVals {
   adAlloc: string
   adCount: string
   addCf: (...args: any[]) => void
+  adjAddOpacity: string
+  adjBlockWhy: string
+  adjBlocked: boolean
   adjDraft: string
   adjPosLeft: string
   adjPosTop: string
@@ -670,6 +673,10 @@ export function emptyVals(): TemplateVals {
     adAlloc: "",
     adCount: "",
     addCf: () => {},
+    // §21 신설 (settle-adj-guard) — 「조정 추가」를 못 누를 때 왜인지 (ADR-020 A5)
+    adjAddOpacity: "0.45",
+    adjBlockWhy: "",
+    adjBlocked: true,
     adjDraft: "",
     adjPosLeft: "",
     adjPosTop: "",
