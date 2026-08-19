@@ -77,6 +77,25 @@ const VOID = new Set([
   "link", "meta", "param", "source", "track", "wbr",
 ])
 
+/**
+ * 텍스트 노드를 직속 자식으로 가질 수 없는 요소 — 표 구조다.
+ *
+ * HTML 파서는 이 자리의 공백을 DOM에 남기지만 CSS 표 레이아웃이 **아무것도
+ * 그리지 않는다**. 즉 여기서 `{" "}`를 빼도 원본 렌더는 그대로다. 반대로 넣어
+ * 두면 React 개발 모드가 «whitespace text nodes cannot be a child of <table>»을
+ * 매 렌더마다 뱉어, 진짜 오류가 그 소음에 묻힌다.
+ */
+const NO_TEXT_CHILD = new Set(["table", "thead", "tbody", "tfoot", "tr", "colgroup"])
+
+/**
+ * 지금 자리를 감싼 **가장 가까운 DOM 요소**의 태그. 최상위는 `null`.
+ *
+ * `sc-if`/`sc-for`는 Fragment로 나가 DOM에 요소를 만들지 않으므로 자기 부모의
+ * host를 그대로 물려준다 — `<tbody>` 안의 `sc-for`가 뱉는 공백도 결국 `<tbody>`의
+ * 자식이 되기 때문이다.
+ */
+type Host = string | null
+
 export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitResult {
   const imports = new Map<string, Set<string>>()
   const valsKeys = new Set<string>()
@@ -89,22 +108,27 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
     throw new Error(`템플릿 최상위가 요소 하나가 아니다 (${roots.length}개)`)
   }
 
-  const jsx = emitNode(first, 2, new Set())
+  const jsx = emitNode(first, 2, new Set(), null)
   return { jsx, imports, valsKeys, valsUses, notes }
 
   // ── 노드 ────────────────────────────────────────────────────────────
 
-  function emitNode(n: Node, depth: number, scope: ReadonlySet<string>): string {
+  function emitNode(n: Node, depth: number, scope: ReadonlySet<string>, host: Host): string {
     const pad = "  ".repeat(depth)
     if (n.k === "comment") return `${pad}{/*${n.text}*/}`
     if (n.k === "text") return emitText(n.parts, depth, scope)
-    if (n.tag === "sc-if") return emitIf(n, depth, scope)
-    if (n.tag === "sc-for") return emitFor(n, depth, scope)
+    if (n.tag === "sc-if") return emitIf(n, depth, scope, host)
+    if (n.tag === "sc-for") return emitFor(n, depth, scope, host)
     if (n.tag === "x-import") return emitImport(n, depth, scope)
     return emitElement(n, depth, scope)
   }
 
-  function emitChildren(kids: readonly Node[], depth: number, scope: ReadonlySet<string>): string[] {
+  function emitChildren(
+    kids: readonly Node[],
+    depth: number,
+    scope: ReadonlySet<string>,
+    host: Host,
+  ): string[] {
     const out: string[] = []
     for (let i = 0; i < kids.length; i++) {
       const kid = kids[i]
@@ -114,11 +138,13 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
       // (줄 시작·끝의 공백은 접힌다). JSX는 줄바꿈이 든 공백을 통째로 버리므로,
       // 살아남아야 하는 자리에만 {" "}를 명시해 원본 렌더를 유지한다.
       if (isBlank(kid)) {
+        // 표 구조 안이라면 넣지 않는다 — 어차피 안 그려지고, React 개발 모드만 운다
+        if (host !== null && NO_TEXT_CHILD.has(host)) continue
         const between = hasContentBefore(kids, i) && hasContentAfter(kids, i)
         if (between) out.push(`${"  ".repeat(depth)}{" "}`)
         continue
       }
-      out.push(emitNode(kid, depth, scope))
+      out.push(emitNode(kid, depth, scope, host))
     }
     return out
   }
@@ -137,23 +163,23 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
       return `${pad}<${head} />`
     }
 
-    const kids = emitChildren(n.kids, depth + 1, scope)
+    const kids = emitChildren(n.kids, depth + 1, scope, n.tag)
     if (kids.length === 0) return `${pad}<${head}></${n.tag}>`
     return `${pad}<${head}>\n${kids.join("\n")}\n${pad}</${n.tag}>`
   }
 
   /** `<sc-if value="{{ c }}">` → `{c && (…)}` (§4-1). */
-  function emitIf(n: ElNode, depth: number, scope: ReadonlySet<string>): string {
+  function emitIf(n: ElNode, depth: number, scope: ReadonlySet<string>, host: Host): string {
     const pad = "  ".repeat(depth)
     const cond = directiveExpr(n, "value", scope, "cond")
-    const kids = emitChildren(n.kids, depth + 2, scope)
+    const kids = emitChildren(n.kids, depth + 2, scope, host)
     if (kids.length === 0) return `${pad}{/* 빈 sc-if: ${cond} */}`
     const body = wrapFragment(kids, depth + 1)
     return `${pad}{${cond} && (\n${body}\n${pad})}`
   }
 
   /** `<sc-for list="{{ xs }}" as="x">` → `{xs.map((x, $index) => …)}` (§4-1). */
-  function emitFor(n: ElNode, depth: number, scope: ReadonlySet<string>): string {
+  function emitFor(n: ElNode, depth: number, scope: ReadonlySet<string>, host: Host): string {
     const pad = "  ".repeat(depth)
     const list = directiveExpr(n, "list", scope, "list")
     const as = literalAttr(n, "as")
@@ -165,7 +191,7 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
     inner.add(as)
     inner.add("$index")
 
-    const kids = emitChildren(n.kids, depth + 2, inner)
+    const kids = emitChildren(n.kids, depth + 2, inner, host)
     if (kids.length === 0) return `${pad}{/* 빈 sc-for: ${list} */}`
 
     const only = kids[0]

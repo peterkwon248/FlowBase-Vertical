@@ -1604,7 +1604,6 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   ))}
                                 </tr>
                               </thead>
-                              {" "}
                               <tbody>
                                 {vals.pnlRows.map((r: any, $index: number) => (
                                     <tr key={$index} className="fb-row" style={{ cursor: "pointer", background: r.bg }} onClick={r.click}>
@@ -1633,39 +1632,30 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                           )}
                                         </span>
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {r.qty}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: "var(--fg-2)" }}>
                                         {r.rev}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {r.disc}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {r.fee}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {r.ship}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {r.cogs}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {r.ad}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ fontWeight: "var(--fw-semi)", color: r.netColor }}>
                                         {r.net}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: r.netColor }}>
                                         <span style={{ display: "inline-flex", alignItems: "center", gap: "7px", justifyContent: "flex-end" }}>
                                           <span style={{ width: "34px", height: "4px", borderRadius: "2px", background: "var(--bg-elevated-2)", position: "relative", overflow: "hidden", flex: "none" }}>
@@ -1679,7 +1669,6 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                       </td>
                                     </tr>
                                 ))}
-                                {" "}
                                 {vals.pnlEmpty && (
                                     <tr>
                                       <td className="db-td" colSpan={10} style={{ padding: "0" }}>
@@ -1701,7 +1690,6 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                       </td>
                                     </tr>
                                 )}
-                                {" "}
                                 {vals.hasRest && (
                                     <tr className="fb-row" style={{ cursor: "pointer" }} onClick={vals.showAllProducts}>
                                       <td className="db-td">
@@ -1713,82 +1701,63 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                           </span>
                                         </span>
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {vals.rest.qty}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {vals.rest.rev}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {vals.rest.disc}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {vals.rest.fee}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {vals.rest.ship}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {vals.rest.cogs}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {vals.rest.ad}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: "var(--fg-3)" }}>
                                         {vals.rest.net}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: "var(--fg-4)" }}>
                                         {vals.rest.margin}
                                       </td>
                                     </tr>
                                 )}
-                                {" "}
                                 <tr style={{ background: "var(--bg-subtle)" }}>
                                   <td className="db-td" style={{ font: "var(--fw-semi) 13px var(--font-sans)", color: "var(--fg)" }}>
                                     합계
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell" style={{ fontWeight: "var(--fw-semi)" }}>
                                     {vals.tot.qty}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell" style={{ fontWeight: "var(--fw-semi)", color: "var(--fg-2)" }}>
                                     {vals.tot.rev}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell">
                                     {vals.tot.disc}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell">
                                     {vals.tot.fee}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell">
                                     {vals.tot.ship}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell">
                                     {vals.tot.cogs}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell">
                                     {vals.tot.ad}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell" style={{ fontWeight: "var(--fw-semi)", color: "var(--pnl-pos)" }}>
                                     {vals.tot.net}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell" style={{ fontWeight: "var(--fw-semi)", color: "var(--fg)" }}>
                                     {vals.tot.margin}
                                   </td>
@@ -2072,61 +2041,51 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   정산일
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th">
                                   채널
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th">
                                   건수
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                   정산 대상
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                   수수료
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                   수수료 VAT
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                   배송비
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                   조정
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                   지급액
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th">
                                   출처
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th">
                                   대사
@@ -2134,7 +2093,6 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               </th>
                             </tr>
                           </thead>
-                          {" "}
                           <tbody>
                             {vals.setEmpty && (
                                 <tr>
@@ -2153,13 +2111,11 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   </td>
                                 </tr>
                             )}
-                            {" "}
                             {vals.setRows.map((s: any, $index: number) => (
                                 <tr key={$index} className="fb-row" style={{ cursor: "pointer" }} onClick={s.click}>
                                   <td className="db-td" style={{ font: "var(--fw-medium) 12px var(--font-mono)", color: "var(--fg-3)", whiteSpace: "nowrap" }}>
                                     {s.date}
                                   </td>
-                                  {" "}
                                   <td className="db-td">
                                     <span style={{ display: "inline-flex", alignItems: "center", gap: "7px", whiteSpace: "nowrap" }}>
                                       <span style={{ width: "7px", height: "7px", borderRadius: "2px", background: s.color, flex: "none" }}></span>
@@ -2169,27 +2125,21 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                       </span>
                                     </span>
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell" style={{ textAlign: "left", whiteSpace: "nowrap" }}>
                                     {s.count}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell" style={{ color: "var(--fg-2)" }}>
                                     {s.gross}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell">
                                     {s.fee}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell">
                                     {s.vat}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell">
                                     {s.ship}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell" style={{ position: "relative", color: s.adjColor, cursor: "pointer" }} onClick={s.openAdj} title={s.adjTip}>
                                     <span>
                                       {s.adj}
@@ -2255,11 +2205,9 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                         </span>
                                     )}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell" style={{ fontWeight: "var(--fw-semi)", color: "var(--fg)" }}>
                                     {s.payout}
                                   </td>
-                                  {" "}
                                   <td className="db-td" style={{ whiteSpace: "nowrap" }}>
                                     <span style={{ display: "inline-flex", alignItems: "center", gap: "7px" }}>
                                       <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: s.srcColor }}>
@@ -2273,7 +2221,6 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                       )}
                                     </span>
                                   </td>
-                                  {" "}
                                   <td className="db-td" style={{ whiteSpace: "nowrap" }}>
                                     <span style={{ display: "inline-flex", alignItems: "center", gap: "7px" }}>
                                       <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: s.reconColor }}>
@@ -2401,43 +2348,36 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   SKU
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th">
                                   상품 · 옵션
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                   매입원가
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                   기준 판매가
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                   마진율
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th">
                                   연결된 마켓
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                   판매 수량
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                   기여이익
@@ -2445,18 +2385,15 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               </th>
                             </tr>
                           </thead>
-                          {" "}
                           <tbody>
                             {vals.skuRows.map((s: any, $index: number) => (
                                 <tr key={$index} className="fb-row" style={{ cursor: "pointer" }} onClick={s.click}>
                                   <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)", whiteSpace: "nowrap" }}>
                                     {s.sellerSku}
                                   </td>
-                                  {" "}
                                   <td className="db-td db-td-title" style={{ font: "var(--fw-medium) 13px var(--font-sans)", color: "var(--fg-2)" }}>
                                     {s.name}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell" style={{ padding: "4px 6px" }}>
                                     {s.costEmpty && (
                                         <span data-s21="cost-input" style={{ display: "grid", gap: "3px", justifyItems: "end" }} onClick={vals.stopEvt}>
@@ -2492,15 +2429,12 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                         </span>
                                     )}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell" style={{ color: "var(--fg-2)" }}>
                                     {s.price}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell" style={{ color: s.marginColor }}>
                                     {s.margin}
                                   </td>
-                                  {" "}
                                   <td className="db-td">
                                     <span style={{ display: "inline-flex", gap: "4px" }}>
                                       {s.chips.map((ch: any, $index: number) => (
@@ -2510,11 +2444,9 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                       ))}
                                     </span>
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell">
                                     {s.qty}
                                   </td>
-                                  {" "}
                                   <td className="db-td fb-cell" style={{ fontWeight: "var(--fw-semi)", color: s.netColor }}>
                                     {s.net}
                                   </td>
@@ -3241,47 +3173,39 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                       SKU
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th">
                                       상품 · 옵션
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                       현재 단가
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th">
                                       적용 시작
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                       이력
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                       기간 매입원가
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                       이익률
                                     </span>
                                   </th>
-                                  {" "}
                                   <th></th>
                                 </tr>
                               </thead>
-                              {" "}
                               <tbody>
                                 {vals.costRows.map((c: any, $index: number) => (
                                   <Fragment key={$index}>
@@ -3289,38 +3213,30 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                       <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)", whiteSpace: "nowrap" }}>
                                         {c.sellerSku}
                                       </td>
-                                      {" "}
                                       <td className="db-td db-td-title" style={{ font: "var(--fw-medium) 13px var(--font-sans)", color: "var(--fg-2)" }}>
                                         {c.name}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: "var(--fg)" }}>
                                         {c.cost}
                                       </td>
-                                      {" "}
                                       <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)", whiteSpace: "nowrap" }}>
                                         {c.from}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: c.histColor }}>
                                         {c.hist}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: "var(--fg-3)" }}>
                                         {c.spend}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: c.marginColor }}>
                                         {c.margin}
                                       </td>
-                                      {" "}
                                       <td className="db-td" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                                         <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
                                           {c.hint}
                                         </span>
                                       </td>
                                     </tr>
-                                    {" "}
                                     {c.open && (
                                         <tr>
                                           <td colSpan={8} style={{ padding: "0", background: "var(--bg-subtle)", borderBottom: "1px solid var(--border)" }}>
@@ -3459,43 +3375,36 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                       캠페인
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th">
                                       채널
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th">
                                       유형
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                       광고비
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                       클릭
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                       전환매출
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                       ROAS
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th">
                                       배분 규칙
@@ -3503,14 +3412,12 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   </th>
                                 </tr>
                               </thead>
-                              {" "}
                               <tbody>
                                 {vals.adRows.map((a: any, $index: number) => (
                                     <tr key={$index} className="db-row">
                                       <td className="db-td db-td-title" style={{ font: "var(--fw-medium) 13px var(--font-sans)", color: "var(--fg-2)" }}>
                                         {a.name}
                                       </td>
-                                      {" "}
                                       <td className="db-td" style={{ whiteSpace: "nowrap" }}>
                                         <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
                                           <span style={{ width: "7px", height: "7px", borderRadius: "2px", background: a.color }}></span>
@@ -3520,29 +3427,23 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                           </span>
                                         </span>
                                       </td>
-                                      {" "}
                                       <td className="db-td" style={{ whiteSpace: "nowrap" }}>
                                         <span className="v-chip" style={{ height: "20px", padding: "0 7px", fontSize: "10px", color: a.typeColor }}>
                                           {a.type}
                                         </span>
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: "var(--fg)" }}>
                                         {a.spend}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: "var(--fg-4)" }}>
                                         {a.clicks}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: "var(--fg-3)" }}>
                                         {a.convRev}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: a.roasColor }}>
                                         {a.roas}
                                       </td>
-                                      {" "}
                                       <td className="db-td" style={{ whiteSpace: "nowrap" }}>
                                         <select className="v-input" style={{ height: "26px", padding: "0 6px", fontSize: "11px", minWidth: "132px" }} value={a.rule} onChange={a.setRule}>
                                           {a.opts.map((o: any, $index: number) => (
@@ -3847,49 +3748,41 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               결제일시
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th">
                               마켓 주문번호
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th">
                               채널
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th">
                               상품
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th" style={{ justifyContent: "flex-end" }}>
                               수량
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th" style={{ justifyContent: "flex-end" }}>
                               매출
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th" style={{ justifyContent: "flex-end" }}>
                               기여이익
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th">
                               클레임
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th">
                               출처
@@ -3897,7 +3790,6 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                           </th>
                         </tr>
                       </thead>
-                      {" "}
                       <tbody>
                         {vals.ordersEmpty && (
                             <tr>
@@ -3916,21 +3808,17 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               </td>
                             </tr>
                         )}
-                        {" "}
                         {vals.orderRows.map((o: any, $index: number) => (
                             <tr key={$index} className="fb-row" style={{ cursor: "pointer" }} onClick={o.click}>
                               <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)", whiteSpace: "nowrap" }}>
                                 {o.at}
                               </td>
-                              {" "}
                               <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-3)", whiteSpace: "nowrap" }}>
                                 {o.extId}
                               </td>
-                              {" "}
                               <td className="db-td" style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: o.color, whiteSpace: "nowrap" }}>
                                 {o.ch}
                               </td>
-                              {" "}
                               <td className="db-td db-td-title" style={{ font: "var(--fw-regular) 12px var(--font-sans)", color: o.itemColor }}>
                                 <span style={{ display: "inline-flex", alignItems: "center", gap: "7px", minWidth: "0" }}>
                                   <span style={{ minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -3944,23 +3832,18 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   )}
                                 </span>
                               </td>
-                              {" "}
                               <td className="db-td fb-cell">
                                 {o.qty}
                               </td>
-                              {" "}
                               <td className="db-td fb-cell" style={{ color: "var(--fg-2)" }}>
                                 {o.rev}
                               </td>
-                              {" "}
                               <td className="db-td fb-cell" style={{ fontWeight: "var(--fw-semi)", color: o.netColor }}>
                                 {o.net}
                               </td>
-                              {" "}
                               <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: o.claimColor }}>
                                 {o.claim}
                               </td>
-                              {" "}
                               <td className="db-td" style={{ font: "var(--fw-medium) 10px var(--font-sans)", color: "var(--fg-4)" }}>
                                 {o.src}
                               </td>
@@ -4285,7 +4168,6 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                 <th>
                                   <span className="db-th" style={{ width: "22px" }}></span>
                                 </th>
-                                {" "}
                                 {vals.manCols.map((c: any, $index: number) => (
                                     <th key={$index}>
                                       <span className="db-th">
@@ -4293,11 +4175,9 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                       </span>
                                     </th>
                                 ))}
-                                {" "}
                                 <th></th>
                               </tr>
                             </thead>
-                            {" "}
                             <tbody>
                               {vals.manRows.map((r: any, $index: number) => (
                                 <Fragment key={$index}>
@@ -4305,20 +4185,17 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                     <td className="db-td" style={{ color: "var(--fg-4)", font: "var(--fw-medium) 11px var(--font-mono)" }}>
                                       {$index}
                                     </td>
-                                    {" "}
                                     {r.cells.map((v: any, $index: number) => (
                                         <td key={$index} className="db-td" style={{ padding: "4px 6px" }}>
                                           <input className="v-input" style={{ height: "26px", fontSize: "12px", width: "100%", minWidth: "84px" }} value={v} />
                                         </td>
                                     ))}
-                                    {" "}
                                     <td className="db-td" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                                       <span className="iconbtn" style={{ cursor: "pointer" }}>
                                         <Lic name="trash-2" size={13} />
                                       </span>
                                     </td>
                                   </tr>
-                                  {" "}
                                   {r.err && (
                                       <tr>
                                         <td colSpan={7} style={{ padding: "6px 12px 8px 40px", background: "rgba(235,87,87,0.06)", borderBottom: "1px solid var(--border)", font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--pnl-neg)" }}>
@@ -4521,25 +4398,21 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                     파일 헤더
                                   </span>
                                 </th>
-                                {" "}
                                 <th>
                                   <span className="db-th">
                                     샘플 값
                                   </span>
                                 </th>
-                                {" "}
                                 <th>
                                   <span className="db-th">
                                     Canonical 필드
                                   </span>
                                 </th>
-                                {" "}
                                 <th>
                                   <span className="db-th">
                                     추론 근거
                                   </span>
                                 </th>
-                                {" "}
                                 <th>
                                   <span className="db-th">
                                     확신도
@@ -4547,26 +4420,21 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                 </th>
                               </tr>
                             </thead>
-                            {" "}
                             <tbody>
                               {vals.colRows.map((c: any, $index: number) => (
                                   <tr key={$index} className="fb-row">
                                     <td className="db-td" style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-2)", whiteSpace: "nowrap" }}>
                                       {c.header}
                                     </td>
-                                    {" "}
                                     <td className="db-td" style={{ font: "var(--fw-regular) 11px var(--font-mono)", color: "var(--fg-4)", whiteSpace: "nowrap" }}>
                                       {c.sample}
                                     </td>
-                                    {" "}
                                     <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: c.fieldColor, whiteSpace: "nowrap" }}>
                                       {c.field}
                                     </td>
-                                    {" "}
                                     <td className="db-td" style={{ font: "var(--fw-regular) 11px var(--font-sans)", color: "var(--fg-4)" }}>
                                       {c.why}
                                     </td>
-                                    {" "}
                                     <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: c.color }}>
                                       {c.conf}
                                     </td>
@@ -4752,108 +4620,87 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               시각
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th">
                               연결
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th">
                               유형
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th">
                               대상
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th" style={{ justifyContent: "flex-end" }}>
                               조회
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th" style={{ justifyContent: "flex-end" }}>
                               신규
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th" style={{ justifyContent: "flex-end" }}>
                               갱신
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th" style={{ justifyContent: "flex-end" }}>
                               실패
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th">
                               결과
                             </span>
                           </th>
-                          {" "}
                           <th>
                             <span className="db-th">
                               소요
                             </span>
                           </th>
-                          {" "}
                           <th></th>
                         </tr>
                       </thead>
-                      {" "}
                       <tbody>
                         {vals.syncRows.map((s: any, $index: number) => (
                             <tr key={$index} className="fb-row" style={{ cursor: "pointer" }} onClick={s.click}>
                               <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)", whiteSpace: "nowrap" }}>
                                 {s.at}
                               </td>
-                              {" "}
                               <td className="db-td" style={{ font: "var(--fw-medium) 13px var(--font-sans)", color: "var(--fg-2)", whiteSpace: "nowrap" }}>
                                 {s.conn}
                               </td>
-                              {" "}
                               <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
                                 {s.type}
                               </td>
-                              {" "}
                               <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)" }}>
                                 {s.entity}
                               </td>
-                              {" "}
                               <td className="db-td fb-cell">
                                 {s.fetched}
                               </td>
-                              {" "}
                               <td className="db-td fb-cell">
                                 {s.created}
                               </td>
-                              {" "}
                               <td className="db-td fb-cell">
                                 {s.updated}
                               </td>
-                              {" "}
                               <td className="db-td fb-cell" style={{ color: s.failColor }}>
                                 {s.failed}
                               </td>
-                              {" "}
                               <td className="db-td" style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: s.statusColor }}>
                                 {s.status}
                               </td>
-                              {" "}
                               <td className="db-td fb-cell" style={{ color: "var(--fg-4)" }}>
                                 {s.dur}
                               </td>
-                              {" "}
                               <td className="db-td" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                                 {s.canUndo && (
                                     <span className="v-btn" style={{ height: "24px", padding: "0 9px", fontSize: "11px", cursor: "pointer" }} onClick={s.undo}>
@@ -5306,25 +5153,21 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   파일 열
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th">
                                   샘플
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th">
                                   Canonical 필드
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th">
                                   근거
                                 </span>
                               </th>
-                              {" "}
                               <th>
                                 <span className="db-th">
                                   신뢰도
@@ -5332,18 +5175,15 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               </th>
                             </tr>
                           </thead>
-                          {" "}
                           <tbody>
                             {vals.fmCols.map((c: any, $index: number) => (
                                 <tr key={$index} className="fb-row">
                                   <td className="db-td" style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-2)", whiteSpace: "nowrap" }}>
                                     {c.header}
                                   </td>
-                                  {" "}
                                   <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)", whiteSpace: "nowrap" }}>
                                     {c.sample}
                                   </td>
-                                  {" "}
                                   <td className="db-td">
                                     <select value={c.field} onChange={c.onPick} disabled={c.locked} style={{ maxWidth: "240px", height: "26px", padding: "0 6px", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", background: "var(--bg-input)", color: c.fieldColor, font: "var(--fw-semi) 11px var(--font-mono)", outline: "none", cursor: "pointer" }}>
                                       {vals.fmFieldOptions.map((o: any, $index: number) => (
@@ -5353,11 +5193,9 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                       ))}
                                     </select>
                                   </td>
-                                  {" "}
                                   <td className="db-td db-td-title" style={{ font: "var(--fw-regular) 12px var(--font-sans)", color: "var(--fg-4)" }}>
                                     {c.why}
                                   </td>
-                                  {" "}
                                   <td className="db-td" style={{ font: "var(--fw-semi) 11px var(--font-sans)", color: c.color, whiteSpace: "nowrap" }}>
                                     {c.conf}
                                   </td>
@@ -5896,31 +5734,26 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                       대상
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th">
                                       필드
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                       원본
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th" style={{ justifyContent: "flex-end" }}>
                                       조정 후
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th">
                                       사유
                                     </span>
                                   </th>
-                                  {" "}
                                   <th>
                                     <span className="db-th">
                                       작성
@@ -5928,30 +5761,24 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   </th>
                                 </tr>
                               </thead>
-                              {" "}
                               <tbody>
                                 {vals.adjRows.map((a: any, $index: number) => (
                                     <tr key={$index} className="fb-row">
                                       <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-3)", whiteSpace: "nowrap" }}>
                                         {a.target}
                                       </td>
-                                      {" "}
                                       <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)" }}>
                                         {a.field}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell">
                                         {a.before}
                                       </td>
-                                      {" "}
                                       <td className="db-td fb-cell" style={{ color: "var(--pnl-warn)", fontWeight: "var(--fw-semi)" }}>
                                         {a.after}
                                       </td>
-                                      {" "}
                                       <td className="db-td" style={{ font: "var(--fw-regular) 12px var(--font-sans)", color: "var(--fg-3)" }}>
                                         {a.reason}
                                       </td>
-                                      {" "}
                                       <td className="db-td" style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)", whiteSpace: "nowrap" }}>
                                         {a.by}
                                       </td>
