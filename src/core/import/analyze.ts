@@ -165,7 +165,16 @@ async function peekSheet(
   src: Awaited<ReturnType<ReturnType<typeof parserFor>["open"]>>,
   index: number,
   sampleRows: number,
-): Promise<{ header: HeaderDetection; sample: RawRow[]; excluded: readonly ExcludedRow[] }> {
+): Promise<{
+  header: HeaderDetection
+  sample: RawRow[]
+  excluded: readonly ExcludedRow[]
+  /**
+   * 표본 범위 **모든 칸**의 텍스트. 헤더 행이 없는 양식(카드 레이아웃)은 이걸로만
+   * 알아볼 수 있다 — 라벨이 값 옆에 적혀 있지 헤더 행에 있지 않다.
+   */
+  cellTexts: readonly string[]
+}> {
   const { chunks, getSummary } = streamSheet(src, index, { chunkSize: sampleRows })
 
   // ★ 첫 청크만 본다 ★ 판정에 필요한 것(헤더·표본)은 앞에서 다 나오고,
@@ -179,7 +188,16 @@ async function peekSheet(
     break
   }
   const sum = getSummary()
-  return { header: sum.header, sample, excluded: sum.excluded }
+  const cellTexts = new Set<string>()
+  for (const row of sample) {
+    for (const c of row) {
+      if (c === null || c === undefined) continue
+      const t = String(c).trim()
+      // 라벨은 짧다. 긴 문장까지 모으면 집합이 수천 개가 되고 판정이 무뎌진다.
+      if (t !== "" && t.length <= 24) cellTexts.add(t)
+    }
+  }
+  return { header: sum.header, sample, excluded: sum.excluded, cellTexts: [...cellTexts] }
 }
 
 export async function analyzeImport(
@@ -234,7 +252,7 @@ export async function analyzeImport(
       )
     }
 
-    let picked: { header: HeaderDetection; sample: RawRow[]; excluded: readonly ExcludedRow[] } | null =
+    let picked: Awaited<ReturnType<typeof peekSheet>> | null =
       null
 
     for (let i = 0; i < scanCount; i++) {
@@ -259,6 +277,7 @@ export async function analyzeImport(
           containerFormat: top.format,
           headers: [...peek.header.columns],
           fileName,
+          cellTexts: peek.cellTexts,
         }),
         header: peek.header,
         columns: describeColumns(peek.header.columns, peek.sample),
@@ -277,6 +296,7 @@ export async function analyzeImport(
           containerFormat: top.format,
           headers: [...sum.header.columns],
           fileName,
+          cellTexts: sum.cellTexts,
         })
 
     /**

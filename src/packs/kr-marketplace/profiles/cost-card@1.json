@@ -1,0 +1,87 @@
+{
+  "$schema": "flowbase/mapping-profile@1",
+  "id": "seller/cost/card",
+  "version": "1",
+  "packId": "kr-marketplace",
+  "marketplaceKey": "seller",
+  "docType": "cost",
+  "grain": "product-card",
+  "_grainNote": "`mapping_version`이 `marketplaceKey/docType/grain@version`이라 `cost-master@1`(seller/cost/product)과 겹치면 안 된다 — 겹치면 적재된 행이 어느 프로파일에서 왔는지 못 되짚는다(LOCK 1의 `mapping_version`). grain은 «행의 모양»을 부르는 자유 서술이므로(`order-line`·`option-period`·`placement-daily`) 카드 한 장이 한 상품인 이 양식은 `product-card`가 맞는 이름이다.",
+  "targetTable": "cost_history",
+  "label": "상품별 단가표 (카드형)",
+  "displayName": "내 단가표",
+  "_note": "★ 이건 표가 아니다 ★ 셀러가 손으로 만든 단가표는 대개 «한 상품 = 여러 행»인 카드 레이아웃이다. 실측(사용자 실파일 13MB · 15시트): 7행이 한 상품이고 헤더 행이 없으며 시트 하나에 병합이 350개다. 200블록 전부 주기 이탈 0. 그래서 `blockRead`가 카드를 표로 편 다음에야 이 프로파일의 나머지가 성립한다. 이 모양은 이 회사만의 것이 아니라 손으로 만든 단가표·스펙시트의 흔한 형태다.",
+  "recognitionRules": {
+    "containerFormats": [
+      "xlsx"
+    ],
+    "requiredHeaders": [],
+    "headerMatch": "all",
+    "minConfidence": 0.8,
+    "note": "★ `requiredHeaders`가 비어 있는 것이 핵심이다 ★ 헤더 행 자체가 없으므로 헤더로는 원리적으로 못 맞춘다. 대신 라벨이 값 옆에 매 블록 반복되므로 그게 지문이다. ★ `원가`를 지문에서 뺐다 (실측) ★ 처음엔 셋 다 넣었는데 `계절상품_여름` 시트가 통째로 탈락했다 — 그 시트는 **앞 5블록에 「원가」 라벨이 아예 없다**(값은 늘 있던 자리에 있고 라벨만 지워져 있다). 판정은 앞 20행만 보므로 지문이 그 창에 안 들어오면 멀쩡한 시트를 잃는다. `원가`는 **읽어야 할 값**이지 지문이 아니고, 없으면 블록 리더가 세어서 말한다(`badRows`). 지문은 「이 시트가 단가표 카드다」만 말하면 된다.",
+    "requiredCellTexts": [
+      "모델명",
+      "권장소비자가"
+    ],
+    "forbiddenHeaders": [
+      "주문 번호",
+      "주문번호",
+      "상품주문번호",
+      "주문일자",
+      "결제일"
+    ]
+  },
+  "blockRead": {
+    "anchorColumn": 0,
+    "anchorAs": "품명",
+    "fields": [
+      {
+        "label": "모델명",
+        "as": "모델명"
+      },
+      {
+        "label": "원가",
+        "as": "원가"
+      },
+      {
+        "label": "권장소비자가",
+        "as": "권장소비자가"
+      }
+    ],
+    "maxSpan": 3,
+    "skipRows": 2,
+    "note": "실측 좌표 일치율 — 원가 99%(행+0,열9) · 권장소비자가 100%(열6) · 모델명 90%(열3). 라벨만 빠진 블록 11개를 그 좌표로 살렸다. `maxSpan`이 3인 이유는 병합 때문에 라벨과 값 사이가 최대 두 칸 벌어지기 때문이고(`권장소비자가`(4) → 값(6)), 그보다 넓히면 원가가 빈 블록이 오른쪽 `카톤(내품수량)`을 원가로 집는다."
+  },
+  "extractionRules": {
+    "sheetSelector": {
+      "kind": "firstData"
+    },
+    "headerRowHint": 1,
+    "detectUnlabeledAggregates": false
+  },
+  "reference": {
+    "target": "cost",
+    "listingKeyColumn": "품명",
+    "amountColumn": "원가",
+    "titleColumn": "품명",
+    "kind": "COGS",
+    "note": "★ 여기엔 `상품번호`가 **한 개도 없다** ★ 마켓 상품번호가 아니라 사람이 붙인 품명과 모델명뿐이다. ★ 그래서 오늘 이 다리는 **작동하지 않는다** ★ `listingKeyColumn`은 `marketplace_listing.listing_key`(= 마켓이 준 상품번호)와 정확 일치를 보는데 품명은 키가 아니라 **제목**이라, 실측에서 200개 중 0개가 붙었다. 데이터 탓이 아니라 구조적으로 0이다. 그래도 이 필드를 비워 두지 않는 이유는 «무엇을 다리로 삼으려 했는지»가 남아야 하기 때문이고, 결과는 200건 전부를 «못 찾음»으로 세어 화면이 그 사실을 말한다(조용히 0건 성공으로 끝나지 않는다). ★ 다리는 이름 유사도다 ★ 실측: 품명↔리스팅 제목 유사도가 강함(≥50%) 129 · 약함 43 · 없음 28 — 실제로 작동한다. 다만 «이 둘이 같은 물건인가»는 데이터에 답이 없어 사람이 정해야 하고(§21-6), 그 자리는 상품 연결 화면이지 이 프로파일이 아니다."
+  },
+  "sourceKey": {
+    "strategy": "natural",
+    "columns": [
+      "품명"
+    ]
+  },
+  "fieldMappings": [],
+  "validationRules": [
+    {
+      "kind": "parseRate",
+      "min": 0.5
+    }
+  ],
+  "unmappedColumns": {
+    "policy": "keep-count",
+    "note": "`모델명`·`권장소비자가`가 남는다. 둘 다 쓸 데가 있다 — 모델명은 마켓에 흩어진 같은 물건을 잇는 가장 강한 신호이고(이름 유사도로는 못 잡는 것을 코드 일치가 잡는다), 권장소비자가는 마진 계산의 분모다. 지금은 자리가 없어 남겨 둔다."
+  }
+}

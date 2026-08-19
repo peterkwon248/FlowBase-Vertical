@@ -58,7 +58,26 @@ const norm = (s: string): string => s.trim()
  * 빈 배열이면 정합이다.
  */
 export function validateProfile(p: MappingProfile): readonly ProfileDefect[] {
-  const required = new Set((p.recognitionRules?.requiredHeaders ?? []).map(norm))
+  /**
+   * ★ 「보장되는 컬럼」의 출처가 둘이다 (2026-08-19) ★
+   *
+   * 표 양식은 `requiredHeaders`가 그 보장이다 — 그 컬럼이 없으면 판정이 안 맞으니
+   * 매칭된 파일에는 반드시 있다.
+   *
+   * 카드 양식(`blockRead`)은 `requiredHeaders`가 **비어 있는 것이 정상**이다.
+   * 헤더 행이 없어서 헤더로는 원리적으로 못 맞추기 때문이다. 대신 컬럼을
+   * **블록 리더가 만든다** — `[anchorAs, ...fields.as]`는 값이 비든 말든 자리는
+   * 언제나 있다. 그러니 불변식은 그대로이고 **보장의 출처만 옮겨간다.**
+   *
+   * 여기서 이걸 안 세면 카드 프로파일이 전부 「자기모순」으로 잡히고, 그러면
+   * 사람이 검사를 끄게 된다 — 게이트 하나가 죽으면 옆의 진짜 결함도 같이 죽는다.
+   */
+  const required = new Set([
+    ...(p.recognitionRules?.requiredHeaders ?? []).map(norm),
+    ...(p.blockRead === undefined
+      ? []
+      : [p.blockRead.anchorAs, ...p.blockRead.fields.map((f) => f.as)].map(norm)),
+  ])
   const out: ProfileDefect[] = []
 
   const missing = (cols: readonly string[]): string[] =>

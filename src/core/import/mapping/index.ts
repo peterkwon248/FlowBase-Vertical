@@ -129,6 +129,17 @@ export interface MappingProfile {
      * ─────────────────────────────────────────────────────────────
      */
     readonly forbiddenHeaders?: readonly string[]
+    /**
+     * ★ **헤더 행이 없는 파일**을 알아보는 길 (2026-08-19) ★
+     *
+     * 카드 레이아웃에는 헤더 행이 없어서 `requiredHeaders`가 원리적으로 못 맞춘다.
+     * 대신 시트 앞부분 **아무 칸에나** 이 문자열들이 있는지 본다 — 라벨이 값 옆에
+     * 반복해서 적혀 있으므로 그게 곧 양식의 지문이다.
+     *
+     * `requiredHeaders`와 **함께 쓸 수 있다**: 둘 다 선언하면 둘 다 만족해야 한다.
+     * 표 양식이 이 필드를 쓸 일은 없다 — 헤더가 이미 지문이기 때문이다.
+     */
+    readonly requiredCellTexts?: readonly string[]
     readonly headerMatch: "all" | "any"
     readonly fileNamePattern?: string
     /**
@@ -140,6 +151,23 @@ export interface MappingProfile {
      */
     readonly fileNameExample?: string
     readonly minConfidence: number
+  }
+  /**
+   * ★ 이 시트는 **표가 아니다** — 카드 레이아웃이다 (2026-08-19) ★
+   *
+   * 있으면 Extraction이 블록 리더를 지나 **표로 펴서** 뒤 단계에 넘긴다. 그래서
+   * Normalization·Mapping·Load는 이 필드의 존재를 모른다 — 어댑터가 앞에서 끝낸다.
+   * 라벨 문자열이 여기 있는 이유는 LOCK 4다: 규칙은 core, 어휘는 팩.
+   */
+  readonly blockRead?: {
+    readonly anchorColumn: number
+    readonly anchorAs: string
+    readonly fields: readonly { readonly label: string; readonly as: string }[]
+    readonly maxSpan?: number
+    readonly skipRows?: number
+    readonly maxIrregular?: number
+    readonly positionConfidence?: number
+    readonly note?: string
   }
   readonly extractionRules: {
     readonly sheetSelector: { readonly kind: string; readonly name?: string }
@@ -470,10 +498,20 @@ export interface ProfileMatch {
  */
 export function matchProfiles(
   profiles: readonly MappingProfile[],
-  ctx: { containerFormat: string; headers: readonly string[]; fileName: string },
+  ctx: {
+    containerFormat: string
+    headers: readonly string[]
+    fileName: string
+    /**
+     * 시트 앞부분의 **모든 셀 텍스트**. 헤더 행이 없는 양식(카드 레이아웃)은
+     * 이걸로만 알아볼 수 있다 — 주지 않으면 `requiredCellTexts` 선언은 늘 실패한다.
+     */
+    cellTexts?: readonly string[]
+  },
 ): ProfileMatch[] {
   const out: ProfileMatch[] = []
   const present = new Set(ctx.headers.map((h) => h.trim()))
+  const cells = new Set((ctx.cellTexts ?? []).map((c) => c.trim()))
 
   for (const p of profiles) {
     const evidence: string[] = []
@@ -486,12 +524,34 @@ export function matchProfiles(
     const banned = (r.forbiddenHeaders ?? []).filter((h) => present.has(h))
     if (banned.length > 0) continue
 
+    // 헤더가 없는 양식의 지문. 하나라도 없으면 이 양식이 아니다.
+    const wantCells = r.requiredCellTexts ?? []
+    if (wantCells.length > 0) {
+      const missingCells = wantCells.filter((c) => !cells.has(c))
+      if (missingCells.length > 0) continue
+      evidence.push(`라벨 ${wantCells.length}개 일치`)
+    }
+
     const hit = r.requiredHeaders.filter((h) => present.has(h))
-    const ratio = r.requiredHeaders.length === 0 ? 0 : hit.length / r.requiredHeaders.length
+    /**
+     * ★ 분모가 0일 때의 신뢰도 ★
+     *
+     * 헤더가 없는 양식은 `requiredHeaders`가 비어 있고, 그러면 예전 식은 0을 냈다 —
+     * `minConfidence: 0.8`에 걸려 **라벨이 다 맞아도 탈락**한다. 지문이 라벨 쪽에
+     * 있으면 그쪽으로 잰다. 둘 다 없는 프로파일은 애초에 판정 근거가 없으므로 0이다.
+     */
+    const ratio =
+      r.requiredHeaders.length > 0
+        ? hit.length / r.requiredHeaders.length
+        : wantCells.length > 0
+          ? 1
+          : 0
     if (r.headerMatch === "all" && hit.length !== r.requiredHeaders.length) {
       continue
     }
-    evidence.push(`필수 헤더 ${hit.length}/${r.requiredHeaders.length} 일치`)
+    if (r.requiredHeaders.length > 0) {
+      evidence.push(`필수 헤더 ${hit.length}/${r.requiredHeaders.length} 일치`)
+    }
 
     let confidence = ratio
     let captures: Record<string, string> = {}

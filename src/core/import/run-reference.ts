@@ -124,7 +124,17 @@ export async function runReferenceImport(
     const sheet = src.sheets[o.sheetIndex]
     if (!sheet) throw new Error(`시트 ${o.sheetIndex}는 없다`)
 
-    const { chunks, getSummary } = streamSheet(src, o.sheetIndex, { chunkSize })
+    /**
+     * ★ 카드 레이아웃이면 블록 리더가 앞에서 표로 편다 ★
+     *
+     * 여기서 갈래를 만들지 않는 것이 요점이다 — 옵션 하나를 넘기면 그 뒤는 평범한
+     * 표라서 열 찾기·정규화·적재가 하나도 안 바뀐다. 실측 사용자 파일이 그 경로로
+     * 200블록 → 200행이 됐다.
+     */
+    const { chunks, getSummary } = streamSheet(src, o.sheetIndex, {
+      chunkSize,
+      ...(o.profile.blockRead === undefined ? {} : { blockRead: o.profile.blockRead }),
+    })
 
     let headers: string[] = []
     let keyCol = -1
