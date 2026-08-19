@@ -110,6 +110,25 @@ export interface MappingProfile {
   readonly recognitionRules: {
     readonly containerFormats: readonly string[]
     readonly requiredHeaders: readonly string[]
+    /**
+     * ★ **이 헤더가 있으면 이 양식이 아니다** (2026-08-18) ★
+     *
+     * ─────────────────────────────────────────────────────────────
+     * `requiredHeaders`는 «있으면 통과»라, **좁은 양식이 넓은 양식에 삼켜진다.**
+     *
+     * 실측으로 부딪혔다: 원가표는 `상품번호|상품명|모델명|원가|배송비|카테고리|Model`
+     * 7열인데, 사용자 워크북의 `B2B_매출정리`(101열)에 **그 7열이 전부 들어 있다.**
+     * 그래서 매출 파일이 원가표로 100% 판정됐다 — 필수 헤더를 아무리 고쳐도
+     * 부분집합 관계라 갈리지 않는다.
+     *
+     * ★ 열 수로 막지 않는다 ★ 「7열 이하만 원가표」로 하면 마켓이 열 하나만 더해도
+     * 양식이 통째로 안 붙는다 — 「열 추가는 공짜」라는 이 앱의 성질과 정면으로 충돌한다.
+     *
+     * 대신 **의미로 막는다**: 원가는 상품 단위라 「주문 번호」가 있을 수 없다.
+     * 있으면 그건 거래 파일이지 원가 마스터가 아니다. 열이 늘어도 이 판정은 안 흔들린다.
+     * ─────────────────────────────────────────────────────────────
+     */
+    readonly forbiddenHeaders?: readonly string[]
     readonly headerMatch: "all" | "any"
     readonly fileNamePattern?: string
     /**
@@ -126,6 +145,42 @@ export interface MappingProfile {
     readonly sheetSelector: { readonly kind: string; readonly name?: string }
     readonly headerRowHint?: number
     readonly detectUnlabeledAggregates?: boolean
+  }
+  /**
+   * ★ **기준 데이터** 양식임을 선언한다 (2026-08-18) ★
+   *
+   * ─────────────────────────────────────────────────────────────
+   * 데이터 3종(헌장)에서 «사실»과 «기준»은 적재 규칙이 다르다:
+   *
+   * ```
+   * 사실  주문·정산   batch로 쌓고 되돌린다 · 원본 불변 · append-only
+   * 기준  원가·상품   덮어쓴다 · 이력이 남는다 · 적용일이 있다
+   * ```
+   *
+   * 지금까지 가져오기는 사실 전용이었다(`FACT_TABLES`가 5표로 닫아 둔다).
+   * 그래서 앱이 «원가 파일이 필요합니다»라고 말해 놓고 **넣을 문이 없었다** —
+   * 말과 행동이 어긋난 자리였다.
+   *
+   * 이 블록이 있으면 `runReferenceImport`가 맡는다. 없으면 종전대로 `runImport`다.
+   * 판정·파싱·정규화(①~④)는 **완전히 같은 코드**를 지나고, 갈라지는 것은 적재뿐이다.
+   * ─────────────────────────────────────────────────────────────
+   */
+  readonly reference?: {
+    /** 무엇을 넣는가. v1은 원가뿐이다 (ADR-005 — 이력 범위를 원가로 좁힌 결정). */
+    readonly target: "cost"
+    /**
+     * 상품을 가리키는 열. **리스팅 키와 같은 값**이어야 한다.
+     *
+     * 원가는 SKU에 붙는데 파일은 SKU를 모른다 — 파일이 아는 것은 마켓의 상품번호이고,
+     * 그건 곧 리스팅 키다. 그래서 «리스팅을 찾아 그 SKU에 붙인다».
+     */
+    readonly listingKeyColumn: string
+    /** 금액 열. 원 단위 정수로 읽는다. */
+    readonly amountColumn: string
+    /** `cost_history.kind`. 스키마가 CHECK로 네 종을 닫아 뒀다. */
+    readonly kind: "COGS" | "PACKAGING" | "LOGISTICS" | "OTHER"
+    /** 사람이 알아볼 이름을 만들 때 쓴다 (SKU를 새로 만드는 경우). */
+    readonly titleColumn?: string
   }
   readonly sourceKey: {
     readonly strategy: SourceKeyStrategy
@@ -388,6 +443,11 @@ export function matchProfiles(
     const r = p.recognitionRules
 
     if (!r.containerFormats.includes(ctx.containerFormat)) continue
+
+    // ★ 금지 헤더가 하나라도 있으면 이 양식이 아니다 — 필수 헤더를 보기 전에 자른다.
+    // 넓은 양식이 좁은 양식을 삼키는 것을 막는 유일한 장치다 (위 주석 참조).
+    const banned = (r.forbiddenHeaders ?? []).filter((h) => present.has(h))
+    if (banned.length > 0) continue
 
     const hit = r.requiredHeaders.filter((h) => present.has(h))
     const ratio = r.requiredHeaders.length === 0 ? 0 : hit.length / r.requiredHeaders.length

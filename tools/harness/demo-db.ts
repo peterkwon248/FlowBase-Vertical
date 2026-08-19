@@ -36,6 +36,8 @@ import { openNodeDriver } from "../../src/core/store/driver-node.js"
 import { migrate } from "../../src/core/store/migrate-node.js"
 import { Repository } from "../../src/core/store/repository.js"
 import { runImport } from "../../src/core/import/run.js"
+import { runReferenceImport } from "../../src/core/import/run-reference.js"
+import { analyzeImport } from "../../src/core/import/analyze.js"
 import type { MappingProfile } from "../../src/core/import/mapping/index.js"
 import { FIXTURES, fixturePath, CLEAN_DIR } from "../../tests/fixtures.js"
 
@@ -112,6 +114,44 @@ for (const t of TARGETS) {
 
   const per = [...r.perTable].map(([k, n]) => `${k} ${n}`).join(" · ")
   console.log(`  ${profile.displayName.padEnd(18)} ${per}`)
+}
+
+/**
+ * ★ 원가 — **기준 데이터의 문으로 들어온다** (2026-08-18) ★
+ *
+ * 이게 없으면 데모 대시보드의 마진이 100%로 뜬다. 그건 「원가가 없다」는 뜻인데
+ * 화면만 보면 「엄청 남는 장사」로 읽힌다 — 데모가 거짓말하는 자리다.
+ *
+ * 픽스처 #3의 워크북 안에 원가표 시트가 있고, **어느 시트인지는 판정이 찾는다**
+ * (번호를 박아 두면 픽스처가 바뀔 때 조용히 엉뚱한 시트를 넣는다).
+ */
+{
+  const f = FIXTURES.find((x) => x.id === 3)!
+  const profile = JSON.parse(
+    readFileSync(join(PROFILE_DIR, "cost-master@1.json"), "utf-8"),
+  ) as MappingProfile
+  const bytes = new Uint8Array(readFileSync(fixturePath(f, CLEAN_DIR)))
+  const a = await analyzeImport(bytes, f.file, [profile])
+  const hit = a.sheetMatches.find((m) => m.profiles.length > 0)
+
+  if (hit === undefined) {
+    console.log("  ⚠ 원가표 시트를 못 찾았다 — 원가 없이 만든다")
+  } else {
+    const r = await runReferenceImport(repo, {
+      bytes,
+      fileName: f.file,
+      profile,
+      sheetIndex: hit.sheetIndex,
+      libraryId: LIB,
+      // 데모 데이터가 2025-10 ~ 2026-07에 걸쳐 있다. 그 앞에 세워야 전 기간에 붙는다.
+      effectiveFrom: "2025-01-01",
+      now: NOW,
+    })
+    console.log(
+      `  ${"내 원가표".padEnd(18)} 원가 ${r.inserted}건 · SKU ${r.createdSkus}개 신규 · ` +
+        `못 찾음 ${r.unmatched} (아직 안 판 상품 — 정상)`,
+    )
+  }
 }
 
 // VACUUM으로 조여서 정적 자산 크기를 줄인다. 웹판은 이 파일을 통째로 받는다.

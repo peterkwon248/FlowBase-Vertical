@@ -37,7 +37,7 @@ import type { MappingProfile } from "./index.js"
 
 /** 프로파일 하나의 결함. `where`는 어느 선언이 어겼는지다. */
 export interface ProfileDefect {
-  readonly where: "sourceKey" | "rowRouting" | "listing"
+  readonly where: "sourceKey" | "rowRouting" | "listing" | "reference"
   /** `requiredHeaders`에 없는 컬럼 이름들. **개수가 아니라 이름을 준다.** */
   readonly columns: readonly string[]
   /** 사람이 읽는 한 줄. 프로파일을 고치는 사람이 읽는다. */
@@ -107,6 +107,24 @@ export function validateProfile(p: MappingProfile): readonly ProfileDefect[] {
           `리스팅 키로 쓰는 컬럼이 requiredHeaders에 없다 — 이 컬럼이 빠지면 ` +
           `리스팅 수집이 통째로 중단되어 리스팅·품목이 0이 되는데, 가져오기는 ` +
           `«성공»으로 끝나고 제외도 0으로 표시된다`,
+      })
+    }
+  }
+
+  /**
+   * 기준 데이터 양식도 **같은 규율**을 받는다 — 열이 빠지면 조용히 0건이 되고
+   * 가져오기는 «성공»으로 끝난다. Fact 쪽 셋과 정확히 같은 사고다.
+   */
+  if (p.reference !== undefined) {
+    const bad = missing([p.reference.listingKeyColumn, p.reference.amountColumn])
+    if (bad.length > 0) {
+      out.push({
+        where: "reference",
+        columns: bad,
+        reason:
+          `기준 데이터의 상품 열·금액 열이 requiredHeaders에 없다 — 이 컬럼이 빠지면 ` +
+          `붙일 상품을 못 찾거나 금액이 비어 **원가가 하나도 안 들어가는데** ` +
+          `가져오기는 «성공»으로 끝난다`,
       })
     }
   }

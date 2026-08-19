@@ -1144,6 +1144,33 @@ export class Repository {
   }
 
   /**
+   * 리스팅 키로 리스팅 하나를 찾는다 — **기준 데이터가 상품에 닿는 유일한 다리.**
+   *
+   * 원가 파일은 SKU를 모르고 마켓의 상품번호만 안다. 그 번호가 곧 리스팅 키이므로,
+   * 「리스팅을 찾아 그 SKU에 붙인다」가 성립한다. 없으면 `null`이고, **그것은
+   * 오류가 아니다** — 아직 팔지 않아 리스팅이 없는 상품이 원가표에 있는 것은 정상이다.
+   */
+  async listingByKey(
+    libraryId: string,
+    listingKey: string,
+  ): Promise<{ readonly id: string; readonly title: string; readonly skuId: string | null } | null> {
+    const r = await this.db
+      .prepare(
+        `SELECT id, title, sku_id FROM marketplace_listing
+          WHERE library_id = ? AND listing_key = ?
+          LIMIT 1`,
+      )
+      .get(libraryId, listingKey)
+    if (r === undefined) return null
+    const sku = r["sku_id"]
+    return {
+      id: String(r["id"]),
+      title: String(r["title"] ?? ""),
+      skuId: sku === null || sku === undefined ? null : String(sku),
+    }
+  }
+
+  /**
    * **파일에서 제외된 행의 총계** — 대시보드의 「일부 제외」 배너가 쓴다.
    *
    * ★ 왜 기간을 안 받는가 ★

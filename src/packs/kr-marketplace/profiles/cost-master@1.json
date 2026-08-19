@@ -1,0 +1,65 @@
+{
+  "$schema": "flowbase/mapping-profile@1",
+  "id": "seller/cost/product",
+  "version": "1",
+  "packId": "kr-marketplace",
+  "marketplaceKey": "seller",
+  "docType": "cost",
+  "grain": "product",
+  "targetTable": "cost_history",
+  "label": "상품별 원가표",
+  "displayName": "내 원가표",
+  "_note": "★ 이건 마켓이 주는 파일이 아니다 ★ 셀러가 자기 상품의 매입원가를 정리해 둔 표이고, 그래서 `marketplaceKey`가 특정 마켓이 아니라 `seller`다. 표준 양식이 아니라 사람마다 다른 것이 정상이므로, 이 프로파일은 «가장 흔한 모양 한 벌»일 뿐이다. 다른 모양이 오면 팩에 프로파일을 더하는 게 아니라 사람이 열을 지정하는 길(§20 5층 «개인 프로파일»)로 가야 한다 — 우리가 사용자마다 JSON을 써 줄 수는 없다. 실측 근거는 픽스처 #3의 「상품별원가 raw」 시트(7열 · 253행)이고, 사용자의 실제 워크북 세 곳(상품별원가 raw · 11_상품별원가 · B2B_상품별원가)이 **전부 같은 7열**이었다.",
+  "recognitionRules": {
+    "containerFormats": [
+      "xlsx"
+    ],
+    "requiredHeaders": [
+      "상품번호",
+      "상품명",
+      "원가"
+    ],
+    "headerMatch": "all",
+    "minConfidence": 0.8,
+    "note": "필수 헤더를 셋으로 좁혔다. 실측 시트는 `상품번호|상품명|모델명|원가|배송비|카테고리|Model` 7열인데, 뒤의 넷은 없어도 원가를 넣을 수 있다 — 필수로 잡으면 열 하나 뺀 표가 「맞는 양식 없음」이 된다. 반대로 셋은 **하나라도 빠지면 한 행도 못 넣는다**: 상품번호가 없으면 붙일 곳을 모르고, 원가가 없으면 넣을 값이 없고, 상품명은 SKU를 새로 만들 때 이름이 된다. ★ `forbiddenHeaders`가 필요한 이유 (실측) ★ 원가표의 7열이 사용자 워크북의 `B2B_매출정리`(101열)에 **전부 포함돼** 매출 파일이 원가표로 100% 판정됐다. 부분집합 관계라 필수 헤더를 아무리 고쳐도 안 갈린다. 열 수로 막으면 「열 추가는 공짜」라는 성질이 깨지므로 **의미로 막는다** — 원가는 상품 단위라 주문 번호·결제일이 있을 수 없다.",
+    "forbiddenHeaders": [
+      "주문 번호",
+      "주문번호",
+      "상품주문번호",
+      "주문일자",
+      "결제일"
+    ]
+  },
+  "extractionRules": {
+    "sheetSelector": {
+      "kind": "firstData"
+    },
+    "headerRowHint": 1,
+    "detectUnlabeledAggregates": true
+  },
+  "reference": {
+    "target": "cost",
+    "listingKeyColumn": "상품번호",
+    "amountColumn": "원가",
+    "titleColumn": "상품명",
+    "kind": "COGS",
+    "note": "`상품번호`가 리스팅 키와 **같은 값**이라 다리가 놓인다 (ESM·11번가 프로파일의 `listing.keyColumns`가 상품번호다). 실측: 픽스처 #3의 원가표 253종 중 데모 DB의 리스팅과 겹치는 것이 35종 — 나머지는 아직 안 팔았거나 다른 채널 상품이라 «못 찾음»으로 세어지고, 그건 오류가 아니다."
+  },
+  "sourceKey": {
+    "strategy": "natural",
+    "columns": [
+      "상품번호"
+    ]
+  },
+  "fieldMappings": [],
+  "validationRules": [
+    {
+      "kind": "parseRate",
+      "min": 0.9
+    }
+  ],
+  "unmappedColumns": {
+    "policy": "keep-count",
+    "note": "`배송비`·`모델명`·`카테고리`·`Model`이 남는다. ★ 셋 다 쓸 데가 있는데 아직 자리가 없다 ★ `배송비`는 원가와 같은 성격의 비용이라 `cost_history.kind = 'LOGISTICS'`로 들어갈 수 있고(지금은 한 파일에서 한 종류만 넣는다), `모델명`·`Model`은 마켓 흩어진 같은 물건을 잇는 **가장 강한 신호**다 — 이름 유사도로는 못 잡는 것을 코드 일치가 잡는다. 이제 그 열들의 이름과 표본이 `file_column`에 남으므로(마이그레이션 009) 다음에 쓸 때 재료가 있다."
+  }
+}
