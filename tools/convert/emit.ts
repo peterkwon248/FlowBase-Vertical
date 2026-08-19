@@ -266,18 +266,44 @@ export function emitTemplate(nodes: readonly Node[], opts: EmitOptions): EmitRes
 
   // ── 텍스트·표현식 ────────────────────────────────────────────────────
 
+  /**
+   * 텍스트 한 줄기(런) → JSX 한 줄.
+   *
+   * ★ **조각마다 `trim()`을 걸면 안 된다.** 홀이 리터럴을 가르므로 홀 옆의 공백은
+   * **언제나 조각의 가장자리**다 — 조각별 trim이 그걸 전부 먹었다. 그래서
+   * `원본 {{a}} → {{b}}`가 `원본{a}→{b}`로 나와 화면에 «원본512,721→503,321»이
+   * 찍혔다 (결함 66).
+   *
+   * HTML의 잣대는 조각이 아니라 **런 단위**다. 이어진 공백은 한 칸으로 접고,
+   * 버리는 것은 런의 바깥 가장자리뿐이다:
+   *
+   *   · 안쪽 — 접어서 **남긴다**. 런이 한 줄로 나가므로 JSX가 건드리지 않는다
+   *   · 바깥 — 잘라낸다. JSX가 줄 앞뒤 공백을 어차피 버리고, HTML도 줄 처음·끝의
+   *     공백은 접어 없앤다
+   *
+   * ★ **바깥 가장자리를 `{" "}`로 살리지 않는다.** 형제와 맞닿은 쪽이면 인라인
+   * 문맥에서는 한 칸으로 렌더되지만, 부모가 flex/grid면 그 공백은 **익명 항목의
+   * 가장자리라 CSS가 그리지 않는다** (`.tab`은 `display:flex; gap:7px`이고, 목업
+   * L788의 `mixTip` 줄도 flex다). 마크업만 봐서는 갈리지 않고 클래스 규칙은 목업
+   * 밖 `src/app/styles/`에 있다 — 여기서 추측하면 없는 공백을 만든다. 남은
+   * 자리는 결함 대장에 세어 둔다 (헌장 6: 조용히 넘기지 않는다).
+   */
   function emitText(parts: readonly Part[], depth: number, scope: ReadonlySet<string>): string {
     const pad = "  ".repeat(depth)
     const out: string[] = []
-    for (const p of parts) {
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i]
+      if (!p) continue
       if (p.t === "hole") {
         out.push(`{${qualify(p.expr, scope, "text")}}`)
         continue
       }
-      const text = p.text
-      if (text.trim() === "") continue
+      let text = p.text.replace(/\s+/g, " ")
+      if (i === 0) text = text.replace(/^ /, "")
+      if (i === parts.length - 1) text = text.replace(/ $/, "")
+      if (text === "") continue
       // JSX 텍스트에서 중괄호는 표현식 시작이다. 목업에는 없지만 방어해 둔다.
-      out.push(/[{}<>]/.test(text) ? `{${JSON.stringify(text.trim())}}` : text.trim())
+      out.push(/[{}<>]/.test(text) ? `{${JSON.stringify(text)}}` : text)
     }
     return out.length === 0 ? "" : pad + out.join("")
   }
