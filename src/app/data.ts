@@ -31,6 +31,8 @@ import { loadOrderRows, type OrderRow } from "@core/order/rows.js"
 import { loadLinkingView, type LinkingView } from "@core/linking/view.js"
 import { loadCoverage, type ConnectionCoverage } from "@core/coverage/load.js"
 import type { CostsView } from "./costs.js"
+import { loadPendingCostView, type PendingCostView } from "@core/linking/pending-cost.js"
+import { krCostBridgeMatcher } from "@packs/kr-marketplace/linking-matcher.js"
 import { loadHistoryRows, type HistoryRow } from "@core/history/rows.js"
 import { loadProductRows, type ProductView } from "@core/product/rows.js"
 import { Repository, type BatchDigest } from "@core/store/repository.js"
@@ -113,6 +115,12 @@ export interface LoadResult {
    * 어긋난다. 원가에서 「화면 셋이 같은 창을 봐야 한다」고 세운 규율 그대로다.
    */
   costs: CostsView | null
+  /**
+   * 원가 대기 (011) — 연결 화면의 「원가 대기」 탭이 그린다.
+   * 기간을 받지 않는다 — 대기는 파일의 성질이지 달의 성질이 아니다 (`linking`과
+   * 같은 판단). 후보 계산은 준비된 매처로 행당 유사도만 남는다 (실측 43ms).
+   */
+  pendingCost: PendingCostView | null
   /**
    * 대시보드의 **상품별 손익**. 기간 안 판매를 SKU로 묶은 것이다 —
    * 못 채우는 칸(수수료·배송비·광고비)이 무엇이고 왜인지는 `core/profit/rows.ts`.
@@ -281,6 +289,7 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
       const settlement = await loadSettlementRows(db, DEV_LIBRARY, period)
       const orders = await loadOrderRows(db, DEV_LIBRARY, period)
       const linking = await loadLinkingView(db, DEV_LIBRARY, krLinkingMatcher)
+      const pendingCost = await loadPendingCostView(db, DEV_LIBRARY, krCostBridgeMatcher)
       const resolveDocType = krDocTypeResolver()
       const coverage = await loadCoverage(db, DEV_LIBRARY, resolveDocType)
       const history = await loadHistoryRows(db, DEV_LIBRARY, resolveDocType)
@@ -328,6 +337,7 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
         settlement,
         orders,
         linking,
+        pendingCost,
         coverage,
         history,
         excluded,
@@ -361,6 +371,7 @@ function failed(e: unknown, want?: Month): LoadResult {
     settlement: [],
     orders: [],
     linking: null,
+    pendingCost: null,
     coverage: [],
     history: [],
     // 못 읽었으면 «제외가 없다»가 아니라 «모른다»이고, 배너는 그때 뜨지 않는다.

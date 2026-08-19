@@ -4920,6 +4920,85 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                       </div>
                   )}
                   {" "}
+                  {vals.linkTabCost && (
+                      <div data-s21="link-cost-pending" style={{ display: "grid", gap: "10px" }}>
+                        {vals.linkCostNote !== "" && (
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "9px 12px", borderRadius: "var(--r-sm)", background: "var(--bg-subtle)", border: "1px solid var(--border)", font: "var(--fw-regular) 12px/1.6 var(--font-sans)", color: "var(--fg-3)" }}>
+                              <Lic name="check" size={13} color="var(--pnl-pos)" />
+                              {" "}
+                              <span>
+                                {vals.linkCostNote}
+                              </span>
+                            </div>
+                        )}
+                        {vals.linkCostRows.map((r: any, $index: number) => (
+                            <div key={$index} style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "12px 14px", display: "grid", gap: "8px" }}>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
+                                <span style={{ font: "var(--fw-semi) 13px var(--font-sans)", color: "var(--fg)" }}>
+                                  {r.title}
+                                </span>
+                                {" "}
+                                <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                                  {r.meta}
+                                </span>
+                                {" "}
+                                <span style={{ flex: "1" }}></span>
+                                {" "}
+                                <button className="v-btn" style={{ height: "24px", padding: "0 8px", fontSize: "11px" }} onClick={r.dismiss}>
+                                  쓰지 않음
+                                </button>
+                              </div>
+                              {r.hasCands && (
+                                  <div style={{ display: "grid", gap: "5px" }}>
+                                    {r.cands.map((c: any, $ci: number) => (
+                                        <span key={$ci} style={{ display: "flex", alignItems: "center", gap: "9px", minWidth: "0" }}>
+                                          <button className={c.cls} style={{ height: "25px", padding: "0 9px", fontSize: "11px", flex: "none" }} onClick={c.pick}>
+                                            연결
+                                          </button>
+                                          {" "}
+                                          <span style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                            {c.label}
+                                          </span>
+                                          {" "}
+                                          <span style={{ font: "var(--fw-regular) 11px var(--font-sans)", color: "var(--fg-4)", flex: "none" }}>
+                                            {c.why}
+                                          </span>
+                                          {" "}
+                                          <span style={{ font: "var(--fw-regular) 10px var(--font-sans)", color: "var(--fg-4)", flex: "none" }}>
+                                            {c.dest}
+                                          </span>
+                                        </span>
+                                    ))}
+                                  </div>
+                              )}
+                              {r.noCandNote !== "" && (
+                                  <span style={{ font: "var(--fw-regular) 11px/1.5 var(--font-sans)", color: "var(--fg-4)" }}>
+                                    {r.noCandNote}
+                                  </span>
+                              )}
+                            </div>
+                        ))}
+                        {vals.linkCostDismissed.length > 0 && (
+                            <div style={{ border: "1px dashed var(--border)", borderRadius: "var(--r-md)", padding: "10px 12px", display: "grid", gap: "5px" }}>
+                              <span style={{ font: "var(--fw-semi) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                                쓰지 않기로 한 것
+                              </span>
+                              {vals.linkCostDismissed.map((d: any, $di: number) => (
+                                  <span key={$di} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                    <span style={{ font: "var(--fw-regular) 12px var(--font-sans)", color: "var(--fg-4)" }}>
+                                      {d.label}
+                                    </span>
+                                    {" "}
+                                    <button className="v-btn" style={{ height: "22px", padding: "0 7px", fontSize: "10px" }} onClick={d.undo}>
+                                      되돌리기
+                                    </button>
+                                  </span>
+                              ))}
+                            </div>
+                        )}
+                      </div>
+                  )}
+                  {" "}
                   <div style={{ display: "grid", gap: "10px" }}>
                     {vals.linkRows.map((r: any, $index: number) => (
                         <div key={$index} style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", overflow: "hidden" }}>

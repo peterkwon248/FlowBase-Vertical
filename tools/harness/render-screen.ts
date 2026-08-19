@@ -26,7 +26,8 @@ import { loadPnlSnapshot } from "../../src/core/profit/snapshot.js"
 import { loadSettlementRows } from "../../src/core/settlement/rows.js"
 import { loadOrderRows } from "../../src/core/order/rows.js"
 import { loadLinkingView } from "../../src/core/linking/view.js"
-import { krLinkingMatcher } from "../../src/packs/kr-marketplace/linking-matcher.js"
+import { krLinkingMatcher, krCostBridgeMatcher } from "../../src/packs/kr-marketplace/linking-matcher.js"
+import { loadPendingCostView } from "../../src/core/linking/pending-cost.js"
 import { dashboardVals } from "../../src/app/dashboard.js"
 import { settlementVals } from "../../src/app/settlement.js"
 import { orderVals } from "../../src/app/order.js"
@@ -122,6 +123,7 @@ const snap = await loadPnlSnapshot(db, "lib-1", PERIOD)
 const settlement = await loadSettlementRows(db, "lib-1", PERIOD)
 const orders = await loadOrderRows(db, "lib-1", PERIOD)
 const linking = await loadLinkingView(db, "lib-1", krLinkingMatcher)
+const pendingCost = await loadPendingCostView(db, "lib-1", krCostBridgeMatcher)
 const coverage = await loadCoverage(db, "lib-1", resolveDocType)
 const history = await loadHistoryRows(db, "lib-1", resolveDocType)
 // 원가 기준일은 **고정한다** — 오늘을 쓰면 같은 DB에서 날마다 다른 HTML이 나와
@@ -168,7 +170,7 @@ settlementVals(vals, settlement, PERIOD)
 orderVals(vals, orders, PERIOD)
 // 선택 상태는 상호작용이라 SSR에서는 늘 비어 있다 — 일괄 바의 «모두 선택»은
 // 그려지지만 눌린 뒤의 모습은 이 층이 증명하지 못한다 (2d에서 사람이 본다).
-linkingVals(vals, linking, TAB, new Set())
+linkingVals(vals, linking, TAB, new Set(), undefined, pendingCost)
 channelVals(vals, coverage, { goImport: noop }, dictOf)
 historyVals(vals, history)
 productVals(vals, products, "list", new Map(), PERIOD.to, undefined, PERIOD)

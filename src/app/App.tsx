@@ -132,6 +132,8 @@ export function App(): React.JSX.Element {
   const [setRows, setSetRows] = useState<readonly SettlementRow[]>([])
   const [ordRows, setOrdRows] = useState<readonly OrderRow[]>([])
   const [linking, setLinking] = useState<LinkingView | null>(null)
+  /** 원가 대기 (011) — 연결 화면 「원가 대기」 탭의 재료. */
+  const [pendingCost, setPendingCost] = useState<LoadResult["pendingCost"]>(null)
   const [coverage, setCoverage] = useState<readonly ConnectionCoverage[]>([])
   const [history, setHistory] = useState<readonly HistoryRow[]>([])
   const [products, setProducts] = useState<ProductView | null>(null)
@@ -259,6 +261,7 @@ export function App(): React.JSX.Element {
     setSetRows(r.settlement)
     setOrdRows(r.orders)
     setLinking(r.linking)
+    setPendingCost(r.pendingCost)
     setCoverage(r.coverage)
     setHistory(r.history)
     setProducts(r.products)
@@ -421,6 +424,39 @@ export function App(): React.JSX.Element {
         if (failed.length > 0) bulkFailures.current = { total: cards.length, failed }
       })
     },
+
+    // ── 원가 대기 (011 · D2) ────────────────────────────────────
+    /**
+     * ★ 확정 = (SKU 없으면 만들고) 원가를 넣고 상태를 바꾼다 — 한 사슬 ★
+     * `resolvePendingCost`가 addCost와 상태 갱신을 한 트랜잭션으로 묶는다.
+     * 군집에 SKU가 없으면 먼저 만든다 — run-reference의 1:1 자동 생성과 같은
+     * 판단이고(미루는 것이지 틀리게 하는 것이 아니다), 만든 SKU id로 확정한다.
+     */
+    resolveCost: (card, cand) =>
+      write(async (repo) => {
+        let skuId = cand.skuId
+        if (skuId === null) {
+          const made = await repo.createSkuForListings(
+            DEV_LIBRARY,
+            [...cand.listingIds],
+            cand.title,
+            nowStamp(),
+          )
+          if (made.skuId === null) {
+            // 멱등 경로 — 그 사이 누가 이었다. 군집의 리스팅에서 SKU를 다시 읽는다.
+            const again = await repo.listingByKey(DEV_LIBRARY, cand.key)
+            skuId = again?.skuId ?? null
+          } else {
+            skuId = made.skuId
+          }
+        }
+        if (skuId === null) {
+          throw new Error(`「${cand.title}」에 SKU를 만들지 못했습니다 — 다시 시도해 주세요`)
+        }
+        await repo.resolvePendingCost({ id: card.id, skuId, now: nowStamp() })
+      }),
+    dismissCost: (card) => write((repo) => repo.dismissPendingCost(card.id)),
+    undoDismissCost: (id) => write((repo) => repo.undoDismissPendingCost(id)),
   }
 
   // ── 상품 · 원가 입력 (③) ─────────────────────────────────────────
@@ -966,7 +1002,7 @@ export function App(): React.JSX.Element {
   // 연결은 **0장도 사실**이다. 다른 화면과 달리 길이로 거르지 않는 이유는, 리스팅이
   // 하나도 없으면 "연결할 것이 없습니다"가 떠야 하기 때문이다 — 목업의 빈 상태가
   // 그 자리에 이미 있다.
-  if (linking) linkingVals(vals, linking, linkTab, picked, linkActions)
+  if (linking) linkingVals(vals, linking, linkTab, picked, linkActions, pendingCost)
   // §22-4 다이제스트 한 줄 — 방금 넣은 파일이 이 채널에서 무엇을 열었나.
   // 커버리지는 `take(r)`가 적재 뒤 다시 읽어 둔 것이라 DB가 아는 값이다.
   const doneProfile = wiz.digest ? wiz.analysis?.profiles[wiz.profileIndex]?.profile : undefined

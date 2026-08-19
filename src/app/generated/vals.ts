@@ -391,6 +391,11 @@ export interface TemplateVals {
   licTabs: readonly any[]
   linkBadge: string
   linkBulkNewSku: (...args: any[]) => void
+  /** §21 «link-cost-pending» — 원가 대기 탭 (011 · D2). */
+  linkCostDismissed: readonly any[]
+  linkCostNote: string
+  linkCostRows: readonly any[]
+  linkTabCost: boolean
   linkEmpty: boolean
   linkEmptyMsg: string
   linkPickAll: (...args: any[]) => void
@@ -951,6 +956,10 @@ export function emptyVals(): TemplateVals {
     licTabs: [],
     linkBadge: "",
     linkBulkNewSku: () => {},
+    linkCostDismissed: [],
+    linkCostNote: "",
+    linkCostRows: [],
+    linkTabCost: false,
     linkEmpty: false,
     linkEmptyMsg: "",
     linkPickAll: () => {},

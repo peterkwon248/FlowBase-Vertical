@@ -41,3 +41,17 @@ export const krLinkingMatcher: LinkingMatcher = {
     return { kind: r.kind, candidates }
   },
 }
+
+// ── 원가 다리 매처 — 대기 행(011) → 리스팅 군집 ─────────────────
+import type { CostBridgeMatcher } from "../../core/linking/pending-cost.js"
+import { prepareCostBridge } from "./listing-match.js"
+
+/**
+ * `CostBridgeMatcher`의 한국 마켓 구현. 실제 판정은 `prepareCostBridge`에 있고
+ * (모델 정확 일치 우선 · 이름 유사도 폴백), 여기는 인터페이스에 꽂을 뿐이다.
+ */
+export const krCostBridgeMatcher: CostBridgeMatcher = {
+  prepare(listings) {
+    return prepareCostBridge(listings)
+  },
+}
