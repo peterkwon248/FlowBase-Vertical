@@ -744,7 +744,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   <span style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
                                     {vals.bridgeUp.items.map((i: any, $index: number) => (
                                         <span key={$index} className="v-num" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)" }}>
-                                          {i.label}{i.amount}
+                                          {i.label} {i.amount}
                                         </span>
                                     ))}
                                   </span>
@@ -770,7 +770,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   <span style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
                                     {vals.bridgeDown.items.map((i: any, $index: number) => (
                                         <span key={$index} className="v-num" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)" }}>
-                                          {i.label}{i.amount}
+                                          {i.label} {i.amount}
                                         </span>
                                     ))}
                                   </span>
@@ -891,11 +891,11 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                     </span>
                                     {" "}
                                     <span className="v-num" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-3)", textAlign: "right" }}>
-                                      입금{c.paid}
+                                      입금 {c.paid}
                                     </span>
                                     {" "}
                                     <span className="v-num" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--pnl-warn)", textAlign: "right" }}>
-                                      예정{c.due}
+                                      예정 {c.due}
                                     </span>
                                   </span>
                               ))}
@@ -1301,7 +1301,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               {" "}
                               <span style={{ marginTop: "auto", paddingTop: "16px" }}>
                                 <span style={{ display: "block", font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)", marginBottom: "10px" }}>
-                                  매출{vals.heroRev}원이 이렇게 나뉩니다
+                                  매출 {vals.heroRev}원이 이렇게 나뉩니다
                                 </span>
                                 {" "}
                                 <span data-s21="cost-bars" style={{ display: "grid", gap: "10px", position: "relative", minWidth: "0" }}>
@@ -1380,7 +1380,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                 </span>
                                 {" "}
                                 <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
-                                  단위 백만원 ·{vals.scopeLine}
+                                  단위 백만원 · {vals.scopeLine}
                                 </span>
                               </div>
                               {" "}
@@ -3409,7 +3409,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               </span>
                               {" "}
                               <span style={{ font: "var(--fw-medium) 10px var(--font-sans)", color: "var(--fg-4)" }}>
-                                캠페인{vals.adCount}
+                                캠페인 {vals.adCount}
                               </span>
                             </div>
                             {" "}
@@ -4212,7 +4212,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                     {vals.impChannelName && (
                         <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", height: "26px", padding: "0 4px 0 9px", borderRadius: "var(--r-pill)", border: "1px solid var(--accent)", font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--accent)" }}>
                           <span>
-                            {vals.impChannelName}매핑 적용됨
+                            {vals.impChannelName} 매핑 적용됨
                           </span>
                           {" "}
                           <span className="iconbtn" style={{ cursor: "pointer", width: "18px", height: "18px" }} onClick={vals.clearImpChannel}>
@@ -5043,7 +5043,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               </div>
                               {" "}
                               <div className="v-num" style={{ font: "var(--fw-medium) 11px var(--font-mono)", color: "var(--fg-4)" }}>
-                                {r.ext}·{r.price}
+                                {r.ext} · {r.price}
                               </div>
                               {" "}
                               {r.folded && (
@@ -5151,7 +5151,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                 </div>
                                 {" "}
                                 <div className="v-num" style={{ font: "var(--fw-medium) 10px var(--font-mono)", color: "var(--fg-4)" }}>
-                                  {r.key}— 같은 리스팅이 다시 오면 이 연결이 유지됩니다
+                                  {r.key} — 같은 리스팅이 다시 오면 이 연결이 유지됩니다
                                 </div>
                               </div>
                           )}
@@ -5263,7 +5263,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               </span>
                               {" "}
                               <span style={{ font: "var(--fw-medium) 10px var(--font-sans)", color: "var(--fg-4)" }}>
-                                →{f.dest}
+                                → {f.dest}
                               </span>
                             </div>
                             {" "}
@@ -5282,7 +5282,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                           </span>
                           {" "}
                           <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
-                            {vals.fmChannel}·{vals.fmDoc}·{vals.fmSrc}
+                            {vals.fmChannel} · {vals.fmDoc} · {vals.fmSrc}
                           </span>
                         </div>
                         {" "}
@@ -5526,7 +5526,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                 {" "}
                                 <div style={{ display: "flex", alignItems: "center", gap: "8px", paddingTop: "4px", borderTop: "1px solid var(--border)" }}>
                                   <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)", paddingTop: "8px" }}>
-                                    {f.filled}채워짐 ·{f.used}
+                                    {f.filled} 채워짐 · {f.used}
                                   </span>
                                   {" "}
                                   <span style={{ flex: "1" }}></span>
@@ -5556,7 +5556,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   </span>
                                   {" "}
                                   <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-2)" }}>
-                                    {f.type}·{f.opts}
+                                    {f.type} · {f.opts}
                                   </span>
                                 </span>
                                 {" "}
