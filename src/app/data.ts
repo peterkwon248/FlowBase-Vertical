@@ -90,6 +90,13 @@ export interface LoadResult {
    */
   history: readonly HistoryRow[]
   /**
+   * **파일에서 제외된 행의 총계** — 대시보드의 「일부 제외」 배너가 쓴다.
+   *
+   * 기간을 받지 않는다. 제외는 파일의 성질이지 달의 성질이 아니라서,
+   * 기간으로 자르면 「7월에 3행 제외」가 무엇의 3인지 설명할 수 없게 된다.
+   */
+  excluded: { readonly files: number; readonly rows: number; readonly reasons: readonly { readonly reason: string; readonly count: number }[] }
+  /**
    * 상품 화면이 그리는 SKU 목록과 원가 (③).
    *
    * 기간을 **받기는 한다** — 판매 수량 칸 때문이다. 원가와 연결은 «기준»이라
@@ -288,6 +295,7 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
       const profitRows = await loadProfitRows(db, DEV_LIBRARY, period)
       const channelRows = await loadChannelRows(db, DEV_LIBRARY, period)
       const daily = await loadDailySeries(db, DEV_LIBRARY, period)
+      const excluded = await new Repository(db).exclusionTotals(DEV_LIBRARY)
       return {
         snapshot,
         settlement,
@@ -295,6 +303,7 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
         linking,
         coverage,
         history,
+        excluded,
         products,
         profitRows,
         channelRows,
@@ -326,6 +335,8 @@ function failed(e: unknown, want?: Month): LoadResult {
     linking: null,
     coverage: [],
     history: [],
+    // 못 읽었으면 «제외가 없다»가 아니라 «모른다»이고, 배너는 그때 뜨지 않는다.
+    excluded: { files: 0, rows: 0, reasons: [] },
     products: null,
     profitRows: [],
     channelRows: [],

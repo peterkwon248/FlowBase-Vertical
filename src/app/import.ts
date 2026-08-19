@@ -575,8 +575,13 @@ const ISSUE_LABEL: Record<string, string> = {
   stale_batch_blocked: "끝나지 않은 이전 가져오기가 남아 있습니다 — 치우지 못했습니다",
 }
 
-/** 제외 사유 → 사람이 읽는 말. 코드값을 그대로 보이면 사용자가 알 수 없다. */
-const EXCLUSION_LABEL: Record<string, string> = {
+/**
+ * 제외 사유 → 사람이 읽는 말. 코드값을 그대로 보이면 사용자가 알 수 없다.
+ *
+ * **대시보드의 「일부 제외」 배너도 이걸 쓴다** — 같은 사유를 두 화면이 다른 말로
+ * 부르면 사용자는 서로 다른 일이 일어난 줄 안다.
+ */
+export const EXCLUSION_LABEL: Record<string, string> = {
   total: "합계 행",
   subtitle: "제목·설명 행",
   blank: "빈 행",

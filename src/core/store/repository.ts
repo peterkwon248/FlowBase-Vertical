@@ -1143,6 +1143,51 @@ export class Repository {
     })
   }
 
+  /**
+   * **파일에서 제외된 행의 총계** — 대시보드의 「일부 제외」 배너가 쓴다.
+   *
+   * ★ 왜 기간을 안 받는가 ★
+   * 제외는 **파일의 성질**이지 달의 성질이 아니다. 한 파일의 행이 여러 달에
+   * 걸치므로 기간으로 자르면 「7월에 3행 제외」 같은 말이 나오는데, 그 3이
+   * 무엇의 3인지 아무도 설명할 수 없다. 그래서 배너 문구도 달을 말하지 않는다
+   * (`linking`·`coverage`가 기간을 안 받는 것과 같은 판단).
+   *
+   * `undone` 배치는 세지 않는다 — 되돌린 파일의 제외는 지금 화면의 숫자와 무관하다.
+   */
+  async exclusionTotals(libraryId: string): Promise<{
+    readonly files: number
+    readonly rows: number
+    readonly reasons: readonly { readonly reason: string; readonly count: number }[]
+  }> {
+    const head = await this.db
+      .prepare(
+        `SELECT COUNT(*) AS files, COALESCE(SUM(excluded_count), 0) AS rows
+           FROM batch
+          WHERE library_id = ? AND status = 'committed' AND excluded_count > 0`,
+      )
+      .get(libraryId)
+
+    const reasons = await this.db
+      .prepare(
+        `SELECT e.reason AS reason, COUNT(*) AS count
+           FROM batch_exclusion e
+           JOIN batch b ON b.id = e.batch_id
+          WHERE b.library_id = ? AND b.status = 'committed'
+          GROUP BY e.reason
+          ORDER BY count DESC`,
+      )
+      .all(libraryId)
+
+    return {
+      files: Number(head?.["files"] ?? 0),
+      rows: Number(head?.["rows"] ?? 0),
+      reasons: reasons.map((r) => ({
+        reason: String(r["reason"] ?? ""),
+        count: Number(r["count"] ?? 0),
+      })),
+    }
+  }
+
   /** 이 라이브러리에서 본 파일들. 최근 본 것부터. */
   async fileSightings(libraryId: string, limit = 200): Promise<readonly Row[]> {
     return this.db

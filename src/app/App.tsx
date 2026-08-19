@@ -129,6 +129,8 @@ export function App(): React.JSX.Element {
   const [profitRows, setProfitRows] = useState<readonly ProfitRow[]>([])
   const [channelRows, setChannelRows] = useState<readonly ChannelRow[]>([])
   const [daily, setDaily] = useState<DailySeries>({ points: [], periodOnly: 0 })
+  /** 파일에서 제외된 행 — 대시보드의 「일부 제외」 배너가 쓴다 (LOCK 6). */
+  const [excluded, setExcluded] = useState<LoadResult["excluded"]>({ files: 0, rows: 0, reasons: [] })
   /** 일별 차트에서 호버 중인 칸. -1이면 안 떠 있다 — 화면 상태라 DB에 가지 않는다. */
   const [trendIdx, setTrendIdx] = useState(-1)
   /**
@@ -251,6 +253,7 @@ export function App(): React.JSX.Element {
     setProfitRows(r.profitRows)
     setChannelRows(r.channelRows)
     setDaily(r.daily)
+    setExcluded(r.excluded)
     // 기간은 **조회가 정한 것**을 받는다. 요청한 달이 사라졌으면 물러난 달이 온다.
     setPer(r.period)
     setMonth(r.month)
@@ -744,6 +747,9 @@ export function App(): React.JSX.Element {
       daily,
       trendIdx,
       onTrend: setTrendIdx,
+      excluded,
+      // 배너의 [양식 확인] — 제외가 많으면 양식 해석을 봐야 하므로 그 화면으로 보낸다.
+      goFieldmap: () => go("fieldmap"),
     })
     // 데이터가 들어왔으니 첫 실행 안내는 지나간다.
     vals.firstRun = false

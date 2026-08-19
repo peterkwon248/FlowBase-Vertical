@@ -28,16 +28,21 @@ import { isWebDemo } from "./data.js"
  */
 function webDemoBanner(): void {
   const bar = document.createElement("div")
-  bar.textContent =
-    "보기 전용 데모 — 비식별화 예시 데이터입니다. 가져오기는 꺼져 있고, 새로고침하면 처음 상태로 돌아갑니다."
+  bar.textContent = "보기 전용 데모 · 예시 데이터 · 가져오기 꺼짐"
+  /**
+   * ★ 화면을 **가리지 않는다** ★
+   * 처음엔 하단 전폭 띠였는데 표의 마지막 줄을 덮었다 — 고지하려다 데이터를
+   * 가리면 그게 더 나쁘다. 구석의 작은 알약으로 줄이고 `pointer-events: none`으로
+   * 클릭도 통과시킨다.
+   */
   bar.setAttribute(
     "style",
     [
-      "position:fixed", "left:0", "right:0", "bottom:0", "z-index:9999",
-      "padding:6px 12px", "text-align:center",
-      "font:var(--fw-regular) 11px var(--font-sans)",
-      "color:var(--fg-3)", "background:var(--bg-2)",
-      "border-top:1px solid var(--border-1)",
+      "position:fixed", "right:10px", "bottom:10px", "z-index:9999",
+      "padding:4px 10px", "border-radius:999px", "pointer-events:none",
+      "font:var(--fw-medium) 10px var(--font-sans)", "letter-spacing:0.02em",
+      "color:var(--fg-4)", "background:var(--bg-elevated)",
+      "border:1px solid var(--border)", "opacity:0.9",
     ].join(";"),
   )
   document.body.appendChild(bar)

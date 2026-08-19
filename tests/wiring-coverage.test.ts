@@ -34,8 +34,10 @@ import { wiringReport } from "../tools/harness/wiring.js"
  * 왜 안 채웠는지가 `CUTS`에 선언되거나 여기 이유가 적혀야 한다.
  *
  * 2026-08-17 기준 9 = 부분 데이터 고지 3 + 정산 조정 6.
+ * 2026-08-18 기준 6 = 정산 조정 6. **부분 데이터 고지 3이 배선됐다** —
+ * `partial` 배너가 `batch_exclusion`을 읽어 「파일에서 N행이 제외됐습니다」를 말한다.
  */
-const TODO_MAX = 9
+const TODO_MAX = 6
 
 describe("배선 커버리지 — 마크업이 쓰는 자리에 값이 들어오는가", () => {
   const r = wiringReport()
