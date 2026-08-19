@@ -56,7 +56,7 @@ import { runImport } from "@core/import/run.js"
 import { runReferenceImport } from "@core/import/run-reference.js"
 import { profileVersion } from "@core/import/mapping/index.js"
 import { deriveProfile } from "@core/import/mapping/derive.js"
-import { DEV_LIBRARY, findPriorImports, isWebDemo, loadAllProfiles, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
+import { DEV_LIBRARY, findPriorImports, loadAllProfiles, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
@@ -766,20 +766,18 @@ export function App(): React.JSX.Element {
       const file = input?.files?.[0]
       if (!file) return
       /**
-       * ★ 웹판에서는 넣지 않는다 — **넣으면 사라지기 때문이다** ★
+       * ★ 웹판에서도 넣는다 — **막으면 시험할 길이 없다** (2026-08-19, ADR-018) ★
        *
-       * 웹 데모의 DB는 메모리에 산다(`driver-wasm`). 적재는 성공하고 화면도 바뀌는데
-       * 새로고침하면 통째로 없다 — 사용자가 겪는 것은 «데이터가 조용히 사라짐»이고
-       * 그건 LOCK 6이 막으려는 모양 그대로다. 그래서 **하기 전에 멈추고 이유를 말한다.**
+       * 8/18에는 여기서 막았다. 근거는 «넣으면 새로고침 때 사라진다»였고 그 사실은
+       * 지금도 참이다. 뒤집는 이유는 사실이 바뀌어서가 아니라 **비교 대상을 잘못
+       * 골랐기 때문이다**: 막았을 때 사용자가 겪는 것은 «데이터를 잃는 일»이 아니라
+       * «아무것도 시험하지 못하는 일»이다. 판정·매핑·적재 결과를 한 번 보는 것이
+       * 이 배포의 목적인데, 그 목적을 막고 있었다.
+       *
+       * ★ LOCK 6은 그대로 지킨다 ★ 조용한 실패 금지가 요구하는 것은 «막아라»가
+       * 아니라 «숨기지 마라»다. 사라진다는 사실은 화면 구석의 상시 띠가 말한다
+       * (`main.tsx`) — 넣기 전에도, 넣은 뒤에도 보인다.
        */
-      if (isWebDemo()) {
-        setWiz({
-          ...EMPTY_WIZARD,
-          error:
-            "이 웹 데모는 보기 전용입니다 — 넣은 데이터가 저장되지 않고 새로고침하면 사라지므로 가져오기를 막아 두었습니다. 데스크톱 앱에서는 그대로 동작합니다.",
-        })
-        return
-      }
       // ★ 열기 **전에** 판정한다 ★ 큰 파일이면 화면이 멈출 수 있다고 미리 말한다.
       // 메인 스레드에서 도는 동안은 이 고지가 유일한 방어다 (ADR-001 조건 2 부채).
       setWiz({ ...EMPTY_WIZARD, busy: true, bigFile: file.size >= BIG_FILE_BYTES })
