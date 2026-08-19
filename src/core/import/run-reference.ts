@@ -41,6 +41,8 @@
  */
 
 import { sniff } from "./recognition/sniff.js"
+import { sha1Bytes } from "./mapping/sha1.js"
+import { KEY_SEP } from "./mapping/listing.js"
 import { parserFor } from "./parsers/index.js"
 import { streamSheet } from "./pipeline.js"
 import { profileVersion, type MappingProfile } from "./mapping/index.js"
@@ -73,6 +75,17 @@ export interface ReferenceRunResult {
   readonly replaced: number
   /** 상품번호로 리스팅을 못 찾은 행. **이게 0이 아닌 것이 정상이다** — 아래 참조. */
   readonly unmatched: number
+  /**
+   * 못 찾았지만 **대기실에 남긴** 행 (011). unmatched ⊇ stashed가 아니라
+   * unmatched = stashed + bridged다 — 셋을 따로 세는 이유는 화면이 각각 다른
+   * 문장을 쓰기 때문이다 («대기 N» · «지난 판단으로 N건 붙음»).
+   */
+  readonly stashed: number
+  /**
+   * ★ 과거의 사람 판단으로 붙은 행 ★ — 대기실의 resolved 행(같은 source_key)이
+   * 가리키는 SKU로 곧장 들어갔다. 점수 자동 확정이 아니라 §20 규칙 4의 재사용이다.
+   */
+  readonly bridged: number
   /** 그 과정에서 **새로 만든 SKU** 수. */
   readonly createdSkus: number
   /** 금액을 못 읽었거나 상품번호가 빈 행. */
@@ -90,6 +103,9 @@ export interface ReferenceRunResult {
    */
   readonly kind: "COGS" | "PACKAGING" | "LOGISTICS" | "OTHER"
 }
+
+const hex = (b: Uint8Array): string =>
+  Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")
 
 /** 원 단위 정수로 읽는다. 「1,200원」·「1200.0」 같은 표기를 넘긴다. */
 function toWon(value: string | number | null, raw: unknown): number | null {
@@ -140,14 +156,21 @@ export async function runReferenceImport(
     let keyCol = -1
     let amountCol = -1
     let titleCol = -1
+    let modelCol = -1
+    /** 프로파일의 `sourceKey.columns` 인덱스 — 대기 행의 정체성이 여기서 나온다. */
+    let skCols: number[] = []
 
     let inserted = 0
     let skipped = 0
     let replaced = 0
     let unmatched = 0
+    let bridged = 0
     let createdSkus = 0
     let badRows = 0
     const unmatchedSample: string[] = []
+    const sourceHash = hex(sha1Bytes(o.bytes))
+    /** 대기실로 갈 행들 — 루프가 끝나고 한 번에 UPSERT한다. */
+    const stash: Parameters<Repository["stashPendingCosts"]>[0][number][] = []
 
     for await (const chunk of chunks) {
       if (headers.length === 0) {
@@ -157,6 +180,11 @@ export async function runReferenceImport(
         keyCol = at(rule.listingKeyColumn)
         amountCol = at(rule.amountColumn)
         titleCol = at(rule.titleColumn)
+        modelCol = at(rule.modelColumn)
+        skCols =
+          o.profile.sourceKey.strategy === "natural"
+            ? (o.profile.sourceKey.columns ?? []).map(at)
+            : []
         // 열이 없으면 **한 행도 못 넣는다.** 조용히 0건으로 끝내지 않는다 (LOCK 6).
         if (keyCol < 0 || amountCol < 0) {
           throw new Error(
@@ -190,6 +218,58 @@ export async function runReferenceImport(
         if (listing === null) {
           unmatched++
           if (unmatchedSample.length < 10) unmatchedSample.push(key)
+
+          const title = titleCol >= 0 ? String(chunk.values[base + titleCol] ?? "").trim() : key
+          const model = modelCol >= 0 ? String(chunk.values[base + modelCol] ?? "").trim() : ""
+          // 대기 행의 정체성 — 프로파일의 sourceKey 선언(ADR-006)을 그대로 탄다.
+          // 새 규칙을 발명하면 재가져오기 멱등이 두 규약으로 갈린다.
+          const sourceKey =
+            skCols.length > 0
+              ? skCols
+                  .map((c) => (c < 0 ? "" : String(chunk.values[base + c] ?? "")))
+                  .join(KEY_SEP)
+              : key
+
+          /**
+           * ★ 지난 판단이 있으면 곧장 붙인다 — 다리 사전 ★
+           * 사람이 전에 「이 품명 = 이 SKU」를 확정했으면(resolved) 그 SKU로
+           * 바로 넣는다. 점수가 아니라 **저장된 사람 판단**이라 자동이어도 된다
+           * (§20 규칙 4 — 답 = 갱신, 다음 파일부터 질문 0).
+           */
+          const bridgedSku = await repo.resolvedCostBridge(o.libraryId, rule.kind, sourceKey)
+          if (bridgedSku !== null) {
+            const br = await repo.addCost({
+              libraryId: o.libraryId,
+              skuId: bridgedSku,
+              kind: rule.kind,
+              amount,
+              effectiveFrom: o.effectiveFrom,
+              note: `${o.fileName} · ${profileVersion(o.profile)} · 지난 판단으로 연결`,
+              now: o.now,
+              enteredBy: "import",
+              ...(o.replace === true ? { replace: true } : {}),
+            })
+            if (br.inserted) inserted++
+            else if (br.replaced) replaced++
+            else skipped++
+            bridged++
+          }
+
+          // 붙었든(bridged) 못 붙었든 대기실의 값은 최신으로 따라간다 — 상태는
+          // stash가 덮지 않으므로(리포지토리 계약) resolved·dismissed 판단은 산다.
+          stash.push({
+            libraryId: o.libraryId,
+            sourceKey,
+            kind: rule.kind,
+            title: title === "" ? key : title,
+            modelCode: model === "" ? null : model,
+            amount,
+            effectiveFrom: o.effectiveFrom,
+            sourceHash,
+            sourceName: o.fileName,
+            profileVersion: profileVersion(o.profile),
+            now: o.now,
+          })
           continue
         }
 
@@ -236,12 +316,16 @@ export async function runReferenceImport(
       }
     }
 
+    if (stash.length > 0) await repo.stashPendingCosts(stash)
+
     const sum = getSummary()
     return {
       inserted,
       skipped,
       replaced,
       unmatched,
+      stashed: stash.length - bridged,
+      bridged,
       createdSkus,
       badRows,
       excluded: sum.excluded,

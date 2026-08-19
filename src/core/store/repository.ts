@@ -844,6 +844,198 @@ export class Repository {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // 원가 대기 (마이그레이션 011) — 못 붙은 원가를 버리지 않는다
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * 못 붙은 원가 행들을 쌓는다 (UPSERT — 재가져오기는 행을 늘리지 않는다).
+   *
+   * ★ resolved·dismissed 행의 상태는 **덮지 않는다** ★
+   * 사람이 「이 상품이다」·「쓰지 않음」이라고 판단한 것이 재가져오기 한 번에
+   * 초기화되면 판단이 아니라 메모다. 값(amount·effective_from)만 최신으로 따라간다 —
+   * 대기실의 금액은 확정 전이라 «마지막으로 본 값»이 맞다.
+   */
+  async stashPendingCosts(
+    rows: readonly {
+      readonly libraryId: string
+      readonly sourceKey: string
+      readonly kind: string
+      readonly title: string
+      readonly modelCode: string | null
+      readonly amount: number
+      readonly effectiveFrom: string
+      readonly sourceHash: string
+      readonly sourceName: string
+      readonly profileVersion: string
+      readonly now: string
+    }[],
+  ): Promise<{ inserted: number; updated: number }> {
+    let inserted = 0
+    let updated = 0
+    await this.db.transaction(async () => {
+      for (const r of rows) {
+        const prior = await this.db
+          .prepare(
+            `SELECT id FROM pending_cost
+              WHERE library_id = ? AND kind = ? AND source_key = ?`,
+          )
+          .get(r.libraryId, r.kind, r.sourceKey)
+        if (prior === undefined) inserted++
+        else updated++
+        await this.db
+          .prepare(
+            `INSERT INTO pending_cost
+               (library_id, source_key, kind, title, model_code, amount, effective_from,
+                source_hash, source_name, profile_version, first_seen_at, last_seen_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+             ON CONFLICT (library_id, kind, source_key) DO UPDATE SET
+               title = excluded.title,
+               model_code = excluded.model_code,
+               amount = excluded.amount,
+               effective_from = excluded.effective_from,
+               source_hash = excluded.source_hash,
+               source_name = excluded.source_name,
+               profile_version = excluded.profile_version,
+               last_seen_at = excluded.last_seen_at`,
+          )
+          .run(
+            r.libraryId,
+            r.sourceKey,
+            r.kind,
+            r.title,
+            r.modelCode,
+            r.amount,
+            r.effectiveFrom,
+            r.sourceHash,
+            r.sourceName,
+            r.profileVersion,
+            r.now,
+            r.now,
+          )
+      }
+    })
+    return { inserted, updated }
+  }
+
+  async pendingCosts(
+    libraryId: string,
+    state?: "pending" | "resolved" | "dismissed",
+  ): Promise<
+    readonly {
+      readonly id: number
+      readonly sourceKey: string
+      readonly kind: string
+      readonly title: string
+      readonly modelCode: string | null
+      readonly amount: number
+      readonly effectiveFrom: string
+      readonly sourceName: string
+      readonly state: string
+      readonly resolvedSkuId: string | null
+    }[]
+  > {
+    const rows =
+      state === undefined
+        ? await this.db
+            .prepare(`SELECT * FROM pending_cost WHERE library_id = ? ORDER BY title`)
+            .all(libraryId)
+        : await this.db
+            .prepare(
+              `SELECT * FROM pending_cost WHERE library_id = ? AND state = ? ORDER BY title`,
+            )
+            .all(libraryId, state)
+    return rows.map((r) => ({
+      id: Number(r["id"]),
+      sourceKey: String(r["source_key"]),
+      kind: String(r["kind"]),
+      title: String(r["title"]),
+      modelCode: r["model_code"] === null || r["model_code"] === undefined ? null : String(r["model_code"]),
+      amount: Number(r["amount"] ?? 0),
+      effectiveFrom: String(r["effective_from"]),
+      sourceName: String(r["source_name"]),
+      state: String(r["state"]),
+      resolvedSkuId:
+        r["resolved_sku_id"] === null || r["resolved_sku_id"] === undefined
+          ? null
+          : String(r["resolved_sku_id"]),
+    }))
+  }
+
+  /**
+   * ★ 과거의 사람 판단을 되찾는다 — 다리 사전 ★
+   *
+   * 같은 source_key가 resolved 상태면 그 SKU를 돌려준다. run-reference가 이걸로
+   * 「지난달에 이었던 품명」을 곧장 붙인다 — 점수 자동 확정이 아니라 §20 규칙 4
+   * («답 = 갱신, 다음 파일부터 질문 0»)의 원가판이다.
+   */
+  async resolvedCostBridge(
+    libraryId: string,
+    kind: string,
+    sourceKey: string,
+  ): Promise<string | null> {
+    const r = await this.db
+      .prepare(
+        `SELECT resolved_sku_id FROM pending_cost
+          WHERE library_id = ? AND kind = ? AND source_key = ? AND state = 'resolved'`,
+      )
+      .get(libraryId, kind, sourceKey)
+    const id = r?.["resolved_sku_id"]
+    return id === null || id === undefined ? null : String(id)
+  }
+
+  /**
+   * 사람이 「이 상품이다」를 확정한다 — **한 트랜잭션**에서 원가를 넣고 상태를
+   * 바꾼다. 두 호출로 가르면 하나만 성공한 어중간(원가는 들어갔는데 대기가
+   * 남아 두 번 넣게 되는 상태)이 생긴다.
+   *
+   * 점수를 인자로 받지 않는다 — 자동 확정은 구조적으로 불가능해야 한다.
+   */
+  async resolvePendingCost(o: {
+    id: number
+    skuId: string
+    now: string
+  }): Promise<{ costInserted: boolean; previous: number | null }> {
+    return this.db.transaction(async () => {
+      const row = await this.db.prepare(`SELECT * FROM pending_cost WHERE id = ?`).get(o.id)
+      if (row === undefined) throw new Error(`대기 행이 없다: ${o.id}`)
+      if (String(row["state"]) === "resolved") {
+        throw new Error(`이미 확정된 행이다: ${o.id} — 되돌리기는 v2다`)
+      }
+      const r = await this.addCost({
+        libraryId: String(row["library_id"]),
+        skuId: o.skuId,
+        kind: String(row["kind"]),
+        amount: Number(row["amount"] ?? 0),
+        effectiveFrom: String(row["effective_from"]),
+        note: `${String(row["source_name"])} · 대기에서 확정`,
+        now: o.now,
+        enteredBy: "user",
+      })
+      await this.db
+        .prepare(
+          `UPDATE pending_cost SET state = 'resolved', resolved_sku_id = ?, resolved_at = ?
+            WHERE id = ?`,
+        )
+        .run(o.skuId, o.now, o.id)
+      return { costInserted: r.inserted, previous: r.previous }
+    })
+  }
+
+  /** 「쓰지 않음」 — 삭제가 아니라 세고 있는 부재다 (§20 규칙 3). */
+  async dismissPendingCost(id: number): Promise<void> {
+    await this.db
+      .prepare(`UPDATE pending_cost SET state = 'dismissed' WHERE id = ? AND state = 'pending'`)
+      .run(id)
+  }
+
+  /** 무시를 거둔다 — 다시 pending으로. resolved는 못 되돌린다 (v2). */
+  async undoDismissPendingCost(id: number): Promise<void> {
+    await this.db
+      .prepare(`UPDATE pending_cost SET state = 'pending' WHERE id = ? AND state = 'dismissed'`)
+      .run(id)
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // 고정비·운영비 (마이그레이션 010)
   // ─────────────────────────────────────────────────────────────
 

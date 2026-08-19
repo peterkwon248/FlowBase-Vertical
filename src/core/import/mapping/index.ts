@@ -205,6 +205,11 @@ export interface MappingProfile {
     readonly listingKeyColumn: string
     /** 금액 열. 원 단위 정수로 읽는다. */
     readonly amountColumn: string
+    /**
+     * 모델 코드 열 (선택). 대기 행(011)에 실려 **정확 일치 매칭**의 재료가 된다 —
+     * 이름 유사도로 못 잡는 것을 코드 일치가 잡는다 (cost-card의 실측 메모).
+     */
+    readonly modelColumn?: string
     /** `cost_history.kind`. 스키마가 CHECK로 네 종을 닫아 뒀다. */
     readonly kind: "COGS" | "PACKAGING" | "LOGISTICS" | "OTHER"
     /** 사람이 알아볼 이름을 만들 때 쓴다 (SKU를 새로 만드는 경우). */
