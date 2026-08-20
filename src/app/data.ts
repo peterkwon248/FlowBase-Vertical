@@ -310,11 +310,30 @@ export const today = (): string => kstNow().slice(0, 10)
  */
 let migrated: Promise<void> | null = null
 const catchUp = async (db: Parameters<typeof migrate>[0]): Promise<void> => {
-  migrated ??= migrate(db).then((applied) => {
-    if (applied.length > 0) {
-      console.info("[data] 마이그레이션 적용:", applied.map((m) => m.version).join(", "))
-    }
-  })
+  /**
+   * ★ 실패하면 **다시 시도할 수 있어야 한다** (2026-08-20 · 조사 3.9) ★
+   *
+   * 전에는 `migrated ??= migrate(db).then(…)` 한 줄이었다. `??=`는 **거절된
+   * 프라미스도 non-nullish**로 보므로, 한 번 실패하면 그 거절된 프라미스가
+   * 세션 내내 캐시된다 — 이후 모든 조회가 **같은 오류로** 죽고, 화면의 모달은
+   * 「닫기」뿐이라 **앱 재시작이 유일한 복구**였다.
+   *
+   * 실패는 실제로 날 수 있다: DB가 잠겨 있거나(다른 프로세스), 디스크가 꽉 찼거나,
+   * 마이그레이션 자체가 데이터 때문에 거부되거나. 그중 앞의 둘은 **곧 풀리는**
+   * 종류라 재시도가 답이다.
+   *
+   * 그래서 실패하면 캐시를 비운다. 성공한 결과만 세션 동안 재사용한다.
+   */
+  migrated ??= migrate(db)
+    .then((applied) => {
+      if (applied.length > 0) {
+        console.info("[data] 마이그레이션 적용:", applied.map((m) => m.version).join(", "))
+      }
+    })
+    .catch((e: unknown) => {
+      migrated = null // ← 이 한 줄이 「재시작 말고는 길이 없다」를 없앤다
+      throw e
+    })
   await migrated
 }
 

@@ -13,6 +13,7 @@ import "./styles/vector-base.css"
 import "./styles/flowbase-theme.css"
 
 import { App } from "./App.js"
+import { Crash, watchUnhandled } from "./crash.js"
 import { isWebDemo } from "./data.js"
 
 /**
@@ -54,8 +55,19 @@ function webDemoBanner(): void {
 const root = document.getElementById("root")
 if (!root) throw new Error("#root가 없다")
 if (isWebDemo()) webDemoBanner()
+/**
+ * ★ 렌더 밖의 사고도 잡는다 (2026-08-20 · 조사 3.9) ★
+ * 경계(`Crash`)는 **렌더 단계만** 본다. 이 앱의 쓰기는 전부 비동기라 거기서 터진
+ * 것은 경계에 안 걸리고 지금까지 아무 데도 안 남았다. 걷을 일이 없으므로
+ * 해제 함수는 버린다 — 앱이 살아 있는 동안 계속 듣는 것이 맞다.
+ */
+watchUnhandled()
 createRoot(root).render(
   <StrictMode>
-    <App />
+    {/* ★ 경계가 **앱 전체**를 감싼다 ★ 부분만 감싸면 감싸지 않은 자리에서
+        같은 빈 흰 창이 난다 (조사 3.9). */}
+    <Crash>
+      <App />
+    </Crash>
   </StrictMode>,
 )

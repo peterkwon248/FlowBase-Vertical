@@ -111,6 +111,33 @@ export async function applyMigrations(
   migrations: readonly Migration[],
 ): Promise<Migration[]> {
   const done = await appliedVersions(db)
+
+  /**
+   * ★ **미래에서 온 DB**는 열지 않는다 (2026-08-20 · 조사 3.9) ★
+   *
+   * 전에는 `done.has(m.version)`만 봤다. 그러면 「내가 아는 최대 번호보다 **큰**
+   * 적용본」을 **아무도 검사하지 않는다** — 옛 빌드가 새 DB를 말없이 열고,
+   * 조회는 아직 없는 컬럼에서 죽거나 **더 나쁘게는 성공하면서 새 컬럼을 무시한
+   * 채 쓴다.** 뒤쪽이 진짜 위험이다: 새 스키마가 담은 값이 조용히 사라진다.
+   *
+   * 이 저장소는 이미 그 계보의 사고를 겪었다 — 스키마가 자라면 그 위에서 통과한
+   * 게이트를 다시 읽어야 한다는 것(작업 리듬 7-a). 그 반대 방향이 이 자리다.
+   *
+   * 기기를 오가며 쓰는 앱이라 **실제로 일어난다**: 노트북에서 015를 만들고,
+   * 데스크톱의 옛 빌드로 같은 DB를 여는 순간이다.
+   *
+   * 막고 **무엇을 하면 되는지 말한다** (LOCK 6).
+   */
+  const known = migrations.reduce((max, m) => (m.version > max ? m.version : max), 0)
+  const ahead = [...done].filter((v) => v > known).sort((a, b) => a - b)
+  if (ahead.length > 0) {
+    throw new Error(
+      `이 DB는 더 새 버전의 앱이 만든 것입니다 (DB 스키마 ${ahead[ahead.length - 1]} · ` +
+        `이 앱이 아는 것 ${known}). 옛 앱으로 열면 새로 생긴 값이 조용히 사라질 수 ` +
+        `있어 열지 않았습니다 — 앱을 최신으로 올린 뒤 다시 열어 주세요.`,
+    )
+  }
+
   const applied: Migration[] = []
   for (const m of migrations) {
     if (done.has(m.version)) continue
