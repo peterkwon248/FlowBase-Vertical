@@ -6,7 +6,25 @@ export default defineConfig({
     alias: {
       "@core": fileURLToPath(new URL("./src/core", import.meta.url)),
       "@packs": fileURLToPath(new URL("./src/packs", import.meta.url)),
+      "@app": fileURLToPath(new URL("./src/app", import.meta.url)),
     },
+  },
+  /**
+   * ★ `src/app/data.ts`를 시험에서 열 수 있게 한다 (2026-08-20) ★
+   *
+   * `vite.config.ts:35`가 `__PROJECT_ROOT__`를 주입하는데 vitest는 그 define을
+   * 안 받아서, `data.ts`를 import하는 순간 `ReferenceError`로 죽었다. 그래서
+   * **686줄짜리 DB 열기·쓰기 경로에 실행되는 시험이 0개**였다 (조사 4.7).
+   *
+   * 대신 쓰던 방식이 `tests/tauri-conn-race.test.ts:92`처럼 「`data.ts`의 **모양**을
+   * 복제」하는 것이었는데, **모양이 본체와 어긋나면 양쪽 다 초록이다.**
+   * ADR-014의 WAL 사고가 정확히 그 틈에서 났다.
+   *
+   * 값은 vite와 같은 규칙(프로젝트 루트)으로 준다 — 시험이 실제로 여는 DB 경로가
+   * 앱의 그것과 같아야 «모양 복제»로 돌아가지 않는다.
+   */
+  define: {
+    __PROJECT_ROOT__: JSON.stringify(fileURLToPath(new URL(".", import.meta.url))),
   },
   test: {
     include: ["tests/**/*.test.ts"],

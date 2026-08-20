@@ -73,7 +73,7 @@ import { runImport } from "@core/import/run.js"
 import { runReferenceImport } from "@core/import/run-reference.js"
 import { profileVersion } from "@core/import/mapping/index.js"
 import { deriveProfile } from "@core/import/mapping/derive.js"
-import { DEV_LIBRARY, EXCLUDED_NOTICE, findPriorImports, loadAllProfiles, loadBatchRows, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
+import { DEV_LIBRARY, EXCLUDED_NOTICE, findPriorImports, loadAllProfiles, loadBatchRows, loadDevSnapshot, nowStamp, readDigest, recordSighting, thisMonth, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
@@ -195,8 +195,10 @@ export function App(): React.JSX.Element {
    * 조회가 최신 달로 물러나므로, 상태를 «요청»이 아니라 **«실제로 본 것»**으로
    * 들고 있어야 라벨과 숫자가 갈리지 않는다.
    */
-  const [per, setPer] = useState<Period>(() => monthPeriod(new Date().toISOString().slice(0, 7)))
-  const [month, setMonth] = useState<Month>(() => new Date().toISOString().slice(0, 7))
+  // ★ 「지금」은 KST다 (`data.ts`의 `thisMonth`) ★ 전에는 이 두 줄이 같은 UTC 식을
+  // 복제하고 있어서, 매월 1일 아침 00~09시에 **지난달**이 기본으로 잡혔다.
+  const [per, setPer] = useState<Period>(() => monthPeriod(thisMonth()))
+  const [month, setMonth] = useState<Month>(() => thisMonth())
   const [months, setMonths] = useState<readonly MonthRow[]>([])
   /** 달 목록이 펼쳐져 있나. 화면 상태라 DB에 가지 않는다. */
   const [monthOpen, setMonthOpen] = useState(false)
@@ -219,8 +221,14 @@ export function App(): React.JSX.Element {
    */
   const [cmdOpen, setCmdOpen] = useState(false)
   const [cmdQuery, setCmdQuery] = useState("")
-  /** 쓰기 뒤 재조회가 **보던 달**로 돌아오게 하는 참조 (`take`가 갱신한다). */
-  const monthRef = useRef<Month>(new Date().toISOString().slice(0, 7))
+  /**
+   * 쓰기 뒤 재조회가 **보던 달**로 돌아오게 하는 참조 (`take`가 갱신한다).
+   *
+   * ★ 여기도 UTC 복제였다 (2026-08-20) ★ 위 `per`·`month`와 **세 곳이 같은 식**을
+   * 들고 있었다. 이 자리가 어긋나면 원가를 저장한 직후 재조회가 다른 달로 튄다 —
+   * 「저장했는데 숫자가 안 변한다」로 보인다.
+   */
+  const monthRef = useRef<Month>(thisMonth())
   /** 되돌리기·원가 정정 확인 다이얼로그. `null`이면 안 떠 있다. */
   const [confirm, setConfirm] = useState<ConfirmDialog | null>(null)
 
