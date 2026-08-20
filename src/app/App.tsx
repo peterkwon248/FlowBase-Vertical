@@ -78,6 +78,7 @@ import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
 import { periodVals } from "./period.js"
+import { headMoreVals } from "./head-more.js"
 import type { Period } from "@core/profit/index.js"
 import type { SettlementRow } from "@core/settlement/rows.js"
 import type { OrderRow } from "@core/order/rows.js"
@@ -190,6 +191,12 @@ export function App(): React.JSX.Element {
   const [months, setMonths] = useState<readonly MonthRow[]>([])
   /** 달 목록이 펼쳐져 있나. 화면 상태라 DB에 가지 않는다. */
   const [monthOpen, setMonthOpen] = useState(false)
+  /**
+   * ★ 좁은 화면의 「더보기」 (2026-08-20 감사 A-3) ★
+   * 768px 미만에서 CSS가 헤더 컨트롤을 통째로 지우고 이 버튼만 남긴다.
+   * 배선이 0이라 **보는 달을 바꿀 방법이 아예 없었다** (§21-3 · U-4 위반).
+   */
+  const [headMoreOpen, setHeadMoreOpen] = useState(false)
   /** 쓰기 뒤 재조회가 **보던 달**로 돌아오게 하는 참조 (`take`가 갱신한다). */
   const monthRef = useRef<Month>(new Date().toISOString().slice(0, 7))
   /** 되돌리기·원가 정정 확인 다이얼로그. `null`이면 안 떠 있다. */
@@ -1445,6 +1452,13 @@ export function App(): React.JSX.Element {
   periodVals(vals, state.view, month, months, monthOpen, {
     toggle: () => setMonthOpen((o) => !o),
     pick: pickMonth,
+  })
+  // 좁은 화면에서 위가 통째로 사라진다 — 그때 되찾는 통로 (A-3)
+  headMoreVals(vals, state.view, month, months, headMoreOpen, {
+    toggle: () => setHeadMoreOpen((o) => !o),
+    close: () => setHeadMoreOpen(false),
+    pick: pickMonth,
+    goImport,
   })
   // 데이터가 있으면 대시보드 값을 덮어쓴다. 없으면 빈 값 그대로 —
   // 시드를 넣어 채워 보이지 않는다 (헌장 C).

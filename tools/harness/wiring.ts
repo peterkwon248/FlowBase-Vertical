@@ -111,8 +111,17 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
       "내 필드·데이터 구조 화면은 배포 단계 일",
   },
   {
-    name: "헤더 부가 — 배지·팝오버·표시 메뉴",
-    fields: /^(attn[A-Z]|toggleAttn|headMore[A-Z]|toggleHeadMore|disp[A-Z]|toggleDisp|closeDisp|[a-z]+Badge|pendingCount|unmappedCount|catItems|syncAll)/,
+    /**
+     * ★ `headMore*`와 `syncAll`을 여기서 뺐다 (2026-08-20 감사) ★
+     *
+     * 둘 다 배선됐다. 그리고 애초에 **여기 있으면 안 되는 것들**이었다 —
+     * 사유가 «MVP 세 동작에 없다»인데, `toggleHeadMore`는 768px 미만에서 CSS가
+     * 지운 기간 선택기를 **되찾는 유일한 통로**였고 `syncAll`은 전 화면 상단의
+     * 주 버튼이었다. 배지와 같은 취급을 받아 게이트가 초록인 채로 남았다.
+     * `exp[A-Z]`가 「표 필터」 컷에 접혀 있던 것과 같은 병이다.
+     */
+    name: "헤더 부가 — 배지·표시 메뉴",
+    fields: /^(attn[A-Z]|toggleAttn|disp[A-Z]|toggleDisp|closeDisp|[a-z]+Badge|pendingCount|unmappedCount|catItems)/,
     why: "MVP 세 동작에 없다. 배지는 «지금 몇 건»을 세는 조회가 화면마다 더 필요해 값보다 비용이 크다",
   },
   {

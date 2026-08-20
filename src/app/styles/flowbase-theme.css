@@ -181,6 +181,13 @@
   .fb-head-state > span:not(:first-child) { display: none; }
   .fb-head-actions > *:not(.fb-head-more) { display: none !important; }
   .fb-head-more { display: inline-flex !important; }
+  /* ★ 탈출구가 자기를 지우는 규칙에 같이 지워지고 있었다 (2026-08-20 · 감사 A-3) ★
+     「더보기」 팝오버는 `.fb-head-actions`의 **형제**라 위 한 줄에 함께 걸린다.
+     브라우저 실측 720px: 메뉴는 열리는데 `display: none · 0x0`이라 항목을 못 누른다.
+     → 되찾는 통로가 있다는 말만 있고 실물이 없었다 (§21-3 · U-4).
+     목업 CSS도 같은 모양이라 **목업에서도 동작한 적이 없다** (목업-결함-발견분 참조).
+     인라인 컨트롤이 아니라 **오버레이**이므로 예외로 살린다. */
+  .fb-head-actions > [style*="position: absolute"] { display: grid !important; }
 }
 
 /* 진단 산점도 풀스크린 — 가로로 눕혀서 본다 */

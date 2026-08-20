@@ -41,10 +41,20 @@ const DATA = readFileSync("src/app/data.ts", "utf8")
 const THEME = readFileSync("src/app/styles/flowbase-theme.css", "utf8")
 const WIRING = readFileSync("tools/harness/wiring.ts", "utf8")
 
-/** 배선 파일 전부 — 핸들러가 어디서 채워지든 잡는다. */
-const WIRED = ["App.tsx", "shell.ts", "history.ts", "import.ts", "dashboard.ts", "settlement.ts",
-  "order.ts", "product.ts", "costs.ts", "channel.ts", "linking.ts", "fieldmap.ts", "period.ts"]
-  .map((f) => stripComments(readFileSync(`src/app/${f}`, "utf8"))).join("\n")
+/**
+ * 배선 파일 전부 — 핸들러가 어디서 채워지든 잡는다.
+ *
+ * ★ 손으로 적은 목록이었다 (2026-08-20에 고침) ★
+ * `head-more.ts`를 새로 만들자 이 게이트가 **그 배선을 못 봤다** — 파일이 목록에
+ * 없으니 «배선 안 됨»으로 읽고, 방금 고친 자리를 죽은 버튼이라고 신고했다.
+ * 새 파일을 만들 때마다 목록을 손보게 하는 게이트는 언젠가 반드시 낡는다.
+ * 그래서 **디렉터리를 읽는다.** `generated/`는 뺀다 — 거기 `vals.ts`의 빈 함수가
+ * 「배선됨」으로 세어지면 이 시험 전체가 무의미해진다.
+ */
+const WIRED = readdirSync("src/app")
+  .filter((f) => (f.endsWith(".ts") || f.endsWith(".tsx")) && !f.endsWith(".d.ts"))
+  .map((f) => stripComments(readFileSync(`src/app/${f}`, "utf8")))
+  .join("\n")
 
 // ─────────────────────────────────────────────────────────────
 // U-2. 사용자의 쓰기는 결과를 말한다 — 성공이든 실패든
@@ -271,18 +281,53 @@ describe("U-4. 좁아져도 안 사라진다", () => {
   /**
    * §21-3: «어떤 브레이크포인트에서도 기능 제거 ❌ — 접는다».
    *
-   * 실측: `flowbase-theme.css`가 768px 미만에서 `.fb-head-actions`의 자식을 전부
-   * 지운다. 그 안에 **기간 선택기**(살아 있는 유일한 헤더 컨트롤)가 있고, 되찾는
-   * 통로인 「더보기」는 배선이 없다. ⌘K도 죽어 있어 우회로도 없다.
-   * → 좁은 화면에서 **보는 달을 바꿀 방법이 없다.**
+   * 2026-08-20까지 **미이행이었다.** `flowbase-theme.css`가 768px 미만에서
+   * `.fb-head-actions`의 자식을 전부 지우는데 그 안에 **기간 선택기**가 있었고,
+   * 되찾는 통로인 「더보기」는 배선 0이었다. ⌘K도 죽어 있어 우회로도 없었다
+   * → 좁은 화면에서 **보는 달을 바꿀 방법이 아예 없었다.**
+   *
+   * ★ 이 시험은 래칫이었고, 오늘 뒤집었다 ★ 원래 단언은 `toBe(false)`였고
+   * 메시지가 «배선이 생겼다 — U-4를 ✅로 올려라»였다. 그 날이 왔다.
    */
-  it("헤더를 감추면 되찾는 통로가 있어야 한다", () => {
+  it("★ 헤더를 감추면 되찾는 통로가 있다 ★", () => {
     const hides = /\.fb-head-actions\s*>\s*\*:not\(\.fb-head-more\)\s*\{\s*display:\s*none/.test(THEME)
     if (!hides) return // 감추지 않으면 이 불변식은 애초에 안 걸린다
-    const escapeWired = isWired("toggleHeadMore") && isWired("headMoreItems")
-    // 오늘 미이행. 고치면 이 단언을 뒤집는다 — 그때가 U-4가 ✅가 되는 날이다
-    expect(escapeWired, "「더보기」 배선이 생겼다 — docs/사용자-불변식.md U-4를 ✅로 올려라")
-      .toBe(false)
+    expect(isWired("toggleHeadMore"), "「더보기」를 여는 배선이 없다").toBe(true)
+    expect(isWired("headMoreItems"), "「더보기」가 비어 있다 — 열려도 되찾을 게 없다").toBe(true)
+  })
+
+  /**
+   * ★ 배선이 있어도 **안 보이면 없는 것이다** ★
+   *
+   * 2026-08-20 브라우저 실측(720px)이 소스 검사로는 못 볼 것을 잡았다: 「더보기」를
+   * 눌러 메뉴가 **열리는데 항목이 `display: none · 0x0`**이었다. 팝오버가
+   * `.fb-head-actions`의 **형제**라 위의 «`.fb-head-more` 빼고 전부 숨김»에 같이
+   * 걸린 것이다 — **탈출구가 자기를 지우는 규칙에 같이 지워지고 있었다.**
+   * 목업 CSS도 같은 모양이라 목업에서도 동작한 적이 없다.
+   *
+   * 그래서 「숨긴다」와 「팝오버는 예외」가 **짝으로** 있어야 한다.
+   */
+  it("★ 숨기는 규칙에 팝오버 예외가 짝지어 있다 ★", () => {
+    const hides = /\.fb-head-actions\s*>\s*\*:not\(\.fb-head-more\)\s*\{\s*display:\s*none/.test(THEME)
+    if (!hides) return
+    expect(
+      /\.fb-head-actions\s*>\s*\[style\*="position: absolute"\]\s*\{[^}]*display:\s*(?!none)/.test(THEME),
+      "팝오버를 되살리는 규칙이 없다 — 메뉴는 열리는데 항목이 0x0이 된다 (720px 실측)",
+    ).toBe(true)
+  })
+
+  /**
+   * ★ 통로가 «있다»로는 부족하다 — **지운 것이 그 안에 있어야** 한다 ★
+   *
+   * 배선만 보면 빈 배열을 넣어도 통과한다. CSS가 지우는 것은 기간 선택기이므로
+   * 「더보기」가 **달을 담는지**를 본다. 그게 이 통로가 생긴 유일한 이유다.
+   */
+  it("★ 「더보기」가 달을 담는다 — 지워진 것이 그것이다 ★", () => {
+    const src = stripComments(readFileSync("src/app/head-more.ts", "utf8"))
+    expect(src, "달 목록을 만들지 않는다").toMatch(/monthLabel\(/)
+    expect(src, "고른 달을 실제로 적용하지 않는다").toMatch(/actions\.pick\(/)
+    // 기간이 안 걸리는 화면에까지 달을 그리면 «눌러도 안 바뀌는» 컨트롤이 된다
+    expect(src, "PERIOD_VIEWS로 화면을 가리지 않는다").toMatch(/PERIOD_VIEWS/)
   })
 })
 
