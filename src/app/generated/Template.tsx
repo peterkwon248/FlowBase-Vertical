@@ -499,6 +499,18 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
             {" "}
             {vals.v.dash && (
                 <section data-screen-label="손익 대시보드">
+                  {vals.appLoading && (
+                    <div data-s21="shell-loading" style={{ padding: "40px 24px", display: "grid", justifyItems: "center" }}>
+                      <div style={{ display: "grid", gap: "8px", justifyItems: "center", textAlign: "center", maxWidth: "440px" }}>
+                        <span style={{ font: "var(--fw-semi) 15px var(--font-sans)", color: "var(--fg-2)" }}>
+                          불러오는 중입니다
+                        </span>
+                        <span style={{ font: "var(--fw-regular) 12px/1.7 var(--font-sans)", color: "var(--fg-4)" }}>
+                          아직 데이터가 있는지 없는지 모릅니다 — 다 읽고 나서 말씀드립니다.
+                        </span>
+                      </div>
+                    </div>
+                  )}
                   {vals.firstRun && (
                       <div style={{ padding: "40px 24px", display: "grid", justifyItems: "center" }}>
                         <div style={{ width: "100%", maxWidth: "620px", display: "grid", gap: "22px" }}>
@@ -3621,6 +3633,57 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                     {vals.opsTotal}
                                   </span>
                                 </span>
+                              </div>
+                              <div data-s21="cost-ops-save" style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
+                                  <span style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                                    <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-3)" }}>
+                                      언제부터
+                                    </span>
+                                    <input className="v-input" type="date" style={{ height: "26px", fontSize: "11px", width: "138px" }} value={vals.opsDate} onChange={vals.setOpsDate} />
+                                    <span style={{ flex: "1" }}></span>
+                                    <button className="v-btn v-btn--primary" style={{ height: "26px", padding: "0 10px", fontSize: "11px", opacity: vals.opsSaveOpacity }} onClick={vals.opsSave} disabled={!vals.opsCanSave}>
+                                      저장
+                                    </button>
+                                  </span>
+                                  {vals.opsSaveWhy !== "" && (
+                                    <span style={{ font: "var(--fw-regular) 10px/1.4 var(--font-sans)", color: "var(--pnl-neg)" }}>
+                                      {vals.opsSaveWhy}
+                                    </span>
+                                  )}
+                                  <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <input className="v-input" style={{ height: "26px", fontSize: "12px", flex: "1", minWidth: "0" }} value={vals.opsNewName} onChange={vals.setOpsNewName} placeholder="새 항목 (택배비 · 포장재 …)" />
+                                    <select className="v-input" style={{ height: "26px", fontSize: "11px", width: "78px" }} value={vals.opsBasis} onChange={vals.setOpsBasis}>
+                                      {vals.opsBasisOptions.map((b, $index: number) => (
+                                        <option key={$index} value={b.value}>{b.label}</option>
+                                      ))}
+                                    </select>
+                                    <input className="v-input" style={{ height: "26px", fontSize: "12px", width: "92px", textAlign: "right" }} value={vals.opsNewAmount} onChange={vals.setOpsNewAmount} placeholder="금액" inputMode="numeric" />
+                                    <button className="v-btn" style={{ height: "26px", padding: "0 9px", fontSize: "11px", opacity: vals.opsAddOpacity }} onClick={vals.opsAdd} disabled={!vals.opsCanAdd}>
+                                      추가
+                                    </button>
+                                  </span>
+                                  {vals.opsAddWhy !== "" && (
+                                    <span style={{ font: "var(--fw-regular) 10px/1.4 var(--font-sans)", color: "var(--pnl-neg)" }}>
+                                      {vals.opsAddWhy}
+                                    </span>
+                                  )}
+                                  <span style={{ display: "flex", alignItems: "center", gap: "7px", marginTop: "2px", cursor: "pointer" }} onClick={vals.toggleOpsNone}>
+                                    <span style={{ width: "13px", height: "13px", borderRadius: "3px", border: "1px solid var(--border-strong)", background: vals.opsNoneBg, flex: "none" }}></span>
+                                    <span style={{ font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-2)" }}>
+                                      운영비를 두지 않습니다
+                                    </span>
+                                    {vals.opsNone && (
+                                      <select className="v-input" style={{ height: "24px", fontSize: "11px" }} value={vals.opsNoneReason} onChange={vals.setOpsNoneReason} onClick={vals.stopEvt}>
+                                        <option value="in-cogs">원가에 이미 포함돼 있습니다</option>
+                                        <option value="not-applicable">해당 없습니다</option>
+                                      </select>
+                                    )}
+                                  </span>
+                                  {vals.opsNoneNote !== "" && (
+                                    <span style={{ font: "var(--fw-regular) 10px/1.5 var(--font-sans)", color: "var(--fg-4)" }}>
+                                      {vals.opsNoneNote}
+                                    </span>
+                                  )}
                               </div>
                             </div>
                             {" "}

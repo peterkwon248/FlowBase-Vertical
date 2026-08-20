@@ -49,7 +49,14 @@ export interface OverheadItem {
 export interface CostsView {
   readonly fixed: readonly OverheadItem[]
   readonly ops: readonly OverheadItem[]
-  readonly stance: { readonly fixed: OverheadStance | null }
+  /**
+   * 「두지 않습니다」 선언. **행이 없으면 미선언**이고, 그때만 앱이 묻는다 —
+   * `null`과 `{stance:"none"}`은 다른 것이다 (§22 «부재는 boolean이 아니다»).
+   */
+  readonly stance: {
+    readonly fixed: OverheadStance | null
+    readonly ops: OverheadStance | null
+  }
 }
 
 /**
@@ -64,6 +71,24 @@ export interface CostsDraft {
   readonly effectiveFrom: string
   readonly newLabel: string
   readonly newAmount: string
+
+  /**
+   * ★ 운영비는 초안을 따로 든다 ★
+   *
+   * 고정비와 한 벌을 쓰면 «고정비 적용일을 고르고 운영비를 저장»했을 때 운영비가
+   * 조용히 남의 날짜로 들어간다. 두 블록은 화면에서도 떨어져 있고 저장 버튼도
+   * 둘이라, 초안도 둘이어야 «내가 고른 날짜»가 참이 된다.
+   */
+  readonly opsAmounts: ReadonlyMap<string, string>
+  readonly opsEffectiveFrom: string
+  readonly opsNewLabel: string
+  readonly opsNewAmount: string
+  /**
+   * 새 운영비의 **부담 기준**. 고정비에는 이 칸이 없다 — 010 스키마가
+   * `FIXED`는 `MONTH`만 쓴다고 못박았기 때문이다(「얼마를 팔든」이 정의다).
+   * 운영비는 사람이 골라야 한다: 택배비는 주문당, 포장재는 개당이다.
+   */
+  readonly opsNewBasis: "ORDER" | "UNIT"
 }
 
 export const emptyCostsDraft = (today: string): CostsDraft => ({
@@ -71,6 +96,12 @@ export const emptyCostsDraft = (today: string): CostsDraft => ({
   effectiveFrom: today,
   newLabel: "",
   newAmount: "",
+  opsAmounts: new Map(),
+  opsEffectiveFrom: today,
+  opsNewLabel: "",
+  opsNewAmount: "",
+  // 기본을 「주문당」으로 둔다 — 실물에서 가장 흔한 운영비가 택배비다.
+  opsNewBasis: "ORDER",
 })
 
 export interface CostsActions {
@@ -84,6 +115,17 @@ export interface CostsActions {
   /** 「고정비를 두지 않습니다」 켜고 끄기. 끄면 다시 «미선언»이다. */
   readonly toggleNone: () => void
   readonly setNoneReason: (reason: string) => void
+
+  // ── 운영비 (같은 모양, 다른 kind) ────────────────────────────────
+  readonly setOpsAmount: (label: string, value: string) => void
+  readonly setOpsEffectiveFrom: (date: string) => void
+  readonly setOpsNewLabel: (v: string) => void
+  readonly setOpsNewAmount: (v: string) => void
+  readonly setOpsNewBasis: (v: string) => void
+  readonly opsSave: () => void
+  readonly opsAdd: () => void
+  readonly toggleOpsNone: () => void
+  readonly setOpsNoneReason: (reason: string) => void
 }
 
 const NOOP: CostsActions = {
@@ -95,6 +137,15 @@ const NOOP: CostsActions = {
   add: () => {},
   toggleNone: () => {},
   setNoneReason: () => {},
+  setOpsAmount: () => {},
+  setOpsEffectiveFrom: () => {},
+  setOpsNewLabel: () => {},
+  setOpsNewAmount: () => {},
+  setOpsNewBasis: () => {},
+  opsSave: () => {},
+  opsAdd: () => {},
+  toggleOpsNone: () => {},
+  setOpsNoneReason: () => {},
 }
 
 /** 쉼표·공백·「원」을 걷어낸다. `parseCostDraft`와 같은 관용이다. */
@@ -112,8 +163,15 @@ const isDate = (d: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(d)
  *
  * §21-1대로 **누를 수 없으면 사유를 함께** 낸다. 아무 말 없이 회색인 버튼은
  * «고장»으로 읽힌다.
+ *
+ * ★ 인자가 `CostsDraft`가 아니라 **필요한 두 칸**이다 ★ 고정비와 운영비가 같은
+ * 판단을 쓰되 초안은 따로 들기 때문이다. 판단을 복사하면 한쪽만 고쳐지는 날이
+ * 오고, 그날 두 블록이 다른 규칙으로 막힌다.
  */
-export function saveGuard(d: CostsDraft): { can: boolean; why: string } {
+export function saveGuard(d: {
+  readonly amounts: ReadonlyMap<string, string>
+  readonly effectiveFrom: string
+}): { can: boolean; why: string } {
   const touched = [...d.amounts.entries()].filter(([, v]) => v.trim() !== "")
   if (touched.length === 0) return { can: false, why: "" }
   const bad = touched.filter(([, v]) => parseAmount(v) === null).map(([k]) => k)
@@ -122,7 +180,10 @@ export function saveGuard(d: CostsDraft): { can: boolean; why: string } {
   return { can: true, why: "" }
 }
 
-export function addGuard(d: CostsDraft, existing: readonly string[]): { can: boolean; why: string } {
+export function addGuard(
+  d: { readonly newLabel: string; readonly newAmount: string; readonly effectiveFrom: string },
+  existing: readonly string[],
+): { can: boolean; why: string } {
   const name = d.newLabel.trim()
   if (name === "" && d.newAmount.trim() === "") return { can: false, why: "" }
   if (name === "") return { can: false, why: "항목 이름이 필요합니다" }
@@ -204,10 +265,15 @@ export function costsVals(
    * 나오지 않기 때문이다. 넣는 화면이 생기는 순간 여기도 함께 살아야 한다.
    */
   vals.opsRows = view.ops.map((o) => ({
-    name: o.label,
+    name:
+      o.historyCount > 1
+        ? `${o.label}  ·  ${o.effectiveFrom.slice(0, 7)}부터 (이력 ${o.historyCount})`
+        : `${o.label}  ·  ${o.effectiveFrom.slice(0, 7)}부터`,
     note: BASIS_NOTE[o.basis] ?? "",
-    amount: String(o.amount),
-    set: () => {},
+    // 고정비 표와 같은 규율 — 초안이 있으면 그대로, 없을 때만 천 단위를 넣는다.
+    amount: draft.opsAmounts.get(o.label) ?? won(o.amount),
+    set: (e: { target?: { value?: string } } | undefined) =>
+      act.setOpsAmount(o.label, e?.target?.value ?? ""),
   }))
   vals.opsTotal = `${won(pnl.ops)}원`
 
@@ -257,6 +323,78 @@ export function costsVals(
       : "고정비를 두지 않기로 하셨습니다. 회사 순이익이 채널 기여이익과 같습니다."
     : view.fixed.length === 0
       ? "고정비가 없으면 회사 순이익이 채널 기여이익과 같습니다 — 두 줄이 같은 수인 것은 고정비가 없어서가 아니라 아직 안 넣어서입니다."
+      : ""
+
+  /**
+   * ★ 운영비 제어부 (§21 «cost-ops-save» · 신설) ★
+   *
+   * ─────────────────────────────────────────────────────────────
+   * 목업은 운영비 표를 그렸지만 **넣는 문이 없었다.** 시드가 채운 표만 있고 항목을
+   * 더할 자리도, 적용일도 없었다 — 고정비에서 만난 것과 같은 결함이라 처방도 같다
+   * (`cost-fixed-save`). 이 파일의 `opsRows` 주석이 그 사실을 예고해 뒀다:
+   * *「넣는 화면이 생기는 순간 여기도 함께 살아야 한다」*.
+   *
+   * ★ 고정비와 한 자리 다르다 — **부담 기준** ★
+   * 010 스키마가 `FIXED`는 `MONTH`만 쓴다고 못박았으므로 고정비에는 고를 것이
+   * 없다. 운영비는 `ORDER`(주문당)와 `UNIT`(개당)로 갈리고, 그 선택이 손익을
+   * 바꾼다 — 택배비 3,000원을 «주문당»으로 두면 주문 수만큼, «개당»으로 두면
+   * 품목 수만큼 빠진다. 앱이 고를 수 없어서 사람이 고른다.
+   * ─────────────────────────────────────────────────────────────
+   */
+  const opsExisting = view.ops.map((o) => o.label)
+  const os = saveGuard({ amounts: draft.opsAmounts, effectiveFrom: draft.opsEffectiveFrom })
+  const oa = addGuard(
+    {
+      newLabel: draft.opsNewLabel,
+      newAmount: draft.opsNewAmount,
+      effectiveFrom: draft.opsEffectiveFrom,
+    },
+    opsExisting,
+  )
+  const opsNone = view.stance.ops?.stance === "none"
+
+  vals.opsDate = draft.opsEffectiveFrom
+  vals.setOpsDate = (e: { target?: { value?: string } } | undefined) =>
+    act.setOpsEffectiveFrom(e?.target?.value ?? "")
+  vals.opsSave = act.opsSave
+  vals.opsCanSave = os.can
+  vals.opsSaveOpacity = os.can ? "1" : "0.45"
+  vals.opsSaveWhy = os.why
+  vals.opsNewName = draft.opsNewLabel
+  vals.setOpsNewName = (e: { target?: { value?: string } } | undefined) =>
+    act.setOpsNewLabel(e?.target?.value ?? "")
+  vals.opsNewAmount = draft.opsNewAmount
+  vals.setOpsNewAmount = (e: { target?: { value?: string } } | undefined) =>
+    act.setOpsNewAmount(e?.target?.value ?? "")
+  vals.opsBasis = draft.opsNewBasis
+  vals.setOpsBasis = (e: { target?: { value?: string } } | undefined) =>
+    act.setOpsNewBasis(e?.target?.value ?? "ORDER")
+  vals.opsBasisOptions = [
+    { value: "ORDER", label: "주문당" },
+    { value: "UNIT", label: "개당" },
+  ]
+  vals.opsAdd = act.opsAdd
+  vals.opsCanAdd = oa.can
+  vals.opsAddOpacity = oa.can ? "1" : "0.45"
+  vals.opsAddWhy = oa.why
+
+  vals.opsNone = opsNone
+  vals.opsNoneBg = opsNone ? "var(--accent)" : "transparent"
+  vals.toggleOpsNone = act.toggleOpsNone
+  vals.opsNoneReason = view.stance.ops?.reason ?? "in-cogs"
+  vals.setOpsNoneReason = (e: { target?: { value?: string } } | undefined) =>
+    act.setOpsNoneReason(e?.target?.value ?? "in-cogs")
+  /**
+   * ★ 「0원」과 「아직 안 넣었다」를 가른다 (§22) ★
+   * 운영비가 비어 있으면 상품 기여이익이 «운영비를 뺀 값»으로 보이는데 실은
+   * 안 뺀 것이다. 그 사실을 말하지 않으면 화면이 조용히 낙관한다.
+   */
+  vals.opsNoneNote = opsNone
+    ? view.stance.ops?.reason === "in-cogs"
+      ? "원가에 이미 들어 있다고 하셨습니다 — 여기 택배비·포장재를 또 넣으면 두 번 빠집니다."
+      : "운영비를 두지 않기로 하셨습니다. 상품 기여이익에서 빠지는 운영비가 0입니다."
+    : view.ops.length === 0
+      ? "운영비가 없으면 상품 기여이익에서 아무것도 빠지지 않습니다 — 0인 것은 운영비가 없어서가 아니라 아직 안 넣어서입니다."
       : ""
 
   // ── 손익 3층 ────────────────────────────────────────────────────

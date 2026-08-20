@@ -50,7 +50,7 @@ const pnlOf = (o: Partial<Parameters<typeof computePnl>[0]> = {}): Pnl =>
 const view = (o: Partial<CostsView> = {}): CostsView => ({
   fixed: [],
   ops: [],
-  stance: { fixed: null },
+  stance: { fixed: null, ops: null },
   ...o,
 })
 
@@ -153,7 +153,7 @@ describe("★ 「두지 않습니다」 — 안 넣는 것도 입력이다 (§22
   })
 
   it("«원가에 포함»을 선언하면 **이중 차감**을 미리 경고한다", () => {
-    const v = render(view({ stance: { fixed: { stance: "none", reason: "in-cogs" } } }), pnlOf())
+    const v = render(view({ stance: { fixed: { stance: "none", reason: "in-cogs" }, ops: null } }), pnlOf())
     expect(v.fixNone).toBe(true)
     expect(v.fixNoneNote).toContain("두 번 빠집니다")
   })

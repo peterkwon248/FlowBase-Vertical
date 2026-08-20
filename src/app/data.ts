@@ -347,7 +347,10 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
       const costs: CostsView = {
         fixed: await withHistory("FIXED"),
         ops: await withHistory("OPS"),
-        stance: { fixed: await repo.overheadStance(DEV_LIBRARY, "FIXED") },
+        stance: {
+          fixed: await repo.overheadStance(DEV_LIBRARY, "FIXED"),
+          ops: await repo.overheadStance(DEV_LIBRARY, "OPS"),
+        },
       }
       return {
         snapshot,

@@ -91,6 +91,19 @@ export interface ShellState {
   /** 좁은 화면인가. 목업 L3908의 `matchMedia("(max-width: 1023px)")`. */
   isNarrow: boolean
   firstRun: boolean
+  /**
+   * ★ **아직 모른다** — 첫 조회가 안 끝났다 (2026-08-21) ★
+   *
+   * 이 칸이 없을 때 앱은 뜨자마자 «데이터가 하나도 없습니다»를 그렸다가 조회가
+   * 끝나면 대시보드로 갈아치웠다. 웹판은 wasm + `demo.sqlite`를 네트워크로 받으니
+   * 그 순간이 길어서 **화면이 점프하는 것처럼** 보였고, 사용자가 그렇게 물었다.
+   *
+   * 그런데 진짜 문제는 깜빡임이 아니라 **거짓말**이다 — 그동안 앱이 「없다」고
+   * 말하지만 실은 «아직 모른다»이다. §22의 «부재는 boolean이 아니다»가 금지하는
+   * 바로 그 자리이고, 세 번째 상태를 만드는 것이 답이다 (§21-7이 화면에 대해
+   * 이미 같은 결론을 냈다 — 「빈 화면이 침묵하면 «없다»가 아니라 «깨졌다»로 읽힌다」).
+   */
+  loading: boolean
 }
 
 export const INITIAL_SHELL: ShellState = {
@@ -99,6 +112,8 @@ export const INITIAL_SHELL: ShellState = {
   theme: "dark",
   isNarrow: false,
   firstRun: true,
+  // 켜진 채로 시작한다 — 조회가 끝나기 전에는 아무것도 모르는 것이 참이다.
+  loading: true,
 }
 
 /**
@@ -161,7 +176,7 @@ function byNav<T>(make: (k: NavKey) => T): Record<NavKey, T> {
  */
 export function shellVals(state: ShellState, actions: ShellActions): TemplateVals {
   const vals = emptyVals()
-  const { view, navCollapsed, theme, isNarrow, firstRun } = state
+  const { view, navCollapsed, theme, isNarrow, firstRun, loading } = state
 
   // 목업 L3915~3917
   vals.v = byNav((k) => k === view)
@@ -210,14 +225,20 @@ export function shellVals(state: ShellState, actions: ShellActions): TemplateVal
   vals.themeIcon = theme === "dark" ? "sun" : "moon"
   vals.toggleTheme = actions.toggleTheme
 
-  // 첫 실행. 지금은 늘 참이다 — 가져온 batch가 0건이기 때문이고, 그게 사실이다.
-  // 드라이버가 붙으면 "batch 수 > 0"으로 판정한다.
-  vals.firstRun = firstRun
-  vals.notFirstRun = !firstRun
+  /**
+   * ★ 셋 중 하나만 뜬다 — 모름 · 없음 · 있음 ★
+   *
+   * 조회가 끝나기 전에는 **둘 다 거짓**이다. 온보딩을 그리면 「없다」는 거짓말이고,
+   * 본문을 그리면 0원을 사실인 척하는 더 나쁜 거짓말이다. 그 사이를 `appLoading`이
+   * 메운다 — 침묵이 아니라 「불러오는 중」이라고 **말한다** (LOCK 6).
+   */
+  vals.appLoading = loading
+  vals.firstRun = !loading && firstRun
+  vals.notFirstRun = !loading && !firstRun
   vals.onboard = ONBOARD
   vals.goImport = actions.goImport
 
-  applyUnbuilt(vals, firstRun)
+  applyUnbuilt(vals, firstRun, loading)
   return vals
 }
 
@@ -248,14 +269,15 @@ export function shellVals(state: ShellState, actions: ShellActions): TemplateVal
  */
 export const UNBUILT: readonly NavKey[] = ["diag"]
 
-function applyUnbuilt(vals: TemplateVals, firstRun: boolean): void {
+function applyUnbuilt(vals: TemplateVals, firstRun: boolean, loading: boolean): void {
   const unbuilt = (key: NavKey): boolean => UNBUILT.includes(key)
 
   // 미구현이면 온보딩도 본문도 그리지 않는다. 셋 중 하나만 뜬다 —
   // 안내와 빈 껍데기가 함께 뜨면 "준비 중인데 왜 빈 탭바가 있지"가 된다.
   vals.diagUnbuilt = unbuilt("diag")
-  vals.diagOnboard = firstRun && !vals.diagUnbuilt
-  vals.diagReady = !firstRun && !vals.diagUnbuilt
+  // 「모름」도 셋 중 하나를 밀어낸다 — 미구현 안내는 조회와 무관하므로 그대로 뜬다.
+  vals.diagOnboard = !loading && firstRun && !vals.diagUnbuilt
+  vals.diagReady = !loading && !firstRun && !vals.diagUnbuilt
 
   /**
    * ★ 상품 화면이 배선됐다 (③, 2026-08-14) ★

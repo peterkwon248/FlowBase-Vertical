@@ -166,7 +166,10 @@ const withHistory = async (kind: "FIXED" | "OPS") =>
 const costs: CostsView = {
   fixed: await withHistory("FIXED"),
   ops: await withHistory("OPS"),
-  stance: { fixed: await repo.overheadStance("lib-1", "FIXED") },
+  stance: {
+    fixed: await repo.overheadStance("lib-1", "FIXED"),
+    ops: await repo.overheadStance("lib-1", "OPS"),
+  },
 }
 await db.close()
 

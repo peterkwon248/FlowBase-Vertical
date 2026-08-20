@@ -387,6 +387,11 @@ export interface TemplateVals {
   impEditMap: (...args: any[]) => void
   impError: string
   impExcludedLabel: string
+  /**
+   * §21 «shell-loading» — 첫 조회가 아직 안 끝났다. 손으로 더한 자리 (2026-08-21).
+   * 이 값이 참인 동안 `firstRun`·`notFirstRun`이 **둘 다 거짓**이다.
+   */
+  appLoading: boolean
   /** §21 «import-grid» — 격자를 그릴 수 있나. 표본이 0행이면 거짓이다. */
   impGrid: boolean
   impGridCols: readonly ImportGridCol[]
@@ -515,8 +520,33 @@ export interface TemplateVals {
   onPnlQuery: (...args: any[]) => void
   openCmd: (...args: any[]) => void
   openQuadFull: (...args: any[]) => void
+  /** §21 «cost-ops-save» — 운영비 제어부. 손으로 더한 자리 (2026-08-21). */
+  opsAdd: (...args: any[]) => void
+  opsAddOpacity: string
+  opsAddWhy: string
+  /** 새 운영비의 부담 기준 — `ORDER`(주문당) · `UNIT`(개당). 고정비에는 없는 칸이다. */
+  opsBasis: string
+  opsBasisOptions: readonly { readonly value: string; readonly label: string }[]
+  opsCanAdd: boolean
+  opsCanSave: boolean
+  opsDate: string
+  opsNewAmount: string
+  opsNewName: string
+  opsNone: boolean
+  opsNoneBg: string
+  opsNoneNote: string
+  opsNoneReason: string
   opsRows: readonly any[]
+  opsSave: (...args: any[]) => void
+  opsSaveOpacity: string
+  opsSaveWhy: string
   opsTotal: string
+  setOpsBasis: (...args: any[]) => void
+  setOpsDate: (...args: any[]) => void
+  setOpsNewAmount: (...args: any[]) => void
+  setOpsNewName: (...args: any[]) => void
+  setOpsNoneReason: (...args: any[]) => void
+  toggleOpsNone: (...args: any[]) => void
   orderFilterLabel: string
   orderRows: readonly any[]
   orderScope: string
@@ -974,6 +1004,7 @@ export function emptyVals(): TemplateVals {
     impDupNote: "",
     impEditMap: () => {},
     impError: "",
+    appLoading: true,
     impExcludedLabel: "",
     impGrid: false,
     impGridCols: [],
@@ -1085,8 +1116,31 @@ export function emptyVals(): TemplateVals {
     onPnlQuery: () => {},
     openCmd: () => {},
     openQuadFull: () => {},
+    opsAdd: () => {},
+    opsAddOpacity: "",
+    opsAddWhy: "",
+    opsBasis: "",
+    opsBasisOptions: [],
+    opsCanAdd: false,
+    opsCanSave: false,
+    opsDate: "",
+    opsNewAmount: "",
+    opsNewName: "",
+    opsNone: false,
+    opsNoneBg: "",
+    opsNoneNote: "",
+    opsNoneReason: "",
     opsRows: [],
+    opsSave: () => {},
+    opsSaveOpacity: "",
+    opsSaveWhy: "",
     opsTotal: "",
+    setOpsBasis: () => {},
+    setOpsDate: () => {},
+    setOpsNewAmount: () => {},
+    setOpsNewName: () => {},
+    setOpsNoneReason: () => {},
+    toggleOpsNone: () => {},
     orderFilterLabel: "",
     orderRows: [],
     orderScope: "",

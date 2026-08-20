@@ -31,7 +31,7 @@ import {
   type AdjDraft,
   type AdjActions,
 } from "./settlement.js"
-import { SETTLEMENT_DAILY } from "@core/store/repository.js"
+import { SETTLEMENT_DAILY, type Repository } from "@core/store/repository.js"
 import { ADJUSTED_FIELD } from "@core/settlement/rows.js"
 import { orderVals } from "./order.js"
 import { linkingVals, type LinkTab, type LinkingActions } from "./linking.js"
@@ -248,6 +248,14 @@ export function App(): React.JSX.Element {
    * 새 마크업은 만들지 않는다 — 되돌리기 실패가 이미 쓰는 그 모달이다.
    */
   const take = useCallback((r: LoadResult) => {
+    /**
+     * ★ 「모름」은 **성공·실패를 가리지 않고** 여기서 꺼진다 ★
+     *
+     * 실패 분기가 아래에서 일찍 `return`하므로 이 줄이 그 뒤에 있으면 읽기가
+     * 한 번 실패한 앱은 모달 뒤에서 영영 「불러오는 중」이라고 말한다. 실패는
+     * «아직 모른다»가 아니라 **«물어봤고 못 받았다»**이고, 그 사실은 모달이 말한다.
+     */
+    setState((s) => (s.loading ? { ...s, loading: false } : s))
     if (r.error !== null) {
       console.warn("[data] 읽지 못했다:", r.error)
       /**
@@ -596,6 +604,90 @@ export function App(): React.JSX.Element {
     [],
   )
 
+  /**
+   * ★ 비용 쓰기의 **한 사슬** — 잠금 → 쓰기 → 실패 문구 → 재적재 → 해제 ★
+   *
+   * 고정비와 운영비는 `kind`만 다르고 사슬은 같다. 두 벌로 적으면 한쪽만 고쳐지는
+   * 날이 오고, 그날 「고정비는 잠기는데 운영비는 안 잠긴다」 같은 것이 생긴다 —
+   * 이 저장소가 «두 벌이 되는 순간 같은 파일 다른 해석»으로 경계하는 자리다.
+   *
+   * `acquire()`와 `.finally(release)`가 **이 함수 안에 한 쌍**으로 있으므로
+   * `tests/app-lock.test.ts`의 1:1 단언이 구조적으로 지켜진다 — 부르는 쪽이
+   * 잠금을 잊을 방법이 없다.
+   */
+  const overheadWrite = (
+    fail: string,
+    body: (repo: Repository) => Promise<void>,
+    after?: () => void,
+  ): void => {
+    if (!acquire()) return
+    void writeThenReload(body, monthRef.current)
+      .then((r) => {
+        if (r.error) {
+          setConfirm(sayConfirm(fail, r.error, () => setConfirm(null)))
+          return
+        }
+        take(r)
+        after?.()
+      })
+      .finally(release)
+  }
+
+  /** 초안의 금액 칸들을 «한 트랜잭션»으로 넣는다. 항목별로 쓰면 절반만 반영된 달이 남는다. */
+  const putAmounts = (
+    kind: "FIXED" | "OPS",
+    basisOf: (label: string) => "MONTH" | "ORDER" | "UNIT",
+    amounts: ReadonlyMap<string, string>,
+    effectiveFrom: string,
+    stamp: string,
+  ) => async (repo: Repository): Promise<void> => {
+    for (const [label, raw] of amounts) {
+      if (raw.trim() === "") continue
+      const amount = parseAmount(raw)
+      if (amount === null) continue
+      await repo.setOverhead({
+        libraryId: DEV_LIBRARY,
+        kind,
+        basis: basisOf(label),
+        label,
+        amount,
+        effectiveFrom,
+        now: stamp,
+      })
+    }
+  }
+
+  /**
+   * ★ 「두지 않습니다」를 **끄면 다시 미선언**이다 ★
+   *
+   * 「두지 않음 → 둔다」로 뒤집는 것이 아니라 선언을 거두는 것이다. 그래야 진단이
+   * 다시 물어보는 상태로 돌아간다 — **선언의 반대는 반대 선언이 아니라 «아직 안
+   * 정함»**이다 (§22 «부재는 boolean이 아니다»).
+   *
+   * `reason`이 `null`이면 토글, 문자열이면 사유만 바꾼다.
+   */
+  const putStance = (
+    kind: "FIXED" | "OPS",
+    now_: { readonly stance: "none" | "later"; readonly reason: string | null } | null,
+    reason: string | null,
+  ): void => {
+    const on = now_?.stance === "none"
+    const stamp = nowStamp()
+    overheadWrite("바꾸지 못했습니다", async (repo) => {
+      if (reason === null && on) {
+        await repo.clearOverheadStance(DEV_LIBRARY, kind)
+        return
+      }
+      await repo.setOverheadStance({
+        libraryId: DEV_LIBRARY,
+        kind,
+        stance: "none",
+        reason: reason ?? now_?.reason ?? "in-cogs",
+        now: stamp,
+      })
+    })
+  }
+
   const costsActions: CostsActions = {
     setAmount: (label, value) =>
       setCostsDraft((d) => {
@@ -615,62 +707,25 @@ export function App(): React.JSX.Element {
      * 여기서 루프를 돌아도 잠금은 하나다.
      */
     save: () => {
-      if (!costsSaveGuard(costsDraft).can || !acquire()) return
-      const stamp = nowStamp()
-      const touched = [...costsDraft.amounts.entries()].filter(([, v]) => v.trim() !== "")
-      void writeThenReload(async (repo) => {
-        for (const [label, raw] of touched) {
-          const amount = parseAmount(raw)
-          if (amount === null) continue
-          await repo.setOverhead({
-            libraryId: DEV_LIBRARY,
-            kind: "FIXED",
-            basis: "MONTH",
-            label,
-            amount,
-            effectiveFrom: costsDraft.effectiveFrom,
-            now: stamp,
-          })
-        }
-      }, monthRef.current)
-        .then((r) => {
-          if (r.error) {
-            setConfirm(sayConfirm("저장하지 못했습니다", r.error, () => setConfirm(null)))
-            return
-          }
-          take(r)
-          // 저장에 성공한 값만 초안에서 지운다. 적용일은 남긴다 — 같은 날짜로
-          // 여러 항목을 이어 넣는 것이 자연스러운 리듬이다.
-          setCostsDraft((d) => ({ ...d, amounts: new Map() }))
-        })
-        .finally(release)
+      if (!costsSaveGuard(costsDraft).can) return
+      overheadWrite(
+        "저장하지 못했습니다",
+        putAmounts("FIXED", () => "MONTH", costsDraft.amounts, costsDraft.effectiveFrom, nowStamp()),
+        // 저장에 성공한 값만 초안에서 지운다. 적용일은 남긴다 — 같은 날짜로
+        // 여러 항목을 이어 넣는 것이 자연스러운 리듬이다.
+        () => setCostsDraft((d) => ({ ...d, amounts: new Map() })),
+      )
     },
 
     add: () => {
       const amount = parseAmount(costsDraft.newAmount)
-      if (amount === null || costsDraft.newLabel.trim() === "" || !acquire()) return
-      const stamp = nowStamp()
       const label = costsDraft.newLabel.trim()
-      void writeThenReload(async (repo) => {
-        await repo.setOverhead({
-          libraryId: DEV_LIBRARY,
-          kind: "FIXED",
-          basis: "MONTH",
-          label,
-          amount,
-          effectiveFrom: costsDraft.effectiveFrom,
-          now: stamp,
-        })
-      }, monthRef.current)
-        .then((r) => {
-          if (r.error) {
-            setConfirm(sayConfirm("추가하지 못했습니다", r.error, () => setConfirm(null)))
-            return
-          }
-          take(r)
-          setCostsDraft((d) => ({ ...d, newLabel: "", newAmount: "" }))
-        })
-        .finally(release)
+      if (amount === null || label === "") return
+      overheadWrite(
+        "추가하지 못했습니다",
+        putAmounts("FIXED", () => "MONTH", new Map([[label, String(amount)]]), costsDraft.effectiveFrom, nowStamp()),
+        () => setCostsDraft((d) => ({ ...d, newLabel: "", newAmount: "" })),
+      )
     },
 
     /**
@@ -679,46 +734,57 @@ export function App(): React.JSX.Element {
      * 진단이 다시 물어보는 상태로 돌아간다 — 선언의 반대는 반대 선언이 아니라
      * «아직 안 정함»이다.
      */
-    toggleNone: () => {
-      const on = costs?.stance.fixed?.stance === "none"
-      if (!acquire()) return
-      const stamp = nowStamp()
-      void writeThenReload(async (repo) => {
-        if (on) await repo.clearOverheadStance(DEV_LIBRARY, "FIXED")
-        else
-          await repo.setOverheadStance({
-            libraryId: DEV_LIBRARY,
-            kind: "FIXED",
-            stance: "none",
-            reason: costs?.stance.fixed?.reason ?? "in-cogs",
-            now: stamp,
-          })
-      }, monthRef.current)
-        .then((r) => {
-          if (r.error) setConfirm(sayConfirm("바꾸지 못했습니다", r.error, () => setConfirm(null)))
-          else take(r)
-        })
-        .finally(release)
+    toggleNone: () => putStance("FIXED", costs?.stance.fixed ?? null, null),
+    setNoneReason: (reason) => putStance("FIXED", costs?.stance.fixed ?? null, reason),
+
+    // ── 운영비 — 같은 사슬, 다른 kind ─────────────────────────────
+    setOpsAmount: (label, value) =>
+      setCostsDraft((d) => {
+        const opsAmounts = new Map(d.opsAmounts)
+        opsAmounts.set(label, value)
+        return { ...d, opsAmounts }
+      }),
+    setOpsEffectiveFrom: (date) => patchCosts({ opsEffectiveFrom: date }),
+    setOpsNewLabel: (v) => patchCosts({ opsNewLabel: v }),
+    setOpsNewAmount: (v) => patchCosts({ opsNewAmount: v }),
+    setOpsNewBasis: (v) => patchCosts({ opsNewBasis: v === "UNIT" ? "UNIT" : "ORDER" }),
+
+    /**
+     * ★ 금액만 고칠 때는 **기준을 안 바꾼다** ★
+     * `setOverhead`는 `basis`를 함께 받으므로 여기서 「주문당」을 넘기면 개당으로
+     * 넣어 둔 항목이 조용히 주문당이 된다 — 이미 있는 항목의 기준은 화면이 아는
+     * 값(`view.ops`)에서 가져온다. 기준을 바꾸는 것은 v1 밖이다.
+     */
+    opsSave: () => {
+      if (!costsSaveGuard({ amounts: costsDraft.opsAmounts, effectiveFrom: costsDraft.opsEffectiveFrom }).can) return
+      const basisAt = new Map((costs?.ops ?? []).map((o) => [o.label, o.basis]))
+      overheadWrite(
+        "저장하지 못했습니다",
+        putAmounts(
+          "OPS",
+          (label) => basisAt.get(label) ?? "ORDER",
+          costsDraft.opsAmounts,
+          costsDraft.opsEffectiveFrom,
+          nowStamp(),
+        ),
+        () => setCostsDraft((d) => ({ ...d, opsAmounts: new Map() })),
+      )
     },
 
-    setNoneReason: (reason) => {
-      if (!acquire()) return
-      const stamp = nowStamp()
-      void writeThenReload(async (repo) => {
-        await repo.setOverheadStance({
-          libraryId: DEV_LIBRARY,
-          kind: "FIXED",
-          stance: "none",
-          reason,
-          now: stamp,
-        })
-      }, monthRef.current)
-        .then((r) => {
-          if (r.error) setConfirm(sayConfirm("바꾸지 못했습니다", r.error, () => setConfirm(null)))
-          else take(r)
-        })
-        .finally(release)
+    opsAdd: () => {
+      const amount = parseAmount(costsDraft.opsNewAmount)
+      const label = costsDraft.opsNewLabel.trim()
+      if (amount === null || label === "") return
+      const basis = costsDraft.opsNewBasis
+      overheadWrite(
+        "추가하지 못했습니다",
+        putAmounts("OPS", () => basis, new Map([[label, String(amount)]]), costsDraft.opsEffectiveFrom, nowStamp()),
+        () => setCostsDraft((d) => ({ ...d, opsNewLabel: "", opsNewAmount: "" })),
+      )
     },
+
+    toggleOpsNone: () => putStance("OPS", costs?.stance.ops ?? null, null),
+    setOpsNoneReason: (reason) => putStance("OPS", costs?.stance.ops ?? null, reason),
   }
 
   // ── 정산 조정 (ADR-020) ─────────────────────────────────────────

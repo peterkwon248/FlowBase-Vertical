@@ -153,9 +153,48 @@ describe("셸 — 첫 실행", () => {
     expect(called, "누르면 아무 일도 일어나지 않는다").toBe(true)
   })
 
-  it("firstRun과 notFirstRun은 서로 반대다", () => {
-    expect(at({ firstRun: true }).notFirstRun).toBe(false)
-    expect(at({ firstRun: false }).notFirstRun).toBe(true)
+  /**
+   * ★ 상태가 **셋**이다 — 모름 · 없음 · 있음 (2026-08-21) ★
+   *
+   * 예전 계약은 「`firstRun`과 `notFirstRun`은 서로 반대」였고, 그건 목업의
+   * 이분법이었다. 실물은 조회가 비동기라 **답을 모르는 구간**이 있고, 그때
+   * 이분법을 쓰면 앱이 뜨자마자 「데이터가 하나도 없습니다」를 그렸다가 조회가
+   * 끝나면 갈아치운다 — 사용자가 «앱 열자마자 대시보드로 점프한다»고 물은 현상이다.
+   *
+   * 깜빡임보다 나쁜 것은 그 문장이 **거짓말**이라는 것이다: 그동안 앱은 「없다」고
+   * 말하지만 실은 «아직 모른다»다 (§22 «부재는 boolean이 아니다»).
+   */
+  it("★ 조회 전에는 **둘 다 거짓**이다 — 「없다」도 「있다」도 아직 모른다 ★", () => {
+    const v = at({ loading: true, firstRun: true })
+    expect(v.appLoading).toBe(true)
+    expect(v.firstRun, "모르는데 «없다»고 말한다").toBe(false)
+    expect(v.notFirstRun, "모르는데 본문을 그린다 — 0원을 사실인 척한다").toBe(false)
+  })
+
+  it("조회가 끝나면 둘이 서로 반대가 된다", () => {
+    expect(at({ loading: false, firstRun: true })).toMatchObject({
+      appLoading: false,
+      firstRun: true,
+      notFirstRun: false,
+    })
+    expect(at({ loading: false, firstRun: false })).toMatchObject({
+      appLoading: false,
+      firstRun: false,
+      notFirstRun: true,
+    })
+  })
+
+  it("기본 상태는 「모름」이다 — 아무것도 안 물어봤으면 아무것도 모른다", () => {
+    expect(INITIAL_SHELL.loading).toBe(true)
+    expect(at().appLoading).toBe(true)
+  })
+
+  it("진단의 세 갈래도 「모름」이 밀어낸다 — 안내와 본문이 함께 뜨지 않는다", () => {
+    const v = at({ loading: true })
+    expect(v.diagOnboard).toBe(false)
+    expect(v.diagReady).toBe(false)
+    // 미구현 안내는 조회와 무관하다 — 그건 데이터가 아니라 우리가 안 만든 것이다.
+    expect(v.diagUnbuilt).toBe(true)
   })
 })
 
