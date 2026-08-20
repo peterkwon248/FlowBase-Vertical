@@ -580,7 +580,10 @@ export function App(): React.JSX.Element {
       }, monthRef.current)
         .then((r) => {
           if (r.error) {
-            console.warn("[cost] 원가 저장에 실패했다:", r.error)
+            // ★ 여기만 예외였다 (2026-08-20 감사) ★ 다른 쓰기 일곱 곳은 전부
+            // `sayConfirm`으로 말하는데 원가만 `console.warn` 하나로 끝났다.
+            // 초안이 남아 있어 사용자는 «저장됐나»를 구별할 수 없었다 (LOCK 6).
+            setConfirm(sayConfirm("원가를 저장하지 못했습니다", r.error, () => setConfirm(null)))
             return
           }
           take(r)
@@ -1379,6 +1382,10 @@ export function App(): React.JSX.Element {
   )
 
   const vals = shellVals(state, { go, toggleNav, closeNav, openNav, goImport, toggleTheme })
+  // ★ 헤더 [가져오기] 버튼 — 전 폭에서 무반응이었다 (2026-08-20 감사) ★
+  // 마크업은 처음부터 있었는데(`Template.tsx`) 배선이 0이라 모든 화면 상단의 주
+  // 버튼이 눌러도 아무 일도 안 했다. 사이드바의 「가져오기」와 같은 곳으로 간다.
+  vals.syncAll = goImport
   // 월 선택기. 기간이 걸리는 화면에서만 붙고, 고를 달이 없으면 아예 안 붙는다.
   periodVals(vals, state.view, month, months, monthOpen, {
     toggle: () => setMonthOpen((o) => !o),

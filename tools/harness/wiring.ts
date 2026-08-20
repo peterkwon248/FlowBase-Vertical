@@ -122,8 +122,26 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
   },
   {
     name: "표 필터·검색·열 숨김",
-    fields: /^(filter[A-Z]|toggleFilter|hasFilters|clear[A-Z][a-z]*Filter|hasOrderFilter|orderFilterLabel|exp[A-Z]|toggleExpHidden|hasQuery|clearQuery|pnlQuery|onPnlQuery|showAllProducts|hasRest|rest|setTabs|stateTabs)/,
+    fields: /^(filter[A-Z]|toggleFilter|hasFilters|clear[A-Z][a-z]*Filter|hasOrderFilter|orderFilterLabel|toggleExpHidden|hasQuery|clearQuery|pnlQuery|onPnlQuery|showAllProducts|hasRest|rest|setTabs|stateTabs)/,
     why: "표가 60행 규모라 스크롤로 충분하다. 수백 행이 되는 날 다시 본다 (등재)",
+  },
+  {
+    /**
+     * ★ 이 컷은 2026-08-20 감사가 갈라냈다 ★
+     *
+     * `exp[A-Z]`(내보내기 팝오버 5종)가 위 「표 필터·검색」 컷에 얹혀 있었다.
+     * 사유가 «표가 60행 규모라 스크롤로 충분하다»인데 **내보내기와 아무 상관이 없다** —
+     * 낡은 선언이 다섯 자리를 덮어 배선 게이트가 초록인 채로 남았다.
+     *
+     * ⚠ **LOCK 8과 정면으로 부딪히는 컷이다.** 헌장은 「내보내기는 무료 전면 개방」인데
+     * 오늘 전면 부재다. 그래서 이 컷은 «안 만들기로 한 것»이 아니라 **«기한이 붙은
+     * 부채»**다 — 화면에 버튼이 그려져 있으므로 U-3(못 누르는 것은 안 그린다)도 걸린다.
+     * 만들거나, 그때까지 버튼을 지우거나. 둘 중 하나이지 지금 상태는 아니다.
+     */
+    name: "내보내기 — ⚠ LOCK 8 부채 (컷이 아니라 기한)",
+    fields: /^(exp[A-Z])/,
+    why: "미구현. 헌장 B-10이 「내보내기 무료 전면 개방」이라 이건 컷이 아니라 부채다 — " +
+      "만들거나 버튼을 지운다 (2026-08-20 감사 A-2-2)",
   },
   {
     name: "§21-4 — 비용 구성 호버 툴팁",
