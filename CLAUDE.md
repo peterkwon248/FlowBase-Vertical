@@ -12,6 +12,7 @@
 | [docs/작업-상태.md](docs/작업-상태.md) | **새 세션은 여기부터.** 지금 어디인지·막힌 것·다음 손이 갈 곳 |
 | [docs/구현-헌장.md](docs/구현-헌장.md) | 최상위. 스키마 LOCK·파이프라인 6단계·세션 계획·금지 목록 |
 | [docs/핸드오프.md](docs/핸드오프.md) | 목업 내부 지도. 시드 경계·상태 소유·알려진 결함 43건 |
+| [docs/개념-지도.md](docs/개념-지도.md) | **앱이 다루는 모든 개념.** 데이터 3종·파이프라인·손익 3층·부재의 장치·표면. 부록에 **이름이 헷갈리는 자리**와 **「선언만 있고 집행이 없는 것」** |
 | [docs/인계-문서.md](docs/인계-문서.md) | 손익 3층·Canonical 흐름·Library 설계 |
 | [docs/지시서-v1.md](docs/지시서-v1.md) | 제품 정의·티어·신규 화면 4종 원본 지시 |
 | [docs/upstream-sync.md](docs/upstream-sync.md) | upstream `peterkwon248/FlowBase`와의 어휘 정렬 기록 |
