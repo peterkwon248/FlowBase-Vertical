@@ -38,6 +38,14 @@ export type PnlGapId =
   | "overhead-missing"
   /** 운영비의 부재는 고정비와 **따로** 센다 — 하나를 넣었다고 다른 하나가 메워지지 않는다. */
   | "ops-missing"
+  /**
+   * ★ 광고비가 상품까지 못 내려간 세 이유 (014 · ADR-022) ★
+   * 처방이 서로 다르므로 한 덩어리로 뭉치지 않는다 — `cogs-unlinked`와
+   * `cogs-missing`을 가른 것과 같은 판단이다.
+   */
+  | "ad-unlinked"
+  | "ad-no-listing"
+  | "ad-no-key"
   | "connections-mixed"
 
 /**
@@ -217,6 +225,60 @@ export function pnlGaps(snap: PnlSnapshot): PnlGap[] {
           `아직 SKU에 이어지지 않았다. 원가는 SKU에 붙으므로 **연결 전에는 원가를 넣어도 ` +
           `이 판매에 닿지 않는다.** 상품 연결 화면에서 리스팅을 SKU에 이으면 ` +
           `과거 판매까지 소급해서 붙는다 — 연결은 적재 시점에 박히지 않고 조회할 때 이어진다`,
+      })
+    }
+
+    /**
+     * ★ 광고비가 왜 상품까지 못 내려갔나 (014 · ADR-022) ★
+     *
+     * 「미배분 15,700,534원」만 보이면 사용자는 **할 수 있는 일이 무엇인지 모른다.**
+     * 그런데 실측하면 그 대부분이 «연결만 하면 붙는» 돈이다 — 2026-08-20 개발 DB에서
+     * 14,955,098원(95.3%)이 그렇다. 그건 막힌 것이 아니라 **한 동작 남은 것**이다.
+     *
+     * 세 갈래는 처방이 다르므로 따로 말한다 (`cogs-unlinked`/`cogs-missing`을 가른
+     * 것과 같은 판단):
+     *   noLink     연결하면 **소급해서** 붙는다      ← 사용자가 지금 할 수 있다
+     *   noListing  그 옵션의 주문 파일을 넣으면 붙는다 ← 파일이 더 필요하다
+     *   noKey      파일이 상품을 안 말한다           ← 할 수 있는 일이 없다
+     */
+    const ad = snap.adSplit
+    if (ad.noLink > 0) {
+      gaps.push({
+        id: "ad-unlinked",
+        label: "연결만 하면 상품에 붙는 광고비",
+        state: "연결 대기",
+        note: `${ad.noLink.toLocaleString("ko-KR")}원`,
+        tone: "warn",
+        detail:
+          `광고비 ${ad.noLink.toLocaleString("ko-KR")}원이 **어느 상품 것인지 파일이 말하고 ` +
+          `있는데** 그 상품이 아직 SKU에 이어지지 않아 상품 손익에 못 붙는다. ` +
+          `지금은 채널 기여이익(2층)에서만 빠지므로 **「이 상품이 남는가」의 답이 낙관적이다.** ` +
+          `상품 연결 화면에서 이으면 과거 광고비까지 소급해서 붙는다`,
+      })
+    }
+    if (ad.noListing > 0) {
+      gaps.push({
+        id: "ad-no-listing",
+        label: "주문 파일이 없는 광고비",
+        state: "파일 없음",
+        note: `${ad.noListing.toLocaleString("ko-KR")}원`,
+        tone: "info",
+        detail:
+          `광고비 ${ad.noListing.toLocaleString("ko-KR")}원이 가리키는 상품의 **주문 파일이 ` +
+          `아직 없다.** 그 기간의 주문 파일을 넣으면 리스팅이 생기고, 연결하면 붙는다`,
+      })
+    }
+    if (ad.noKey > 0) {
+      gaps.push({
+        id: "ad-no-key",
+        label: "상품을 알 수 없는 광고비",
+        state: "파일이 안 말함",
+        note: `${ad.noKey.toLocaleString("ko-KR")}원`,
+        tone: "info",
+        detail:
+          `광고비 ${ad.noKey.toLocaleString("ko-KR")}원은 **어느 상품 것인지 파일 자체가 ` +
+          `말해주지 않는다** (일자별 집계만 주는 양식). 이건 «0원»이 아니라 «모름»이고, ` +
+          `연결을 아무리 해도 상품까지 내려가지 않는다 — 채널 단위로만 볼 수 있다`,
       })
     }
 

@@ -70,6 +70,8 @@ export const FIELD_LABEL: Readonly<Record<string, string>> = {
   clicks: "클릭",
   conversions: "전환",
   conversion_amount: "전환 매출",
+  // 014 — 광고비를 상품에 붙이는 열. 사용자에게는 「상품」이지 `listing_key`가 아니다 (U-5)
+  listing_key: "광고 건 상품",
 }
 
 /**

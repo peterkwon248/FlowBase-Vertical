@@ -9,55 +9,122 @@
   "targetTable": "fact_ad_spend",
   "label": "쿠팡 광고 보고서",
   "displayName": "쿠팡",
-
   "recognitionRules": {
-    "containerFormats": ["xlsx"],
-    "requiredHeaders": ["과금 방식", "캠페인 ID", "캠페인명", "노출수", "클릭수", "광고비"],
+    "containerFormats": [
+      "xlsx"
+    ],
+    "requiredHeaders": [
+      "과금 방식",
+      "캠페인 ID",
+      "캠페인명",
+      "노출수",
+      "클릭수",
+      "광고비"
+    ],
     "headerMatch": "all",
     "fileNamePattern": "^쿠팡 광고 보고서_(?<from>\\d{8})_(?<to>\\d{8})",
     "minConfidence": 0.8
   },
-
   "extractionRules": {
-    "sheetSelector": { "kind": "firstData" },
+    "sheetSelector": {
+      "kind": "firstData"
+    },
     "headerRowHint": 1,
     "detectUnlabeledAggregates": true
   },
-
   "sourceKey": {
     "strategy": "content",
     "note": "이 양식에는 행을 구분하는 자연 키가 없다. 차원 컬럼을 전부 묶어도 80건이 겹치고, 겹치는 행들은 지표가 서로 다르다 (한 행은 광고비, 다른 행은 전환매출). 근거와 대안 비교는 ADR-006."
   },
-
   "fieldMappings": [
-    { "target": "campaign_key", "source": "캠페인 ID", "kind": "identifier", "required": true },
-    { "target": "campaign_name", "source": "캠페인명", "kind": "text" },
-    { "target": "impressions", "source": "노출수", "kind": "number", "default": 0 },
-    { "target": "clicks", "source": "클릭수", "kind": "number", "default": 0 },
-    { "target": "spend_amount", "source": "광고비", "kind": "number", "default": 0 },
-    { "target": "conversions", "source": "총 주문수(1일)", "kind": "number", "default": 0 },
-    { "target": "conversion_amount", "source": "총 전환매출액(1일)", "kind": "number" },
+    {
+      "target": "campaign_key",
+      "source": "캠페인 ID",
+      "kind": "identifier",
+      "required": true
+    },
+    {
+      "target": "campaign_name",
+      "source": "캠페인명",
+      "kind": "text"
+    },
+    {
+      "target": "impressions",
+      "source": "노출수",
+      "kind": "number",
+      "default": 0
+    },
+    {
+      "target": "clicks",
+      "source": "클릭수",
+      "kind": "number",
+      "default": 0
+    },
+    {
+      "target": "spend_amount",
+      "source": "광고비",
+      "kind": "number",
+      "default": 0
+    },
+    {
+      "target": "conversions",
+      "source": "총 주문수(1일)",
+      "kind": "number",
+      "default": 0
+    },
+    {
+      "target": "conversion_amount",
+      "source": "총 전환매출액(1일)",
+      "kind": "number"
+    },
     {
       "target": "spent_on",
       "kind": "date",
-      "derive": { "from": "fileName", "capture": "from" },
+      "derive": {
+        "from": "fileName",
+        "capture": "from"
+      },
       "required": true,
       "note": "행에 날짜가 없다. 파일명의 기간 시작일을 쓴다 — 이 리포트는 기간 집계이고 일자별로 나뉘어 있지 않다."
     },
     {
       "target": "campaign_type",
       "kind": "enum",
-      "derive": { "from": "constant", "value": "GROWTH" },
+      "derive": {
+        "from": "constant",
+        "value": "GROWTH"
+      },
       "note": "핸드오프 §6-9. 이 리포트는 전환매출을 담고 있으므로 GROWTH다. NEW(전환매출 없음)는 다른 양식에서 온다 — NEW에 ROAS를 계산하지 않는 LOCK이 여기서 지켜진다."
+    },
+    {
+      "target": "listing_key",
+      "source": "광고집행 옵션ID",
+      "kind": "identifier",
+      "note": "★ 이 열이 광고비를 상품까지 내린다 (014 · ADR-022) ★ 쿠팡 제트 매출의 「옵션ID」와 같은 값이라 리스팅으로 바로 이어진다 — 실측 광고비 15,700,534원 중 14,955,098원(95.3%)이 붙는다. 「광고전환매출발생 옵션ID」가 아니라 **광고집행** 쪽이다: 비용의 임자는 «광고를 건 상품»이지 «그 클릭으로 팔린 상품»이 아니다. 비어 있으면 담지 않는다 — NULL은 «미배분»이지 «0»이 아니다 (LOCK 6 · §22)."
     }
   ],
-
   "validationRules": [
-    { "kind": "required", "fields": ["campaign_key", "spent_on"] },
-    { "kind": "nonNegative", "fields": ["impressions", "clicks", "spend_amount", "conversions"] },
-    { "kind": "parseRate", "min": 0.99 }
+    {
+      "kind": "required",
+      "fields": [
+        "campaign_key",
+        "spent_on"
+      ]
+    },
+    {
+      "kind": "nonNegative",
+      "fields": [
+        "impressions",
+        "clicks",
+        "spend_amount",
+        "conversions"
+      ]
+    },
+    {
+      "kind": "parseRate",
+      "min": 0.99
+    }
   ],
-
   "unmappedColumns": {
     "policy": "keep-count",
     "note": "43컬럼 중 8개만 매핑했다. 나머지(14일 기준 지표·ROAS 계열·판매방식 등)는 세션 3에서 내 필드로 승격하거나 버린다. 지금 버리면 몇 개를 버렸는지 세어 표시한다 — 조용히 빠뜨리지 않는다 (헌장 A-5)."

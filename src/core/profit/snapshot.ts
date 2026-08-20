@@ -122,6 +122,25 @@ export interface PnlSnapshot {
   /** 기간 안 클레임 건수. `orderCount`와 **짝으로만** 표시한다 (위 주석). */
   readonly claimCount: number
   /**
+   * ★ 광고비가 어느 층에 놓였나, 그리고 **왜 못 내려갔나** (014 · ADR-022) ★
+   *
+   * `pnl.adDirect`/`adUnallocated`만 주면 화면은 «미배분 1,570만원»밖에 말할 수
+   * 없고, 사용자는 **할 수 있는 일이 무엇인지 모른다.** 미배분은 한 가지가 아니다:
+   *
+   *   noKey      파일이 상품을 안 말했다 — 할 수 있는 일이 없다 (11번가 일별 보고서)
+   *   noListing  그 옵션의 **주문 파일을 아직 안 넣었다** — 넣으면 붙는다
+   *   noLink     리스팅은 있는데 SKU 미연결 — **연결하면 소급해서** 붙는다
+   *
+   * 세 갈래를 따로 세는 것이 §22(부재는 일급 데이터)의 광고판이다.
+   */
+  readonly adSplit: {
+    readonly direct: number
+    readonly unallocated: number
+    readonly noKey: number
+    readonly noListing: number
+    readonly noLink: number
+  }
+  /**
    * 정산 원자료. **파생하지 않고 둘 다 준다** — 소비자마다 필요한 모양이 달라서다.
    *
    * `all`과 `joined`의 차이가 곧 **손익에서 빠진 수수료**다. 11번가처럼 정산
@@ -268,6 +287,72 @@ export async function loadPnlSnapshot(
     period.from,
     period.to,
   )
+
+  /**
+   * ★ 광고비를 1층과 2층으로 가른다 (014 · ADR-022) ★
+   *
+   * 여기 있던 것은 `adDirect: 0` **리터럴**이었다. 게으름이 아니라 저장 계층이
+   * 표현할 수 없었기 때문이다 — `fact_ad_spend`가 캠페인 단위 표라 「이 광고비가
+   * 어느 상품 것인가」를 담을 칸이 없었다. 014가 `listing_key`를 열었다.
+   *
+   * ★ 세 상태를 가른다 — 「없음」과 「모름」은 다르다 (§22 · LOCK 6) ★
+   *
+   *   직접   listing_key가 있고 → 리스팅이 있고 → 그 리스팅이 SKU에 연결됨
+   *   미배분 그 밖 전부. 그런데 «그 밖»이 한 가지가 아니다:
+   *          · listing_key가 NULL     — 파일이 상품을 안 말한다 (11번가 일별 보고서)
+   *          · 리스팅을 못 찾음        — 그 옵션의 주문 파일을 아직 안 넣었다
+   *          · 리스팅은 있는데 미연결   — 상품 연결 화면에서 이으면 **소급해서** 붙는다
+   *
+   * 셋을 따로 세는 이유는 화면이 「무엇을 하면 이 돈이 상품에 붙는가」를 말할 수
+   * 있어야 하기 때문이다. 한 덩어리로 «미배분 15,700,534원»만 보이면 사용자가
+   * 할 수 있는 일이 없다.
+   *
+   * ★ 연결은 조회 때 이어붙인다 ★ `ITEM_JOIN`과 같은 판단이다 — 적재 시점에
+   * SKU를 박으면 나중에 연결한 것이 과거 광고비에 소급되지 않는다.
+   */
+  const adRow = await db
+    .prepare(
+      /*
+       * ★ 조인에 `link_state`를 걸지 않는다 ★
+       * 처음엔 `ITEM_JOIN`처럼 `AND ml.link_state = 'linked'`를 넣었는데, 그러면
+       * **미연결 리스팅이 조인에서 탈락해 「리스팅 자체가 없다」로 세어진다** —
+       * 시험이 `noListing 8,000`(3,000+5,000)으로 잡아냈다. 두 상태는 사용자가
+       * 할 일이 완전히 다르다: 하나는 «주문 파일을 넣어라», 하나는 «연결하라».
+       * 그래서 조인은 열어 두고 **직접(direct) 조건에서만** 연결을 요구한다.
+       */
+      `SELECT COALESCE(SUM(CASE WHEN ml.link_state = 'linked' AND ml.sku_id IS NOT NULL
+                                THEN a.spend_amount ELSE 0 END),0) AS direct,
+              COALESCE(SUM(CASE WHEN a.listing_key IS NULL THEN a.spend_amount ELSE 0 END),0) AS no_key,
+              COALESCE(SUM(CASE WHEN a.listing_key IS NOT NULL AND ml.id IS NULL
+                                THEN a.spend_amount ELSE 0 END),0) AS no_listing,
+              COALESCE(SUM(CASE WHEN ml.id IS NOT NULL
+                                 AND NOT (ml.link_state = 'linked' AND ml.sku_id IS NOT NULL)
+                                THEN a.spend_amount ELSE 0 END),0) AS no_link
+         FROM active_ad_spend a
+         LEFT JOIN marketplace_listing ml
+                ON ml.connection_id = a.connection_id
+               AND ml.listing_key = a.listing_key
+        WHERE a.library_id = ?
+          AND a.spent_on >= ? AND a.spent_on < date(?, '+1 day')`,
+    )
+    .get(libraryId, period.from, period.to)
+
+  // `num`은 아래(계산부)에 선언돼 있다. 여기서 끌어올리면 그 자리의 문맥이 흩어지므로
+  // 같은 뜻을 이 블록에서만 쓴다.
+  const adNum = (k: string): number => Number(adRow?.[k] ?? 0)
+  const adDirect = adNum("direct")
+  /**
+   * 뺄셈으로 구한다 — 세 갈래를 더해서 만들면 어느 하나를 빠뜨렸을 때
+   * **총 광고비가 조용히 줄어든다.** 합계는 늘 `adSpend`와 같아야 한다.
+   */
+  const adUnallocated = adSpend - adDirect
+  const adSplit = {
+    direct: adDirect,
+    unallocated: adUnallocated,
+    noKey: adNum("no_key"),
+    noListing: adNum("no_listing"),
+    noLink: adNum("no_link"),
+  }
 
   /**
    * 기간 집계로 들어온 주문 (`date_precision='period'`, 마이그레이션 005).
@@ -537,19 +622,16 @@ export async function loadPnlSnapshot(
      * 다른 조각을 쓰면 언젠가 또 갈린다 (`rows.ts` 머리말의 「같은 조각」 원칙).
      */
     discount: num(cogsRow, "discount"),
-    // ⚠ **리터럴 0이다 — 등재된 결함이다** (2026-08-20 감사 A-1, 0순위)
-    // 광고비 전액이 `adUnallocated`로 간다. 그래서 **1층(상품 기여이익)과 2층(채널
-    // 기여이익)의 경계가 통째로 틀린다** — 상품별 손익이 광고비를 한 푼도 안 진다.
-    // 배분 규칙(캠페인→상품)이 없어서 0으로 둔 자리고, 「0이라서 안 보인다」와
-    // 「배분을 안 했다」가 화면에서 구별되지 않는다.
-    adDirect: 0,
-    adUnallocated: adSpend,
+    // 리터럴 0이던 자리 (감사 A-1-1). 이제 `listing_key` 조인이 정한다 — 위 참조.
+    adDirect,
+    adUnallocated,
     ops,
     fixed: prorateFixed(fixedMonthly, period),
   })
 
   return {
     pnl,
+    adSplit,
     overheadStance: {
       fixed: await repo.overheadStance(libraryId, "FIXED"),
       ops: await repo.overheadStance(libraryId, "OPS"),

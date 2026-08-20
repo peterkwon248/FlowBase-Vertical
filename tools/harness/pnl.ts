@@ -55,10 +55,21 @@ const useClean = process.argv.includes("--clean")
 const period: Period = { from: args[0] ?? "2026-07-01", to: args[1] ?? "2026-07-31" }
 const DIR = useClean ? CLEAN_DIR : RAW_DIR
 
-/** 실파일 3종 — 채널이 서로 다르다. 아래 '관통 결과'가 그걸 드러낸다. */
+/**
+ * 실파일 4종 — 채널이 서로 다르다. 아래 '관통 결과'가 그걸 드러낸다.
+ *
+ * ★ 쿠팡 제트(#15)를 넣은 이유 (2026-08-20 · 014) ★
+ * 광고비 배분이 **같은 연결 안에서** 리스팅을 찾는다. 쿠팡 광고(#13)만 있고
+ * 쿠팡 **주문**이 없으면 붙을 리스팅이 하나도 없어 배분이 늘 0이다 — 새 코드가
+ * 개발 DB에서 **한 번도 안 돌게** 된다. 두 파일 다 2026-07이라 기간도 맞는다.
+ *
+ * 순서가 중요하다: 주문이 리스팅을 만들고 광고가 그걸 가리킨다. 적재는 순서와
+ * 무관하지만(조회 때 잇는다) 읽는 사람에게는 이 순서가 사실에 가깝다.
+ */
 const TARGETS = [
   { fixture: 6, profile: "11st-settlement@1.json", conn: "conn-11st", market: "11st" },
   { fixture: 8, profile: "esm-order@1.json", conn: "conn-esm", market: "esm" },
+  { fixture: 15, profile: "coupang-jet@1.json", conn: "conn-coupang", market: "coupang" },
   { fixture: 13, profile: "coupang-ad-report@1.json", conn: "conn-coupang", market: "coupang" },
 ]
 
@@ -99,10 +110,13 @@ for (const t of TARGETS) {
   const profile = JSON.parse(readFileSync(join(PROFILE_DIR, t.profile), "utf-8")) as MappingProfile
   const bytes = new Uint8Array(readFileSync(fixturePath(f, DIR)))
 
+  // 한 연결에 파일이 **둘 이상** 온다 (쿠팡: 주문 + 광고). 그게 배분이 성립하는
+  // 조건이므로 두 번째 파일에서 터지면 안 된다.
   await db
     .prepare(
       `INSERT INTO connection (id, library_id, pack_id, marketplace_key, display_name, state, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?)
+       ON CONFLICT (id) DO NOTHING`,
     )
     // display_name은 **프로파일이 선언한 채널 통칭**이다. `label`(문서 이름)이 아니다 —
     // 화면의 채널 열에 "11번가 결제일 정산확정"이 뜨면 안 된다.
@@ -129,7 +143,8 @@ for (const t of TARGETS) {
     sheetIndex: 0,
     libraryId: LIB,
     connectionId: t.conn,
-    batchId: `batch-${t.market}`,
+    // batch = 파일 하나다. 쿠팡은 주문·광고 두 파일이므로 마켓으로 가르면 부딪힌다.
+    batchId: `batch-${t.market}-${t.fixture}`,
     now: NOW,
   })
   if (r.listings) listingStats.set(t.market, r.listings)
