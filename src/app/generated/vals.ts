@@ -392,6 +392,18 @@ export interface TemplateVals {
    * 이 값이 참인 동안 `firstRun`·`notFirstRun`이 **둘 다 거짓**이다.
    */
   appLoading: boolean
+  /**
+   * §21 «history-rows» — 이 batch가 넣은 행 패널. 손으로 더한 자리 (2026-08-21).
+   * **원본 파일이 아니라 앱이 해석한 Fact 행이다** — 원본은 저장되지 않는다.
+   */
+  rowsOpen: boolean
+  rowsTitle: string
+  rowsTabs: readonly any[]
+  rowsCols: readonly any[]
+  rowsBody: readonly any[]
+  rowsNote: string
+  rowsPages: readonly any[]
+  rowsBusy: boolean
   /** §21 «import-grid» — 격자를 그릴 수 있나. 표본이 0행이면 거짓이다. */
   impGrid: boolean
   impGridCols: readonly ImportGridCol[]
@@ -1005,6 +1017,14 @@ export function emptyVals(): TemplateVals {
     impEditMap: () => {},
     impError: "",
     appLoading: true,
+    rowsOpen: false,
+    rowsTitle: "",
+    rowsTabs: [],
+    rowsCols: [],
+    rowsBody: [],
+    rowsNote: "",
+    rowsPages: [],
+    rowsBusy: false,
     impExcludedLabel: "",
     impGrid: false,
     impGridCols: [],

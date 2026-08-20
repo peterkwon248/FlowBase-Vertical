@@ -29,14 +29,14 @@ import { loadLinkingView } from "../../src/core/linking/view.js"
 import { krLinkingMatcher, krCostBridgeMatcher } from "../../src/packs/kr-marketplace/linking-matcher.js"
 import { loadPendingCostView } from "../../src/core/linking/pending-cost.js"
 import { fieldmapVals, loadFieldmapView } from "../../src/app/fieldmap.js"
-import { Repository } from "../../src/core/store/repository.js"
+import { Repository, type FactTable } from "../../src/core/store/repository.js"
 import { dashboardVals } from "../../src/app/dashboard.js"
 import { settlementVals, emptyAdjDraft } from "../../src/app/settlement.js"
 import { orderVals } from "../../src/app/order.js"
 import { linkingVals, type LinkTab } from "../../src/app/linking.js"
 import { channelVals } from "../../src/app/channel.js"
 import { loadCoverage } from "../../src/core/coverage/load.js"
-import { historyVals } from "../../src/app/history.js"
+import { historyVals, batchRowVals, ROWS_PER_PAGE } from "../../src/app/history.js"
 import { productVals } from "../../src/app/product.js"
 import { costsVals, emptyCostsDraft, type CostsView } from "../../src/app/costs.js"
 import { loadProductRows } from "../../src/core/product/rows.js"
@@ -171,6 +171,14 @@ const costs: CostsView = {
     ops: await repo.overheadStance("lib-1", "OPS"),
   },
 }
+/** 적재된 행 한 페이지 — DB가 닫히기 전에 읽어 둔다 (§21 «history-rows»). */
+const rowsHit =
+  STATE === "rows" ? history.find((h) => Object.values(h.ownedByTable).some((n) => n > 0)) : undefined
+const rowsTable = rowsHit ? Object.entries(rowsHit.ownedByTable).find(([, n]) => n > 0)![0] : ""
+const rowsPage = rowsHit
+  ? await repo.batchRows(rowsHit.id, rowsTable as FactTable, ROWS_PER_PAGE, 0)
+  : null
+
 await db.close()
 
 const noop = (): void => {}
@@ -207,6 +215,27 @@ orderVals(vals, orders, PERIOD)
 linkingVals(vals, linking, TAB, new Set(), undefined, pendingCost)
 channelVals(vals, coverage, { goImport: noop }, dictOf)
 historyVals(vals, history)
+const NO_ROWS_ACT = { toggle: () => {}, pickTable: () => {}, pickPage: () => {} }
+if (rowsHit && rowsPage) {
+  batchRowVals(
+    vals,
+    {
+      batchId: rowsHit.id,
+      table: rowsTable,
+      page: 0,
+      columns: rowsPage.columns,
+      rows: rowsPage.rows,
+      total: rowsPage.total,
+      tables: rowsHit.ownedByTable,
+      busy: false,
+    },
+    NO_ROWS_ACT,
+  )
+  console.log(`적재된 행: ${rowsHit.sourceName} · ${rowsTable} · ${rowsPage.total}행`)
+} else {
+  batchRowVals(vals, null, NO_ROWS_ACT)
+}
+
 productVals(vals, products, "list", new Map(), PERIOD.to, undefined, PERIOD)
 // 초안은 비어 있다 — 상호작용은 이 층이 증명하지 못한다. 적용일도 고정한다.
 costsVals(vals, costs, snap.pnl, emptyCostsDraft(PERIOD.to))

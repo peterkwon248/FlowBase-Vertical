@@ -21,8 +21,13 @@ const DIM = "var(--fg-4)"
 const WARN = "var(--label-orange, #F2994A)"
 const NONE = "—"
 
-/** 클레임 유형 → 사람이 읽는 말. 목업의 클레임 열 표기를 따른다. */
-const CLAIM_LABEL: Record<string, string> = {
+/**
+ * 클레임 유형 → 사람이 읽는 말. 목업의 클레임 열 표기를 따른다.
+ *
+ * ★ 내보낸다 — 사전은 하나다 ★ 적재된 행 패널(`history-rows`)이 같은 코드값을
+ * 그리므로, 두 벌로 적으면 한쪽만 고쳐지는 날 화면끼리 다른 말을 하게 된다.
+ */
+export const CLAIM_LABEL: Record<string, string> = {
   CANCEL: "취소",
   RETURN: "반품",
   EXCHANGE: "교환",

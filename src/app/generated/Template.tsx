@@ -5008,6 +5008,68 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                       </tbody>
                     </table>
                   </div>
+                  {vals.rowsOpen && (
+                    <div data-s21="history-rows" style={{ marginTop: "12px", border: "1px solid var(--border)", borderRadius: "var(--r-md)", overflow: "hidden" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
+                        <span style={{ font: "var(--fw-semi) 13px var(--font-sans)", color: "var(--fg)" }}>
+                          {vals.rowsTitle}
+                        </span>
+                        <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                          {vals.rowsNote}
+                        </span>
+                        <span style={{ flex: "1" }}></span>
+                        {vals.rowsTabs.map((t, $index: number) => (
+                          <button key={$index} className={t.on === "active" ? "v-btn v-btn--primary" : "v-btn"} style={{ height: "24px", padding: "0 9px", fontSize: "11px" }} onClick={t.pick}>
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                      {vals.rowsBusy && (
+                        <div style={{ padding: "18px 12px", font: "var(--fw-regular) 12px var(--font-sans)", color: "var(--fg-4)" }}>
+                          불러오는 중입니다
+                        </div>
+                      )}
+                      {vals.rowsBusy === false && (
+                        <div className="db-table-wrap">
+                          <table className="db-table">
+                            <thead>
+                              <tr>
+                                <th style={{ textAlign: "right" }}><span className="db-th">#</span></th>
+                                {vals.rowsCols.map((c, $index: number) => (
+                                  <th key={$index} style={{ textAlign: c.num ? "right" : "left" }}>
+                                    <span className="db-th" style={{ whiteSpace: "nowrap" }}>{c.label}</span>
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {vals.rowsBody.map((r, $index: number) => (
+                                <tr key={$index} className="fb-row">
+                                  <td className="db-td" style={{ font: "var(--fw-regular) 11px var(--font-mono)", color: "var(--fg-4)", textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                                    {r.no}
+                                  </td>
+                                  {r.cells.map((cell: any, $c: number) => (
+                                    <td key={$c} className="db-td" style={{ font: "var(--fw-regular) 11px var(--font-mono)", color: cell.dim ? "var(--fg-4)" : "var(--fg-2)", textAlign: cell.num ? "right" : "left", fontVariantNumeric: cell.num ? "tabular-nums" : "normal", whiteSpace: "nowrap" }}>
+                                      {cell.text}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      {vals.rowsPages.length > 1 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: "5px", padding: "9px 12px", borderTop: "1px solid var(--border)" }}>
+                          {vals.rowsPages.map((pg, $index: number) => (
+                            <button key={$index} className={pg.on === "active" ? "v-btn v-btn--primary" : "v-btn"} style={{ height: "24px", padding: "0 9px", fontSize: "11px" }} onClick={pg.pick}>
+                              {pg.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </section>
             )}
             {" "}

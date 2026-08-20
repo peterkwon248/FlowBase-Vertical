@@ -36,6 +36,40 @@ export const FACT_TABLES = [
 export type FactTable = (typeof FACT_TABLES)[number]
 
 /**
+ * 적재된 행을 보여줄 때 **내보내지 않는 컬럼** (헌장 C-4 · 프라이버시).
+ *
+ * 공통 6컬럼과 대리 키는 내부 식별자라 화면에 나가면 안 되고(`tests/screen-safety`가
+ * `conn-`·`batch-`·`connection_id`를 문자열로 잡는다), `buyer_ref`는 구매자
+ * 식별 정보다 — 손익에 쓰이지 않으므로 보일 이유가 없다.
+ *
+ * **거부 목록이지 허용 목록이 아니다.** 새 컬럼이 생기면 기본이 «보인다»여야
+ * 값이 조용히 사라지지 않는다 (LOCK 6). 대신 화면이 라벨을 강제하고, 라벨 없는
+ * 컬럼은 시험이 먼저 잡는다.
+ */
+const HIDDEN_ROW_COLUMNS: ReadonlySet<string> = new Set([
+  "id",
+  "connection_id",
+  "batch_id",
+  "library_id",
+  "version",
+  "updated_at",
+  "mapping_version",
+  // 대리 키 — 사람이 알아보는 것은 이 값이 아니라 상품 이름이다.
+  "order_id",
+  "listing_id",
+  "sku_id",
+  // 구매자 식별 정보. 손익이 쓰지 않는다.
+  "buyer_ref",
+])
+
+/** 한 페이지. `total`은 이 batch가 그 표에 넣은 **전체** 행 수다. */
+export interface BatchRowPage {
+  readonly columns: readonly string[]
+  readonly rows: readonly (readonly (string | number | null)[])[]
+  readonly total: number
+}
+
+/**
  * 조정이 가리킬 수 있는 대상 (ADR-020 A1·A3).
  *
  * ★ `settlement_daily`는 **실재하는 표가 아니다** ★
@@ -2158,6 +2192,68 @@ export class Repository {
    * 두고 오면 그게 곧 조용한 실패다 (LOCK 6). 사유별로 갈라야 사용자가
    * "합계 행이 걸러진 것"과 "읽다 실패한 것"을 구분할 수 있다.
    */
+  /**
+   * ★ 이 batch가 넣은 **행**을 읽는다 (2026-08-21) ★
+   *
+   * ─────────────────────────────────────────────────────────────
+   * 지금까지 `batch_id`로 Fact 행에 닿는 문장은 **DELETE 하나뿐**이었다(되돌리기).
+   * 즉 앱은 넣은 것을 지울 줄만 알고 **보여줄 줄은 몰랐다** — 사용자가 물은
+   * *"가져오기로 가져온 것들 어디서 테이블을 볼 수 있다는 거야?"*가 그 자리다.
+   *
+   * ★ 원본 파일이 아니다 ★ 적재 후에 남는 것은 앱이 **해석한** Fact 행이고,
+   * `batch.source_bytes`는 파일 크기지 내용이 아니다. 원본 그대로는 적재 **전**의
+   * 격자(`import-grid`)가 담당한다 — 둘을 같은 말로 부르면 사용자가 「내 파일을
+   * 다시 본다」고 기대했다가 Canonical 필드를 만난다.
+   *
+   * ★ LOCK 5 ★ 8만 행 batch가 정기 입력이라 **페이징이 필수**다. 전량을 세는
+   * `total`은 인덱스(`idx_*_batch`)가 받아 준다 — 5개 Fact 표 전부에 있다.
+   *
+   * ★ 내부 키를 내보내지 않는다 (헌장 C-4) ★ `SELECT *`가 아니라 **거부 목록을
+   * 뺀 컬럼**만 고른다. 허용 목록(전용 필드 등록부)으로 하지 않은 이유는
+   * `discount_amount`처럼 표에는 있는데 등록부에 없는 열이 실재하기 때문이다 —
+   * 허용 목록이면 그 값이 조용히 사라진다 (LOCK 6).
+   * ─────────────────────────────────────────────────────────────
+   */
+  async batchRows(
+    batchId: string,
+    table: FactTable,
+    limit: number,
+    offset: number,
+  ): Promise<BatchRowPage> {
+    const cols = (
+      await this.db.prepare(`SELECT name FROM pragma_table_info(?)`).all(table)
+    )
+      .map((r) => String((r as Record<string, unknown>)["name"]))
+      .filter((c) => !HIDDEN_ROW_COLUMNS.has(c))
+
+    const total = Number(
+      ((await this.db
+        .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE batch_id = ?`)
+        .get(batchId)) as Record<string, unknown> | undefined)?.["n"] ?? 0,
+    )
+    if (total === 0 || cols.length === 0) return { columns: [], rows: [], total }
+
+    // 정렬은 `rowid` — 적재된 순서다. 「파일에서 몇 번째였나」에 가장 가까운 값이고,
+    // 정렬 키를 안 주면 SQLite가 순서를 보장하지 않아 페이지마다 행이 섞인다.
+    const raw = await this.db
+      .prepare(
+        `SELECT ${cols.join(", ")} FROM ${table}
+          WHERE batch_id = ? ORDER BY rowid LIMIT ? OFFSET ?`,
+      )
+      .all(batchId, limit, offset)
+
+    return {
+      columns: cols,
+      rows: raw.map((r) =>
+        cols.map((c) => {
+          const v = (r as Record<string, unknown>)[c]
+          return v === null || v === undefined ? null : (v as string | number)
+        }),
+      ),
+      total,
+    }
+  }
+
   async batchDigest(batchId: string): Promise<BatchDigest | undefined> {
     const b = await this.db
       .prepare(

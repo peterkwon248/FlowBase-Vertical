@@ -20,6 +20,108 @@
 import type { HistoryRow } from "@core/history/rows.js"
 import type { TemplateVals } from "./generated/vals.js"
 import { won } from "./format.js"
+import { CLAIM_LABEL } from "./order.js"
+import { KEY_SEP } from "@core/import/mapping/listing.js"
+
+/**
+ * ★ 컬럼 이름 → 사람 말 (2026-08-21) ★
+ *
+ * 화면은 코드값을 그대로 내보내지 않는다. `screen-safety`가 «source_key» 같은
+ * 컬럼명을 문자열로 잡는 이유도 그것이다 — 사용자에게 「source_key」는 아무 뜻도
+ * 아니고, 그 말이 보인다는 것은 화면이 DB를 그대로 흘리고 있다는 뜻이다.
+ *
+ * **거부 목록의 여집합을 전부 덮어야 한다.** 새 Fact 컬럼이 생기면
+ * `tests/batch-rows.test.ts`가 먼저 깨진다 — 라벨을 안 정하면 화면이 그 값을
+ * 못 그리고, 못 그리면 조용히 사라지기 때문이다 (LOCK 6).
+ */
+export const FIELD_LABEL: Readonly<Record<string, string>> = {
+  // 어느 표에나 있는 것
+  source_key: "마켓 번호",
+  status: "상태",
+  // 주문
+  ordered_at: "주문일",
+  total_amount: "주문 총액",
+  // 003·005가 나중에 더한 열 — 「이 날짜를 얼마나 믿을 수 있나」다 (ADR-009)
+  date_precision: "날짜 정밀도",
+  period_end: "기간 끝",
+  // 품목
+  quantity: "수량",
+  gross_amount: "판매 금액",
+  discount_amount: "할인",
+  // 정산
+  order_source_key: "주문 번호",
+  settled_on: "정산일",
+  pay_out_on: "지급일",
+  fee_amount: "수수료·공제",
+  vat_amount: "부가세",
+  shipping_amount: "배송비",
+  net_amount: "지급액",
+  // 클레임
+  claim_type: "클레임 종류",
+  claimed_at: "귀속일",
+  amount: "금액",
+  // 광고
+  campaign_key: "캠페인 코드",
+  campaign_name: "캠페인",
+  campaign_type: "캠페인 분류",
+  spent_on: "집행일",
+  spend_amount: "광고비",
+  impressions: "노출",
+  clicks: "클릭",
+  conversions: "전환",
+  conversion_amount: "전환 매출",
+}
+
+/**
+ * ★ 코드값 → 사람 말 (2026-08-21) ★
+ *
+ * 머리글만 사람 말로 바꾸고 값을 DB 그대로 흘리면 화면에 `CANCEL`·`proxy`가 뜬다 —
+ * 실측으로 그렇게 나왔다. 헌장 C-4가 막는 것은 내부 **키**만이 아니다: 사용자가
+ * 뜻을 모르는 코드값을 그대로 내보내는 것도 같은 계열이다.
+ *
+ * `CLAIM_LABEL`은 **주문 화면의 것을 그대로 가져온다** — 두 벌로 적으면 한쪽만
+ * 고쳐지는 날 두 화면이 같은 행을 다른 말로 부른다.
+ */
+const VALUE_LABEL: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  claim_type: CLAIM_LABEL,
+  // `proxy`는 「이 날짜는 추정이다」라는 뜻이다 (ADR-009 — 반품일이 없어 결제일을 썼다).
+  date_precision: { proxy: "추정", day: "일 단위", period: "기간 집계" },
+}
+
+/**
+ * ★ 합성 키를 사람이 읽는 모양으로 (ADR-006 · 2026-08-21) ★
+ *
+ * `source_key`는 한 컬럼일 때도 있지만 **여러 열을 `U+0001`로 이은 합성 키**일 때도
+ * 있다. 그대로 그리면 두 가지가 동시에 잘못된다:
+ *   ① 화면에 제어문자가 샌다 — `screen-safety`가 «보이지 않으므로 눈으로는 못
+ *      잡는다»고 경계하는 그 문자다 (실제로 렌더해서 눈으로 잡았다: `…0014␁73952`)
+ *   ② 사용자가 «2510290951000014␁73952»를 자기 파일에서 못 찾는다
+ *
+ * 그래서 **보이는 구분자로 갈아 끼운다.** 값을 자르지 않는다 — 뒤쪽 조각이
+ * 사라지면 그 행을 특정할 수 없게 된다 (LOCK 6).
+ */
+const showKey = (v: string): string => v.split(KEY_SEP).join(" · ")
+
+/** 합성 키가 오는 칸. 여기만 `showKey`를 지난다. */
+const KEY_FIELD: ReadonlySet<string> = new Set(["source_key", "order_source_key", "campaign_key"])
+
+/** 금액·수량 칸인가 — 우측 정렬 + 천 단위 (§21-4). */
+const NUMERIC_FIELD: ReadonlySet<string> = new Set([
+  "total_amount",
+  "quantity",
+  "gross_amount",
+  "discount_amount",
+  "fee_amount",
+  "vat_amount",
+  "shipping_amount",
+  "net_amount",
+  "amount",
+  "spend_amount",
+  "impressions",
+  "clicks",
+  "conversions",
+  "conversion_amount",
+])
 
 /** 목업의 확인 모달 모양. 타입은 생성된 vals가 이미 갖고 있으므로 거기서 가져온다. */
 export type ConfirmDialog = NonNullable<TemplateVals["confirm"]>
@@ -29,8 +131,8 @@ const WARN = "var(--label-orange, #F2994A)"
 const GREEN = "var(--pnl-pos, #4CB782)"
 const NEG = "var(--pnl-neg, #EB5757)"
 
-/** fact 테이블 → 사람 말. 「엔티티」 칸이 쓴다. */
-const TABLE_LABEL: Record<string, string> = {
+/** fact 테이블 → 사람 말. 「엔티티」 칸과 적재된 행 패널이 **같은 것**을 쓴다. */
+export const TABLE_LABEL: Record<string, string> = {
   fact_order: "주문",
   fact_order_item: "품목",
   fact_settlement: "정산",
@@ -113,9 +215,11 @@ export function blockedWhy(r: HistoryRow): string {
 export interface HistoryActions {
   /** 확인 다이얼로그를 띄운다. 실제 실행은 다이얼로그의 [되돌리기]가 한다. */
   readonly askUndo: (row: HistoryRow) => void
+  /** 이 batch가 넣은 행을 펴거나 접는다 (§21 «history-rows»). */
+  readonly openRows: (row: HistoryRow) => void
 }
 
-const NOOP_HISTORY: HistoryActions = { askUndo: () => {} }
+const NOOP_HISTORY: HistoryActions = { askUndo: () => {}, openRows: () => {} }
 
 export function historyVals(
   vals: TemplateVals,
@@ -145,13 +249,134 @@ export function historyVals(
         e?.stopPropagation?.()
         act.askUndo(r)
       },
-      // 상세 패널은 아직 없다. 어포던스를 그리지 않는다 (§21-1)
-      click: () => {},
+      // 눌러서 이 batch가 넣은 행을 편다 (§21 «history-rows»).
+      click: () => act.openRows(r),
     }
   })
 
   // `syncAll`·`syncColor`는 이 표의 값이 아니다 — 헤더의 [가져오기] 버튼 핸들러와
   // 상태 점 색이다. 이름이 비슷하다고 건드리면 엉뚱한 것을 덮는다.
+}
+
+/** 화면이 여는 batch 하나. 닫혀 있으면 `null`이다. */
+export interface OpenBatch {
+  readonly batchId: string
+  readonly table: string
+  /** 몇 번째 페이지인가 (0-기준). */
+  readonly page: number
+  readonly columns: readonly string[]
+  readonly rows: readonly (readonly (string | number | null)[])[]
+  readonly total: number
+  /** 이 batch가 표별로 몇 행을 갖고 있나 — 탭이 이걸 그린다. */
+  readonly tables: Readonly<Record<string, number>>
+  readonly busy: boolean
+}
+
+export interface RowsActions {
+  /** batch 행을 눌렀다 — 열거나 닫는다. */
+  readonly toggle: (batchId: string, tables: Readonly<Record<string, number>>) => void
+  readonly pickTable: (table: string) => void
+  readonly pickPage: (page: number) => void
+}
+
+/** 한 페이지에 몇 행. 8만 행 batch가 정기 입력이라 전량을 그리지 않는다 (LOCK 5). */
+export const ROWS_PER_PAGE = 50
+
+/**
+ * ★ 적재된 행 패널 (§21 «history-rows» · 신설, 2026-08-21) ★
+ *
+ * ─────────────────────────────────────────────────────────────
+ * 사용자가 물었다: *"가져오기로 가져온 것들 어디서 테이블을 볼 수 있다는 거야?"*
+ * 답은 «어디서도 못 본다»였다 — 주문 화면은 가공된 뷰, 정산 화면은 집계,
+ * 가져오기 기록은 파일 단위 요약이고, **넣은 행 자체를 보는 자리가 없었다.**
+ * 이 파일의 `syncRows.click` 주석이 그 사실을 이미 적어 뒀다:
+ * *「상세 패널은 아직 없다. 어포던스를 그리지 않는다」*.
+ *
+ * ★ 원본 파일이 아니다 ★ 적재 후에 남는 것은 앱이 **해석한** Fact 행이다.
+ * 원본은 어디에도 저장되지 않는다(`batch.source_bytes`는 크기다). 「내 파일을
+ * 다시 본다」로 읽히면 안 되므로 제목이 «넣은 결과»라고 말한다 — 원본 그대로는
+ * 적재 **전**의 격자(`import-grid`)가 담당한다.
+ *
+ * ★ 편집 어포던스 0 ★ Fact 행이다. LOCK 9가 인라인 편집 UI를 금지하고, §21-1이
+ * «못 누르는 칸을 그려놓고 막는 것이 아니라 아예 안 그린다»고 못박았다.
+ * 값을 고치는 자리는 조정 레이어다 (ADR-020).
+ * ─────────────────────────────────────────────────────────────
+ */
+export function batchRowVals(
+  vals: TemplateVals,
+  open: OpenBatch | null,
+  act: RowsActions,
+): void {
+  vals.rowsOpen = open !== null
+  if (open === null) {
+    vals.rowsTitle = ""
+    vals.rowsTabs = []
+    vals.rowsCols = []
+    vals.rowsBody = []
+    vals.rowsNote = ""
+    vals.rowsPages = []
+    vals.rowsBusy = false
+    return
+  }
+
+  vals.rowsBusy = open.busy
+  vals.rowsTitle = `${TABLE_LABEL[open.table] ?? open.table} — 넣은 결과`
+
+  // 이 batch가 실제로 채운 표만 탭이 된다. 0행짜리 탭을 그리면 눌러도 빈 표다.
+  vals.rowsTabs = Object.entries(open.tables)
+    .filter(([, n]) => n > 0)
+    .map(([t, n]) => ({
+      label: `${TABLE_LABEL[t] ?? t} ${won(n)}`,
+      on: t === open.table ? "active" : "",
+      pick: () => act.pickTable(t),
+    }))
+
+  vals.rowsCols = open.columns.map((c) => ({
+    // 라벨이 없으면 **컬럼명을 흘리지 않고** 그 사실을 말한다 — 코드값이 화면에
+    // 나가는 것은 헌장 C-4 위반이고, 조용히 숨기는 것은 LOCK 6 위반이다.
+    label: FIELD_LABEL[c] ?? "(이름 없는 열)",
+    num: NUMERIC_FIELD.has(c),
+  }))
+
+  vals.rowsBody = open.rows.map((r, i) => ({
+    // 왼쪽 번호는 **이 batch 안에서 몇 번째**다. 파일의 행 번호가 아니다 —
+    // 적재는 합계·빈 행을 이미 걸렀으므로 둘은 같지 않고, 파일 좌표는 저장되지 않는다.
+    no: won(open.page * ROWS_PER_PAGE + i + 1),
+    cells: r.map((v, c) => ({
+      text:
+        v === null
+          ? "—"
+          : NUMERIC_FIELD.has(open.columns[c] ?? "")
+            ? won(Number(v))
+            : KEY_FIELD.has(open.columns[c] ?? "")
+              ? showKey(String(v))
+              : (VALUE_LABEL[open.columns[c] ?? ""]?.[String(v)] ?? String(v)),
+      num: NUMERIC_FIELD.has(open.columns[c] ?? ""),
+      dim: v === null,
+    })),
+  }))
+
+  const last = Math.max(0, Math.ceil(open.total / ROWS_PER_PAGE) - 1)
+  const from = open.page * ROWS_PER_PAGE + 1
+  const to = Math.min(open.total, (open.page + 1) * ROWS_PER_PAGE)
+  vals.rowsNote =
+    open.total === 0
+      ? "이 표에 들어간 행이 없습니다"
+      : `${won(open.total)}행 중 ${won(from)}–${won(to)}`
+
+  /**
+   * ★ 페이지를 전부 그리지 않는다 ★ 8만 행이면 1,603쪽이라 버튼이 화면을 덮는다.
+   * 앞뒤 두 쪽과 처음·끝만 낸다 — 「어디쯤인가」는 위 문장이 이미 말했다.
+   */
+  const want = new Set([0, last, open.page - 1, open.page, open.page + 1])
+  vals.rowsPages = [...want]
+    .filter((p) => p >= 0 && p <= last)
+    .sort((a, b) => a - b)
+    .map((p) => ({
+      label: won(p + 1),
+      on: p === open.page ? "active" : "",
+      pick: () => act.pickPage(p),
+    }))
 }
 
 /**

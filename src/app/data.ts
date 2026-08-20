@@ -31,6 +31,7 @@ import { loadOrderRows, type OrderRow } from "@core/order/rows.js"
 import { loadLinkingView, type LinkingView } from "@core/linking/view.js"
 import { loadCoverage, type ConnectionCoverage } from "@core/coverage/load.js"
 import type { CostsView } from "./costs.js"
+import type { BatchRowPage, FactTable } from "@core/store/repository.js"
 import { loadPendingCostView, type PendingCostView } from "@core/linking/pending-cost.js"
 import { loadFieldmapView, type FieldmapView } from "./fieldmap.js"
 import { krCostBridgeMatcher } from "@packs/kr-marketplace/linking-matcher.js"
@@ -522,6 +523,34 @@ export async function loadAllProfiles(): Promise<readonly MappingProfile[]> {
  * 읽지 못하면 빈 배열이다. 지문 조회 실패로 가져오기를 막지 않는다 — 이건 방어가
  * 아니라 **고지**이고, 고지를 못 하는 것이 가져오기를 못 하는 것보다 낫다.
  */
+/**
+ * 이 batch가 넣은 행 한 페이지 (§21 «history-rows»).
+ *
+ * **필요할 때만 연다** — 스냅샷에 실어 나르면 화면에 안 보이는 8만 행을 매 조회마다
+ * 읽게 된다 (LOCK 5). 열었을 때만, 한 페이지만.
+ */
+export async function loadBatchRows(
+  batchId: string,
+  table: FactTable,
+  limit: number,
+  offset: number,
+): Promise<BatchRowPage> {
+  try {
+    const db = await open()
+    try {
+      await catchUp(db)
+      return await new Repository(db).batchRows(batchId, table, limit, offset)
+    } finally {
+      await db.close()
+    }
+  } catch {
+    // 못 읽으면 **빈 페이지**가 아니라 0행짜리 결과다 — 화면이 「없다」와
+    // 「못 읽었다」를 가르려면 부르는 쪽이 그 차이를 알아야 하는데, 여기서는
+    // 예외를 삼키지 않고 그대로 던지는 편이 맞다.
+    throw new Error("적재된 행을 읽지 못했습니다")
+  }
+}
+
 export async function findPriorImports(
   hash: string,
 ): Promise<readonly { sourceName: string; at: string; undone: boolean }[]> {

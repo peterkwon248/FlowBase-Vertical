@@ -31,12 +31,20 @@ import {
   type AdjDraft,
   type AdjActions,
 } from "./settlement.js"
-import { SETTLEMENT_DAILY, type Repository } from "@core/store/repository.js"
+import { SETTLEMENT_DAILY, type Repository, type FactTable } from "@core/store/repository.js"
 import { ADJUSTED_FIELD } from "@core/settlement/rows.js"
 import { orderVals } from "./order.js"
 import { linkingVals, type LinkTab, type LinkingActions } from "./linking.js"
 import { channelVals } from "./channel.js"
-import { historyVals, undoConfirm, type ConfirmDialog } from "./history.js"
+import {
+  historyVals,
+  batchRowVals,
+  undoConfirm,
+  ROWS_PER_PAGE,
+  type ConfirmDialog,
+  type OpenBatch,
+  type RowsActions,
+} from "./history.js"
 import {
   emptyDraft,
   productVals,
@@ -64,7 +72,7 @@ import { runImport } from "@core/import/run.js"
 import { runReferenceImport } from "@core/import/run-reference.js"
 import { profileVersion } from "@core/import/mapping/index.js"
 import { deriveProfile } from "@core/import/mapping/derive.js"
-import { DEV_LIBRARY, findPriorImports, loadAllProfiles, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
+import { DEV_LIBRARY, findPriorImports, loadAllProfiles, loadBatchRows, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
@@ -1167,6 +1175,73 @@ export function App(): React.JSX.Element {
    * 되돌리기는 대시보드 숫자까지 바꾸는 행위라, 목록만 갱신하면 그 순간 화면
    * 절반이 옛 숫자를 믿는다 (연결 화면에서 세운 규율과 같다).
    */
+  /**
+   * ★ 적재된 행 패널 (§21 «history-rows») ★
+   *
+   * 스냅샷에 실어 나르지 않고 **열었을 때만** 읽는다 — batch 하나가 8만 행일 수
+   * 있고, 화면에 안 보이는 행을 매 조회마다 읽으면 LOCK 5 위반이다.
+   */
+  const [openBatch, setOpenBatch] = useState<OpenBatch | null>(null)
+
+  const fetchRows = useCallback(
+    (batchId: string, table: string, page: number, tables: Readonly<Record<string, number>>) => {
+      setOpenBatch((o) => ({
+        batchId,
+        table,
+        page,
+        tables,
+        columns: o?.batchId === batchId && o.table === table ? o.columns : [],
+        rows: o?.batchId === batchId && o.table === table ? o.rows : [],
+        total: o?.batchId === batchId && o.table === table ? o.total : 0,
+        busy: true,
+      }))
+      void loadBatchRows(batchId, table as FactTable, ROWS_PER_PAGE, page * ROWS_PER_PAGE)
+        .then((p) =>
+          setOpenBatch((o) =>
+            // 그 사이에 다른 batch를 열었으면 늦게 온 답을 버린다 — 안 버리면
+            // 화면이 A를 보여주면서 B의 행을 그린다.
+            o && o.batchId === batchId && o.table === table
+              ? { ...o, columns: p.columns, rows: p.rows, total: p.total, busy: false }
+              : o,
+          ),
+        )
+        .catch((e: unknown) => {
+          setOpenBatch(null)
+          setConfirm(
+            sayConfirm("적재된 행을 읽지 못했습니다", String(e), () => setConfirm(null)),
+          )
+        })
+    },
+    [],
+  )
+
+  const rowsActions: RowsActions = {
+    toggle: (batchId, tables) => {
+      const first = Object.entries(tables).find(([, n]) => n > 0)?.[0]
+      if (first === undefined) return
+      fetchRows(batchId, first, 0, tables)
+    },
+    pickTable: (table) => {
+      if (!openBatch) return
+      fetchRows(openBatch.batchId, table, 0, openBatch.tables)
+    },
+    pickPage: (page) => {
+      if (!openBatch) return
+      fetchRows(openBatch.batchId, openBatch.table, page, openBatch.tables)
+    },
+  }
+
+  const openRows = useCallback(
+    (row: HistoryRow) => {
+      // 같은 batch를 다시 누르면 접는다 — 여는 것과 닫는 것이 같은 제스처다.
+      setOpenBatch((o) => (o?.batchId === row.id ? null : o))
+      if (openBatch?.batchId === row.id) return
+      rowsActions.toggle(row.id, row.ownedByTable)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [openBatch?.batchId],
+  )
+
   const askUndo = useCallback(
     (row: HistoryRow) => {
       setConfirm(
@@ -1299,7 +1374,8 @@ export function App(): React.JSX.Element {
   // 커버리지도 **0개가 사실**이다 — 연결이 없으면 카드가 없는 것이 맞다.
   // 잠긴 것을 말하는 화면이라 데이터가 적을수록 오히려 할 말이 많다 (§22).
   channelVals(vals, coverage, { goImport }, marketDict)
-  historyVals(vals, history, { askUndo })
+  historyVals(vals, history, { askUndo, openRows })
+  batchRowVals(vals, openBatch, rowsActions)
   // 상품도 **0장이 사실**이다 — SKU가 없으면 «연결된 SKU가 아직 없습니다»가 게이지에
   // 뜬다. 연결 화면과 같은 판단이고, 원가를 넣을 대상이 없다는 것 자체가 할 말이다.
   if (products) productVals(vals, products, prodTab, drafts, today(), productActions, per)

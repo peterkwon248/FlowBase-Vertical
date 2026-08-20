@@ -42,6 +42,15 @@ const generated = readFileSync(GENERATED, "utf8")
 const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[] = [
   {
     field: "holes",
+    from: ["v.linking", "linkTabs"],
+    to: ["rowsOpen", "v.linking", "linkTabs"],
+    why:
+      "적재된 행 패널(`S21_REGIONS`의 `history-rows`)을 **감싼 조건**이다. 구간 자체는 " +
+      "신설이라 대조에서 빠지지만 `{vals.rowsOpen && …}`는 부모(가져오기 기록 섹션의 " +
+      "끝)에 남아 다음 화면의 첫 홀 앞에 한 자리를 만든다",
+  },
+  {
+    field: "holes",
     from: ["firstRun", "goImport", "onboard"],
     to: ["appLoading", "firstRun", "goImport", "onboard"],
     why:
@@ -774,6 +783,29 @@ const S21_REGIONS = [
       "그래서 셋으로 가른다: **모름 · 없음 · 있음**. 침묵하지 않고 «아직 데이터가 " +
       "있는지 없는지 모릅니다»라고 **말한다**(LOCK 6 · §21-7이 화면에 대해 이미 같은 " +
       "결론을 냈다 — 빈 화면이 침묵하면 «없다»가 아니라 «깨졌다»로 읽힌다)",
+  },
+  {
+    id: "history-rows",
+    mockupStyle: null,
+    removeWhenWired: null,
+    why:
+      "★ 「가져온 것들의 테이블」 — 적재된 행 패널 (2026-08-21) ★ 사용자가 물었다: " +
+      "*«가져오기로 가져온 것들 어디서 테이블을 볼 수 있다는 거야?»* 실측한 답은 " +
+      "**어디서도 못 본다**였다 — 주문 화면은 가공된 뷰, 정산은 집계, 가져오기 기록은 " +
+      "파일 단위 요약이고, 넣은 행 자체를 보는 자리가 없었다. `batch_id`로 Fact 행에 " +
+      "닿는 SQL조차 **DELETE 하나뿐**(되돌리기)이라, 앱은 넣은 것을 지울 줄만 알고 " +
+      "보여줄 줄은 몰랐다. 목업도 같은 전제였다 — `syncRows`의 행 클릭이 빈 함수이고 " +
+      "이 파일 주석이 «상세 패널은 아직 없다»라고 적어 뒀다 (§21-6 «전제의 시차»). " +
+      "★ 원본 파일이 아니다 ★ 적재 후에 남는 것은 앱이 **해석한** Fact 행이다 — " +
+      "`batch.source_bytes`는 파일 크기지 내용이 아니고, 원본 행은 어디에도 저장되지 " +
+      "않는다. 그래서 제목이 «넣은 결과»라고 말한다. 원본 그대로는 적재 **전**의 " +
+      "격자(`import-grid`)가 담당하고, 둘을 같은 말로 부르면 사용자가 「내 파일을 " +
+      "다시 본다」고 기대했다가 Canonical 필드를 만난다. " +
+      "★ 편집 어포던스 0 ★ Fact 행이라 LOCK 9가 인라인 편집 UI를 금지한다 — 값을 " +
+      "고치는 자리는 조정 레이어다 (ADR-020). 페이징은 LOCK 5다: 8만 행 batch가 정기 " +
+      "입력이라 한 페이지 50행만 읽는다. 컬럼은 **거부 목록**으로 고른다(허용 목록이 " +
+      "아니다 — `discount_amount`처럼 표에는 있는데 등록부에 없는 열이 실재해서, " +
+      "허용 목록이면 그 값이 조용히 사라진다)",
   },
   {
     id: "unbuilt-diag",
