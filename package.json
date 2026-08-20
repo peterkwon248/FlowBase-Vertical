@@ -15,6 +15,7 @@
     "perf": "tsx tools/harness/perf-gate.ts",
     "e2e": "tsx tools/harness/e2e-gate.ts",
     "dev": "vite",
+    "app": "tauri dev",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "wiring": "tsx tools/harness/wiring.ts",
