@@ -180,11 +180,55 @@ describe("기준 데이터 결과 — 못 찾은 것을 실패로 부르지 않�
 
   it("★ «못 찾음»은 경고색이 아니다 — 정상인 것을 빨갛게 칠하지 않는다 ★", () => {
     const rows = referenceRows(base)
-    const miss = rows.find((r) => r.label.includes("아직 판 적이 없어"))
+    const miss = rows.find((r) => r.label.includes("상품을 아직 못 찾음"))
     expect(miss, "못 찾은 건수를 말하지 않는다").toBeDefined()
     expect(miss!.value).toBe("171건")
     expect(miss!.color, "정상인 결과에 오류색을 쓰면 멀쩡한 파일을 고치려 든다").not.toBe(
       "var(--pnl-neg)",
+    )
+  })
+
+  /**
+   * ★ 「팔리면 그때 붙습니다」는 **거짓이었다** (2026-08-20) ★
+   * 매출 파일을 나중에 넣어도 `run.ts`는 `pending_cost`를 다시 훑지 않는다.
+   * 그 문장을 읽은 사용자는 **영영 안 오는 것을 기다린다.** 다시 들어오면 붉어진다.
+   */
+  it("★ 기다리면 저절로 붙는다고 말하지 않는다 ★", () => {
+    const labels = referenceRows(base).map((r) => r.label).join("\n")
+    expect(labels, "자동으로 붙는 것처럼 말한다").not.toMatch(/팔리면 그때|기다리면|나중에 붙/)
+  })
+
+  /**
+   * 대기실은 **사람이 눌러야** 비워진다(ADR-016). 어디를 눌러야 하는지 말하지 않으면
+   * 「171건」은 손댈 수 없는 수다. 시트가 하나뿐이면 시트별 절이 안 나와서
+   * 이 수가 화면에서 통째로 사라지고 있었다.
+   */
+  it("★ 대기실 건수와 갈 곳을 합계에서 말한다 (시트 1개여도) ★", () => {
+    const rows = referenceRows(base)
+    const stash = rows.find((r) => r.label.includes("대기실"))
+    expect(stash, "대기실에 넣어 둔 건수를 합계에서 말하지 않는다").toBeDefined()
+    expect(stash!.value).toBe("171건")
+    expect(stash!.label, "어느 화면으로 가야 하는지 말하지 않는다").toMatch(/원가 대기/)
+  })
+
+  /**
+   * 「상품번호」라고 부르면 안 된다 — 카드형 단가표의 다리는 **품명**이라
+   * 그 파일에는 상품번호 열이 아예 없다. 없는 열 이름으로 사람을 헤매게 한다.
+   */
+  it("★ 없는 열 이름(「상품번호」)으로 부르지 않는다 ★", () => {
+    const labels = referenceRows({ ...base, badRows: 3 }).map((r) => r.label).join("\n")
+    expect(labels, "이 파일에 없는 열 이름을 부른다").not.toMatch(/상품번호/)
+  })
+
+  /**
+   * 넣기 **전**에만 말하던 문장이다(`impRefer`의 조건이 `refResult === null`).
+   * 정작 「기록에 없네?」를 겪는 시점은 결과가 뜬 **뒤**다.
+   * 대기목록 8(파일 접수 장부)이 닫히면 이 줄과 이 시험을 함께 지운다.
+   */
+  it("★ 결과 화면이 「기록에 안 남는다」를 말한다 ★", () => {
+    const labels = referenceRows(base).map((r) => r.label).join("\n")
+    expect(labels, "넣고 나서 기록에서 찾을 사람에게 아무 말도 안 한다").toMatch(
+      /「가져오기 기록」에 남지 않습니다/,
     )
   })
 

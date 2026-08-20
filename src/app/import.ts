@@ -860,6 +860,23 @@ export function referenceRows(
       value: `${won(r.inserted)}건`,
       color: G,
     },
+    /**
+     * ★ 넣기 **전**에만 말하고 있었다 (2026-08-20) ★
+     *
+     * 같은 문장이 `impReferNote`에 있는데 조건이 `state.refResult === null`이라
+     * **결과가 뜨는 순간 사라진다.** 그런데 사용자가 「기록에 없네?」를 겪는 시점은
+     * 정확히 그 뒤다 — 넣고 나서 기록 화면에 가 본 때다.
+     *
+     * 실제로 그 순서로 당했다: 13MB 단가표를 넣고, 기록에 없어서, 안 들어간 줄 알았다.
+     * 경고는 **찾으러 갈 사람이 보고 있는 자리**에 있어야 한다 (LOCK 6).
+     *
+     * 이 줄은 대기목록 8(파일 접수 장부)이 닫히면 **지운다.**
+     */
+    {
+      label: "이 파일은 「가져오기 기록」에 남지 않습니다 — batch로 쌓이는 것은 주문·정산뿐입니다",
+      value: "",
+      color: DIM,
+    },
   ]
   if (r.replaced > 0) {
     rows.push({ label: "같은 적용일을 덮어씀", value: `${won(r.replaced)}건`, color: WARN })
@@ -876,23 +893,58 @@ export function referenceRows(
     })
   }
   if (r.unmatched > 0) {
+    /**
+     * ★ 「팔리면 그때 붙습니다」였다 — **거짓이었다** (2026-08-20) ★
+     *
+     * 매출 파일을 나중에 넣어도 `src/core/import/run.ts`는 `pending_cost`를 다시
+     * 훑지 않는다(참조 0건). 자동으로 붙는 것은 **이미 사람이 한 번 확정해 둔
+     * 이름**뿐이다(`resolvedCostBridge` — 아래 「지난 판단으로 붙음」 줄).
+     *
+     * 그러니 화면이 「기다리면 된다」고 말하면 사용자는 **영영 안 오는 것을 기다린다.**
+     * 200건짜리 단가표를 넣고 「0건 반영」을 본 사람에게 이 한 줄이 다음 동작을
+     * 정하는데, 그 문장이 «아무것도 하지 마세요»였다 (LOCK 6 계열 — 조용한 거짓).
+     */
     rows.push({
-      label: "아직 판 적이 없어 못 붙임 — 팔리면 그때 붙습니다",
+      label: "이 파일의 상품을 아직 못 찾음",
       value: `${won(r.unmatched)}건`,
       color: DIM,
     })
-    if (r.unmatchedSample.length > 0) {
-      // 무엇이 안 붙었는지 말하지 않으면 «171건»은 사용자가 손댈 수 없는 숫자다.
+    if (r.bridged > 0) {
       rows.push({
-        label: "못 붙은 상품번호 (앞의 몇 개)",
+        label: "전에 사람이 확정해 둔 이름이라 자동으로 붙음",
+        value: `${won(r.bridged)}건`,
+        color: "var(--fg-2)",
+      })
+    }
+    if (r.stashed > 0) {
+      // ★ 숫자만 주면 «176건»은 손댈 수 없는 수다 ★ 대기실은 **사람이 눌러야**
+      // 비워지므로(ADR-016), 어느 화면 어느 탭인지까지 말한다. 시트가 하나뿐이면
+      // 아래 「시트별」 절이 안 나와서 이 수가 화면에서 통째로 사라지고 있었다.
+      rows.push({
+        label: "대기실에 넣어 뒀습니다 — 「상품 연결 → 원가 대기」에서 이어 붙입니다",
+        value: `${won(r.stashed)}건`,
+        color: DIM,
+      })
+    }
+    if (r.unmatchedSample.length > 0) {
+      // 무엇이 안 붙었는지 말하지 않으면 «176건»은 사용자가 손댈 수 없는 숫자다.
+      // 「상품번호」라고 부르지 않는다 — 카드형 단가표의 다리는 **품명**이라
+      // 그 파일에는 상품번호 열이 아예 없다 (cost-card@1 `listingKeyColumn`).
+      rows.push({
+        label: "못 찾은 이름 (앞의 몇 개)",
         value: r.unmatchedSample.slice(0, 5).join(" · "),
         color: DIM,
       })
     }
   }
   if (r.badRows > 0) {
-    // 이쪽은 진짜 결손이다 — 상품번호가 비었거나 금액을 못 읽었다.
-    rows.push({ label: "상품번호가 없거나 금액을 못 읽음", value: `${won(r.badRows)}행`, color: NEG })
+    // 이쪽은 진짜 결손이다 — 상품을 가리키는 칸이 비었거나 금액을 못 읽었다.
+    // 여기도 「상품번호」로 부르지 않는다 — 위와 같은 이유다.
+    rows.push({
+      label: "상품을 가리키는 칸이 비었거나 금액을 못 읽음",
+      value: `${won(r.badRows)}행`,
+      color: NEG,
+    })
   }
   if (r.excluded.length > 0) {
     rows.push({
