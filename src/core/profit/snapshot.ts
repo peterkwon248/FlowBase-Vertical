@@ -375,6 +375,7 @@ export async function loadPnlSnapshot(
   const cogsRow = await db
     .prepare(
       `SELECT COALESCE(SUM(oi.quantity * ${COST}),0) AS cogs,
+              COALESCE(SUM(oi.discount_amount),0) AS discount,
               COUNT(*) AS items,
               COALESCE(SUM(CASE WHEN ml.sku_id IS NULL THEN 1 ELSE 0 END),0) AS no_link,
               COALESCE(SUM(CASE WHEN ml.sku_id IS NOT NULL AND ${COST} IS NULL THEN 1 ELSE 0 END),0) AS no_cost,
@@ -521,6 +522,21 @@ export async function loadPnlSnapshot(
     shipping: num(joined, "ship"),
     claims,
     cogs: num(cogsRow, "cogs"),
+    /**
+     * ★ 전사 손익도 할인을 뺀다 — 상품별 표와 **같은 자리에서 읽는다** (2026-08-20) ★
+     *
+     * 여기 `discount` 키가 **아예 없었다.** `computePnl`이 `input.discount ?? 0`으로
+     * 받으므로 조용히 0이 됐고, 그동안 `rows.ts`(상품별 손익)는 같은 컬럼을
+     * `SUM(oi.discount_amount)`로 **빼고 있었다.**
+     *
+     * 즉 값이 들어오는 순간 **두 화면이 서로 다른 답을 낸다.** 그런데 이 앱은
+     * 「상품별 손익의 합은 회사 순이익이 아니다」를 **정상**이라고 화면에서 설명한다 —
+     * 그 설명이 진짜 버그를 통째로 흡수한다. 어긋남을 눈으로 못 잡는 구조다.
+     *
+     * 같은 `ITEM_JOIN`·`SOLD`·기간 조건을 쓰는 쿼리에 한 줄로 얹었다. 두 경로가
+     * 다른 조각을 쓰면 언젠가 또 갈린다 (`rows.ts` 머리말의 「같은 조각」 원칙).
+     */
+    discount: num(cogsRow, "discount"),
     // ⚠ **리터럴 0이다 — 등재된 결함이다** (2026-08-20 감사 A-1, 0순위)
     // 광고비 전액이 `adUnallocated`로 간다. 그래서 **1층(상품 기여이익)과 2층(채널
     // 기여이익)의 경계가 통째로 틀린다** — 상품별 손익이 광고비를 한 푼도 안 진다.
