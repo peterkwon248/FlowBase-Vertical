@@ -79,6 +79,14 @@ import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
 import { periodVals } from "./period.js"
 import { headMoreVals } from "./head-more.js"
+import { exportVals, type ExportKey } from "./export-wire.js"
+import {
+  costTable,
+  historyTable,
+  orderTable,
+  productTable,
+  settlementTable,
+} from "./export-tables.js"
 import type { Period } from "@core/profit/index.js"
 import type { SettlementRow } from "@core/settlement/rows.js"
 import type { OrderRow } from "@core/order/rows.js"
@@ -197,6 +205,12 @@ export function App(): React.JSX.Element {
    * 배선이 0이라 **보는 달을 바꿀 방법이 아예 없었다** (§21-3 · U-4 위반).
    */
   const [headMoreOpen, setHeadMoreOpen] = useState(false)
+  /**
+   * ★ 내보내기 팝오버 — 다섯인데 열린 것은 하나다 (LOCK 8 · 감사 A-2-2) ★
+   * `expScope`·`expNote`가 목업에 **하나씩**뿐이라 「지금 열린 것」을 알아야
+   * 그 표에 맞는 문장을 실을 수 있다.
+   */
+  const [expOpen, setExpOpen] = useState<ExportKey | null>(null)
   /** 쓰기 뒤 재조회가 **보던 달**로 돌아오게 하는 참조 (`take`가 갱신한다). */
   const monthRef = useRef<Month>(new Date().toISOString().slice(0, 7))
   /** 되돌리기·원가 정정 확인 다이얼로그. `null`이면 안 떠 있다. */
@@ -1460,6 +1474,27 @@ export function App(): React.JSX.Element {
     pick: pickMonth,
     goImport,
   })
+  /**
+   * ★ 내보내기 다섯 자리 (LOCK 8) ★
+   * 헌장 B-10은 「무료 전면 개방」인데 오늘까지 **전면 부재**였다. 표가 없는
+   * 화면은 키를 안 넣는다 — 그러면 팝오버가 안 열린다(빈 동작을 안 만든다).
+   */
+  exportVals(
+    vals,
+    expOpen,
+    {
+      set: setRows.length > 0 ? settlementTable(setRows, month) : undefined,
+      prd: profitRows.length > 0 ? productTable(profitRows, month) : undefined,
+      cst: costs ? costTable(costs.fixed, costs.ops) : undefined,
+      ord: ordRows.length > 0 ? orderTable(ordRows, month) : undefined,
+      syn: history.length > 0 ? historyTable(history) : undefined,
+    } as never,
+    {
+      toggle: (k) => setExpOpen((cur) => (cur === k ? null : k)),
+      close: () => setExpOpen(null),
+    },
+  )
+
   // 데이터가 있으면 대시보드 값을 덮어쓴다. 없으면 빈 값 그대로 —
   // 시드를 넣어 채워 보이지 않는다 (헌장 C).
   if (snap) {

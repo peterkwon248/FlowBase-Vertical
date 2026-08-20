@@ -40,6 +40,94 @@ const generated = readFileSync(GENERATED, "utf8")
  * 사람이 읽는 판은 `docs/목업-결함-발견분.md`에 있다.
  */
 const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[] = [
+  /**
+   * ★ 같은 열 자리의 `holes` 쪽 그림자 ★
+   * `onClick={vals.expSet.xlsx}`는 속성이면서 **홀**이기도 하다. 위 `attrs` 선언과
+   * 짝을 이룬다 — 둘 중 하나만 적으면 게이트가 다른 쪽에서 붉어진다.
+   *
+   * 「가져오기 기록」만 앞 문맥이 짧다: 그 팝오버에는 **「숨긴 컬럼도 포함」 줄이
+   * 없다**(목업이 그렇다 — 기록에는 숨길 컬럼이 없으니 맞는 설계다). 그래서
+   * `toggleExpHidden`·`expHiddenBg`가 빠지고 `expScope` 바로 뒤가 버튼이다.
+   */
+  {
+    field: "holes",
+    from: ["expSet.on", "stopEvt", "expScope", "toggleExpHidden", "expHiddenBg", "expNote"],
+    to: ["expSet.on", "stopEvt", "expScope", "toggleExpHidden", "expHiddenBg", "expSet.xlsx", "expSet.csv", "expNote"],
+    why: "정산 화면 내보내기 — `onClick` 두 자리가 홀로도 세어진다 (LOCK 8)",
+  },
+  {
+    field: "holes",
+    from: ["expPrd.on", "stopEvt", "expScope", "toggleExpHidden", "expHiddenBg", "expNote"],
+    to: ["expPrd.on", "stopEvt", "expScope", "toggleExpHidden", "expHiddenBg", "expPrd.xlsx", "expPrd.csv", "expNote"],
+    why: "상품별 손익 화면 내보내기 — `onClick` 두 자리가 홀로도 세어진다 (LOCK 8)",
+  },
+  {
+    field: "holes",
+    from: ["expCst.on", "stopEvt", "expScope", "toggleExpHidden", "expHiddenBg", "expNote"],
+    to: ["expCst.on", "stopEvt", "expScope", "toggleExpHidden", "expHiddenBg", "expCst.xlsx", "expCst.csv", "expNote"],
+    why: "비용 화면 내보내기 — `onClick` 두 자리가 홀로도 세어진다 (LOCK 8)",
+  },
+  {
+    field: "holes",
+    from: ["expOrd.on", "stopEvt", "expScope", "toggleExpHidden", "expHiddenBg", "expNote"],
+    to: ["expOrd.on", "stopEvt", "expScope", "toggleExpHidden", "expHiddenBg", "expOrd.xlsx", "expOrd.csv", "expNote"],
+    why: "주문 화면 내보내기 — `onClick` 두 자리가 홀로도 세어진다 (LOCK 8)",
+  },
+  {
+    field: "holes",
+    from: ["expSyn.on", "stopEvt", "expScope"],
+    to: ["expSyn.on", "stopEvt", "expScope", "expSyn.xlsx", "expSyn.csv"],
+    why: "가져오기 기록 화면 내보내기 — `onClick` 두 자리가 홀로도 세어진다 (LOCK 8)",
+  },
+  /**
+   * ★ 내보내기 버튼 열 자리 — 목업에는 **`onClick`이 아예 없었다** (2026-08-20 · LOCK 8) ★
+   *
+   * 헌장 B-10은 「내보내기는 무료 전면 개방 · 데이터 인질 금지」인데 오늘까지
+   * **전면 부재**였다. 버튼 다섯 쌍이 그려져 있고 전부 무동작이라 U-3(못 누르는
+   * 것은 안 그린다)도 함께 어기고 있었다 (감사 A-2-2).
+   *
+   * ★ 왜 `data-s21` 신설 구간이 아닌가 ★ 처음엔 버튼 줄을 구간으로 감쌌다.
+   * 그런데 그건 **틀린 선언**이다 — 우리는 목업을 교체한 게 아니라 **핸들러만
+   * 얹었다.** 구간으로 감싸면 버튼의 글자·클래스·style까지 대조에서 빠져
+   * 「XLSX」가 「엑셀」로 바뀌어도 게이트가 조용하다. 게다가 다섯 자리의 style이
+   * 똑같아 `mockupStyle`이 «하나만 잡혀야 한다»에서 5를 세고 거부했다.
+   *
+   * `attrs`에 **한 자리씩 늘어나는 것**이 사실 그대로이고, 나머지 IR 필드는
+   * 전부 대조를 유지한다.
+   *
+   * ⚠ 낡는 조건: 목업이 팝오버 구조를 바꾸면 `from`이 안 맞아 게이트가 스스로
+   * 「선언된 이탈이 낡았다」로 신고한다.
+   */
+  {
+    field: "attrs",
+    from: ["onClick={expSet.open}", "name=more-horizontal", "size=15", "onClick={stopEvt}", "onClick={toggleExpHidden}", "class=v-btn", "class=v-btn"],
+    to: ["onClick={expSet.open}", "name=more-horizontal", "size=15", "onClick={stopEvt}", "onClick={toggleExpHidden}", "class=v-btn", "onClick={expSet.xlsx}", "class=v-btn", "onClick={expSet.csv}"],
+    why: "정산 화면 내보내기 — 목업 버튼에 핸들러가 없어 `onClick` 두 자리를 얹었다 (LOCK 8)",
+  },
+  {
+    field: "attrs",
+    from: ["onClick={expPrd.open}", "name=more-horizontal", "size=15", "onClick={stopEvt}", "onClick={toggleExpHidden}", "class=v-btn", "class=v-btn"],
+    to: ["onClick={expPrd.open}", "name=more-horizontal", "size=15", "onClick={stopEvt}", "onClick={toggleExpHidden}", "class=v-btn", "onClick={expPrd.xlsx}", "class=v-btn", "onClick={expPrd.csv}"],
+    why: "상품별 손익 화면 내보내기 — 목업 버튼에 핸들러가 없어 `onClick` 두 자리를 얹었다 (LOCK 8)",
+  },
+  {
+    field: "attrs",
+    from: ["onClick={expCst.open}", "name=more-horizontal", "size=15", "onClick={stopEvt}", "onClick={toggleExpHidden}", "class=v-btn", "class=v-btn"],
+    to: ["onClick={expCst.open}", "name=more-horizontal", "size=15", "onClick={stopEvt}", "onClick={toggleExpHidden}", "class=v-btn", "onClick={expCst.xlsx}", "class=v-btn", "onClick={expCst.csv}"],
+    why: "비용 화면 내보내기 — 목업 버튼에 핸들러가 없어 `onClick` 두 자리를 얹었다 (LOCK 8)",
+  },
+  {
+    field: "attrs",
+    from: ["onClick={expOrd.open}", "name=more-horizontal", "size=15", "onClick={stopEvt}", "onClick={toggleExpHidden}", "class=v-btn", "class=v-btn"],
+    to: ["onClick={expOrd.open}", "name=more-horizontal", "size=15", "onClick={stopEvt}", "onClick={toggleExpHidden}", "class=v-btn", "onClick={expOrd.xlsx}", "class=v-btn", "onClick={expOrd.csv}"],
+    why: "주문 화면 내보내기 — 목업 버튼에 핸들러가 없어 `onClick` 두 자리를 얹었다 (LOCK 8)",
+  },
+  {
+    field: "attrs",
+    from: ["onClick={stopEvt}", "class=v-btn", "class=v-btn"],
+    to: ["onClick={stopEvt}", "class=v-btn", "onClick={expSyn.xlsx}", "class=v-btn", "onClick={expSyn.csv}"],
+    why: "가져오기 기록 화면 내보내기 — 목업 버튼에 핸들러가 없어 `onClick` 두 자리를 얹었다 (LOCK 8)",
+  },
   {
     field: "texts",
     from: ["일부 제외", "vs 7월 같은 기간"],

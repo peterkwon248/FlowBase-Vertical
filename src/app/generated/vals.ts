@@ -332,25 +332,40 @@ export interface TemplateVals {
   expCst: {
     on: boolean
     open: (...args: any[]) => void
+    /** ★ 손 추가 ★ LOCK 8 — 목업 버튼에는 핸들러가 아예 없었다 (감사 A-2-2). `npm run convert -- --force` 금지 사유 하나. */
+    xlsx: (...args: any[]) => void
+    csv: (...args: any[]) => void
   }
   expHiddenBg: string
   expNote: string
   expOrd: {
     on: boolean
     open: (...args: any[]) => void
+    /** ★ 손 추가 ★ LOCK 8 — 목업 버튼에는 핸들러가 아예 없었다 (감사 A-2-2). `npm run convert -- --force` 금지 사유 하나. */
+    xlsx: (...args: any[]) => void
+    csv: (...args: any[]) => void
   }
   expPrd: {
     on: boolean
     open: (...args: any[]) => void
+    /** ★ 손 추가 ★ LOCK 8 — 목업 버튼에는 핸들러가 아예 없었다 (감사 A-2-2). `npm run convert -- --force` 금지 사유 하나. */
+    xlsx: (...args: any[]) => void
+    csv: (...args: any[]) => void
   }
   expScope: string
   expSet: {
     on: boolean
     open: (...args: any[]) => void
+    /** ★ 손 추가 ★ LOCK 8 — 목업 버튼에는 핸들러가 아예 없었다 (감사 A-2-2). `npm run convert -- --force` 금지 사유 하나. */
+    xlsx: (...args: any[]) => void
+    csv: (...args: any[]) => void
   }
   expSyn: {
     on: boolean
     open: (...args: any[]) => void
+    /** ★ 손 추가 ★ LOCK 8 — 목업 버튼에는 핸들러가 아예 없었다 (감사 A-2-2). `npm run convert -- --force` 금지 사유 하나. */
+    xlsx: (...args: any[]) => void
+    csv: (...args: any[]) => void
   }
   fetchUrl: (...args: any[]) => void
   filterChannels: readonly any[]
@@ -979,25 +994,35 @@ export function emptyVals(): TemplateVals {
     expCst: {
       on: false,
       open: () => {},
+      xlsx: () => {},
+      csv: () => {},
     },
     expHiddenBg: "",
     expNote: "",
     expOrd: {
       on: false,
       open: () => {},
+      xlsx: () => {},
+      csv: () => {},
     },
     expPrd: {
       on: false,
       open: () => {},
+      xlsx: () => {},
+      csv: () => {},
     },
     expScope: "",
     expSet: {
       on: false,
       open: () => {},
+      xlsx: () => {},
+      csv: () => {},
     },
     expSyn: {
       on: false,
       open: () => {},
+      xlsx: () => {},
+      csv: () => {},
     },
     fetchUrl: () => {},
     filterChannels: [],

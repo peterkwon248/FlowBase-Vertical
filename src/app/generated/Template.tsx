@@ -2032,11 +2032,11 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                 </span>
                                 {" "}
                                 <span style={{ display: "flex", gap: "6px", padding: "10px 12px" }}>
-                                  <button className="v-btn" style={{ height: "27px", flex: "1" }}>
+                                  <button className="v-btn" style={{ height: "27px", flex: "1" }} onClick={vals.expSet.xlsx}>
                                     XLSX
                                   </button>
                                   {" "}
-                                  <button className="v-btn" style={{ height: "27px", flex: "1" }}>
+                                  <button className="v-btn" style={{ height: "27px", flex: "1" }} onClick={vals.expSet.csv}>
                                     CSV
                                   </button>
                                 </span>
@@ -2344,11 +2344,11 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                             </span>
                             {" "}
                             <span style={{ display: "flex", gap: "6px", padding: "10px 12px" }}>
-                              <button className="v-btn" style={{ height: "27px", flex: "1" }}>
+                              <button className="v-btn" style={{ height: "27px", flex: "1" }} onClick={vals.expPrd.xlsx}>
                                 XLSX
                               </button>
                               {" "}
-                              <button className="v-btn" style={{ height: "27px", flex: "1" }}>
+                              <button className="v-btn" style={{ height: "27px", flex: "1" }} onClick={vals.expPrd.csv}>
                                 CSV
                               </button>
                             </span>
@@ -3112,11 +3112,11 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                 </span>
                                 {" "}
                                 <span style={{ display: "flex", gap: "6px", padding: "10px 12px" }}>
-                                  <button className="v-btn" style={{ height: "27px", flex: "1" }}>
+                                  <button className="v-btn" style={{ height: "27px", flex: "1" }} onClick={vals.expCst.xlsx}>
                                     XLSX
                                   </button>
                                   {" "}
-                                  <button className="v-btn" style={{ height: "27px", flex: "1" }}>
+                                  <button className="v-btn" style={{ height: "27px", flex: "1" }} onClick={vals.expCst.csv}>
                                     CSV
                                   </button>
                                 </span>
@@ -3796,11 +3796,11 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                             </span>
                             {" "}
                             <span style={{ display: "flex", gap: "6px", padding: "10px 12px" }}>
-                              <button className="v-btn" style={{ height: "27px", flex: "1" }}>
+                              <button className="v-btn" style={{ height: "27px", flex: "1" }} onClick={vals.expOrd.xlsx}>
                                 XLSX
                               </button>
                               {" "}
-                              <button className="v-btn" style={{ height: "27px", flex: "1" }}>
+                              <button className="v-btn" style={{ height: "27px", flex: "1" }} onClick={vals.expOrd.csv}>
                                 CSV
                               </button>
                             </span>
@@ -4861,11 +4861,11 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                             </span>
                             {" "}
                             <span style={{ display: "flex", gap: "6px", padding: "10px 12px" }}>
-                              <button className="v-btn" style={{ height: "27px", flex: "1" }}>
+                              <button className="v-btn" style={{ height: "27px", flex: "1" }} onClick={vals.expSyn.xlsx}>
                                 XLSX
                               </button>
                               {" "}
-                              <button className="v-btn" style={{ height: "27px", flex: "1" }}>
+                              <button className="v-btn" style={{ height: "27px", flex: "1" }} onClick={vals.expSyn.csv}>
                                 CSV
                               </button>
                             </span>

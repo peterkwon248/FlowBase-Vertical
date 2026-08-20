@@ -131,28 +131,30 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
   },
   {
     name: "표 필터·검색·열 숨김",
-    fields: /^(filter[A-Z]|toggleFilter|hasFilters|clear[A-Z][a-z]*Filter|hasOrderFilter|orderFilterLabel|toggleExpHidden|hasQuery|clearQuery|pnlQuery|onPnlQuery|showAllProducts|hasRest|rest|setTabs|stateTabs)/,
-    why: "표가 60행 규모라 스크롤로 충분하다. 수백 행이 되는 날 다시 본다 (등재)",
+    fields: /^(filter[A-Z]|toggleFilter|hasFilters|clear[A-Z][a-z]*Filter|hasOrderFilter|orderFilterLabel|toggleExpHidden|expHiddenBg|hasQuery|clearQuery|pnlQuery|onPnlQuery|showAllProducts|hasRest|rest|setTabs|stateTabs)/,
+    why:
+      "표가 60행 규모라 스크롤로 충분하다. 수백 행이 되는 날 다시 본다 (등재). " +
+      "★ `toggleExpHidden`·`expHiddenBg`(「숨긴 컬럼도 포함」 체크박스)가 여기 있는 이유: " +
+      "**열 숨김 기능 자체가 없어서** 포함할 숨긴 열이 없다. 내보내기는 2026-08-20에 " +
+      "만들었지만 이 체크박스는 열 숨김이 생기는 날 함께 산다 — 그때까지는 «켜도 " +
+      "아무 차이가 없는 컨트롤»이라 배선하는 것이 오히려 거짓말이다",
   },
   {
     /**
-     * ★ 이 컷은 2026-08-20 감사가 갈라냈다 ★
+     * ★ 내보내기 부채는 **닫혔다** (2026-08-20) ★
      *
-     * `exp[A-Z]`(내보내기 팝오버 5종)가 위 「표 필터·검색」 컷에 얹혀 있었다.
-     * 사유가 «표가 60행 규모라 스크롤로 충분하다»인데 **내보내기와 아무 상관이 없다** —
-     * 낡은 선언이 다섯 자리를 덮어 배선 게이트가 초록인 채로 남았다.
+     * 여기 「내보내기 — ⚠ LOCK 8 부채(컷이 아니라 기한)」 컷이 있었다. 그 전에는
+     * `exp[A-Z]` 다섯 자리가 위 「표 필터·검색」 컷에 «표가 60행이라 스크롤로
+     * 충분하다»는 **남의 사유**로 묶여 있었고, 그래서 배선 게이트가 초록인 채
+     * 헌장 B-10(내보내기 무료 전면 개방)의 전면 부재를 덮고 있었다.
      *
-     * ⚠ **LOCK 8과 정면으로 부딪히는 컷이다.** 헌장은 「내보내기는 무료 전면 개방」인데
-     * 오늘 전면 부재다. 그래서 이 컷은 «안 만들기로 한 것»이 아니라 **«기한이 붙은
-     * 부채»**다 — 화면에 버튼이 그려져 있으므로 U-3(못 누르는 것은 안 그린다)도 걸린다.
-     * 만들거나, 그때까지 버튼을 지우거나. 둘 중 하나이지 지금 상태는 아니다.
+     * 감사가 그것을 부채로 갈라냈고, 이 커밋이 만들어서 컷 자체를 없앴다.
+     * 남은 것은 `toggleExpHidden` 하나뿐인데 그건 **열 숨김이 없어서** 못 켠다 —
+     * 위 「표 필터·검색」 컷에 남는 것이 맞다 (거기가 제 자리다).
+     *
+     * 이 주석은 지우지 않는다. 컷이 사라진 자리에 «왜 있었나»가 없으면
+     * 다음 사람이 같은 것을 다시 컷으로 선언한다.
      */
-    name: "내보내기 — ⚠ LOCK 8 부채 (컷이 아니라 기한)",
-    fields: /^(exp[A-Z])/,
-    why: "미구현. 헌장 B-10이 「내보내기 무료 전면 개방」이라 이건 컷이 아니라 부채다 — " +
-      "만들거나 버튼을 지운다 (2026-08-20 감사 A-2-2)",
-  },
-  {
     name: "§21-4 — 비용 구성 호버 툴팁",
     fields: /^(mixTip)$/,
     why:
