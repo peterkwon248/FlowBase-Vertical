@@ -106,6 +106,8 @@ export interface LoadResult {
    * 기간으로 자르면 「7월에 3행 제외」가 무엇의 3인지 설명할 수 없게 된다.
    */
   excluded: { readonly files: number; readonly rows: number; readonly reasons: readonly { readonly reason: string; readonly count: number }[] }
+  /** 「확인함」 당시의 제외 행 수 (012). `null`이면 미확인 — 그때만 배너가 펴진다. */
+  excludedAck: number | null
   /**
    * 상품 화면이 그리는 SKU 목록과 원가 (③).
    *
@@ -363,6 +365,7 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
         coverage,
         history,
         excluded,
+        excludedAck: await new Repository(db).noticeAck(DEV_LIBRARY, EXCLUDED_NOTICE),
         products,
         costs,
         profitRows,
@@ -399,6 +402,7 @@ function failed(e: unknown, want?: Month): LoadResult {
     history: [],
     // 못 읽었으면 «제외가 없다»가 아니라 «모른다»이고, 배너는 그때 뜨지 않는다.
     excluded: { files: 0, rows: 0, reasons: [] },
+    excludedAck: null,
     products: null,
     // 못 읽었으면 «고정비가 없다»가 아니라 «모른다»이다. 화면이 그때 «두지 않음»을
     // 그리면 사용자가 자기 선언이 사라진 줄 안다.
@@ -550,6 +554,9 @@ export async function loadBatchRows(
     throw new Error("적재된 행을 읽지 못했습니다")
   }
 }
+
+/** 대시보드 제외 배너의 확인 키 (012). 화면이 정하는 안정된 문자열이다. */
+export const EXCLUDED_NOTICE = "dash.excluded"
 
 export async function findPriorImports(
   hash: string,

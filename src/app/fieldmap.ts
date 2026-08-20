@@ -263,6 +263,19 @@ function glossed(target: string): string {
  * (App 상태)에 쌓이고, 이 행은 초안이 있으면 **초안을 먼저** 그린다. 구조
  * 역할(행 식별 키·라우팅·리스팅…)이 있는 열은 잠긴다 — v1 컷 라인.
  */
+/**
+ * ★ 화면에 나가는 글자를 자른다 (2026-08-21) ★
+ *
+ * 실물에서 열 이름이 200자 넘게 오는 파일이 있다 — 표지 시트의 셀이
+ * `<img src='https://gi.esmplus.com/…'>` 통짜였다. `whiteSpace: nowrap`인 칸이라
+ * 표가 컨테이너 밖으로 밀려나고 **우측 패널이 잘려 보였다** (사용자 지적).
+ *
+ * 키는 자르지 않는다 — `onPick`이 원본을 쥐고 있다. 화면에 나가는 문자열만
+ * 줄이고, 줄였다는 사실을 «…»로 말한다 (조용히 지우지 않는다 · LOCK 6).
+ * 위저드의 표본 칸이 이미 같은 처방을 쓴다 (`import.ts` — `slice(0, 24)`).
+ */
+const cut = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n)}…` : t)
+
 function builtinRows(f: FieldmapForm, draft: MappingDraft, act: FieldmapActions): FmRow[] {
   if (f.profile === null) return []
   const use = columnRoles(f.profile)
@@ -275,8 +288,8 @@ function builtinRows(f: FieldmapForm, draft: MappingDraft, act: FieldmapActions)
     const drafted = draft.has(header.trim()) ? draft.get(header.trim()) : undefined
     if (drafted !== undefined) {
       return {
-        header,
-        sample,
+        header: cut(header, 40),
+        sample: cut(sample, 32),
         field: drafted === null ? "이 열은 쓰지 않음" : glossed(drafted),
         fieldColor: "var(--accent)",
         onPick: (ev) => act.onPick(header.trim(), ev),
@@ -287,8 +300,8 @@ function builtinRows(f: FieldmapForm, draft: MappingDraft, act: FieldmapActions)
       }
     }
     return {
-      header,
-      sample,
+      header: cut(header, 40),
+      sample: cut(sample, 32),
       field: u ? (u.target ?? roleField(roles)) : use.contentKeyed ? "행 식별에 참여" : "저장 안 함",
       fieldColor: u || use.contentKeyed ? "var(--fg-2)" : DIM,
       onPick: editable ? (ev): void => act.onPick(header.trim(), ev) : () => {},
@@ -322,8 +335,10 @@ function judgedRows(f: FieldmapForm): FmRow[] {
     const v = byOrdinal.get(c.ordinal)
     const tier = v?.tier ?? "unknown"
     return {
-      header: c.header,
-      sample: c.sample ?? "—",
+      // ★ 미확인 양식이 가장 험한 값을 준다 ★ 표지 시트의 셀이 그대로 열 이름이
+      // 되므로 `<img src='…'>` 200자짜리가 온다 — 실물로 봤다.
+      header: cut(c.header, 40),
+      sample: cut(c.sample ?? "—", 32),
       field: v?.target ?? (v && v.candidates.length > 0 ? `${v.candidates.join(" / ")} ?` : "—"),
       fieldColor: v?.target ? "var(--fg-2)" : DIM,
       onPick: () => {},

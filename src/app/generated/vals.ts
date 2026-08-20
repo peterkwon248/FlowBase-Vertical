@@ -393,6 +393,14 @@ export interface TemplateVals {
    */
   appLoading: boolean
   /**
+   * §21 «dash-partial-ack» — 제외 배너의 「확인하고 접기」 (2026-08-21 · 마이그레이션 012).
+   * `partial`은 **배너**, `partialChip`은 **칩**이다 — 접어도 칩은 남는다.
+   */
+  partialAck: (...args: any[]) => void
+  partialAckLabel: string
+  partialChip: boolean
+  partialChipLabel: string
+  /**
    * §21 «history-rows» — 이 batch가 넣은 행 패널. 손으로 더한 자리 (2026-08-21).
    * **원본 파일이 아니라 앱이 해석한 Fact 행이다** — 원본은 저장되지 않는다.
    */
@@ -1017,6 +1025,10 @@ export function emptyVals(): TemplateVals {
     impEditMap: () => {},
     impError: "",
     appLoading: true,
+    partialAck: () => {},
+    partialAckLabel: "",
+    partialChip: false,
+    partialChipLabel: "",
     rowsOpen: false,
     rowsTitle: "",
     rowsTabs: [],

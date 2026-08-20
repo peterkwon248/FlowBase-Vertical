@@ -72,7 +72,7 @@ import { runImport } from "@core/import/run.js"
 import { runReferenceImport } from "@core/import/run-reference.js"
 import { profileVersion } from "@core/import/mapping/index.js"
 import { deriveProfile } from "@core/import/mapping/derive.js"
-import { DEV_LIBRARY, findPriorImports, loadAllProfiles, loadBatchRows, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
+import { DEV_LIBRARY, EXCLUDED_NOTICE, findPriorImports, loadAllProfiles, loadBatchRows, loadDevSnapshot, nowStamp, readDigest, recordSighting, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
@@ -173,6 +173,7 @@ export function App(): React.JSX.Element {
   const [daily, setDaily] = useState<DailySeries>({ points: [], periodOnly: 0 })
   /** 파일에서 제외된 행 — 대시보드의 「일부 제외」 배너가 쓴다 (LOCK 6). */
   const [excluded, setExcluded] = useState<LoadResult["excluded"]>({ files: 0, rows: 0, reasons: [] })
+  const [excludedAck, setExcludedAck] = useState<number | null>(null)
   /** 일별 차트에서 호버 중인 칸. -1이면 안 떠 있다 — 화면 상태라 DB에 가지 않는다. */
   const [trendIdx, setTrendIdx] = useState(-1)
   /**
@@ -307,6 +308,7 @@ export function App(): React.JSX.Element {
     setChannelRows(r.channelRows)
     setDaily(r.daily)
     setExcluded(r.excluded)
+    setExcludedAck(r.excludedAck)
     // 기간은 **조회가 정한 것**을 받는다. 요청한 달이 사라졌으면 물러난 달이 온다.
     setPer(r.period)
     setMonth(r.month)
@@ -1283,6 +1285,18 @@ export function App(): React.JSX.Element {
       trendIdx,
       onTrend: setTrendIdx,
       excluded,
+      excludedAck,
+      /**
+       * ★ 「확인하고 접기」 — **지금 수를 저장한다** (012) ★
+       * «봤다»가 아니라 «이 수를 봤다»다. 새 파일로 제외가 늘면 저장된 수보다
+       * 커져서 배너가 다시 펴진다 — 문제가 커지는데 화면이 조용해지면 안 된다.
+       */
+      ackExcluded: () => {
+        if (excluded.rows === 0) return
+        overheadWrite("접지 못했습니다", async (repo) => {
+          await repo.setNoticeAck(DEV_LIBRARY, EXCLUDED_NOTICE, excluded.rows, nowStamp())
+        })
+      },
       // 배너의 [양식 확인] — 제외가 많으면 양식 해석을 봐야 하므로 그 화면으로 보낸다.
       goFieldmap: () => go("fieldmap"),
     })

@@ -1235,6 +1235,47 @@ export class Repository {
    * 구분하지 못하면 일부러 안 넣은 사용자에게 영영 잔소리하게 되고, 지워지지
    * 않는 경고 하나가 진단 화면 전체를 안 보게 만든다.
    */
+  /**
+   * ★ 「확인함」을 남긴다 — 사실은 계속 센다 (012) ★
+   *
+   * 반환이 «확인 당시의 수»다. 화면은 그것을 **지금 수와 비교**해서 접을지 정한다 —
+   * 지금이 더 크면 확인한 적 없는 새 사실이다. 「봤다」만 저장하면 문제가 커져도
+   * 화면이 조용해진다 (LOCK 6).
+   *
+   * 행이 없으면 `null`이고 그때만 화면이 펼친다 — `overheadStance`와 같은 규약
+   * (§22 «부재는 boolean이 아니다»).
+   */
+  async noticeAck(libraryId: string, noticeKey: string): Promise<number | null> {
+    const r = (await this.db
+      .prepare(`SELECT seen_count FROM notice_ack WHERE library_id = ? AND notice_key = ?`)
+      .get(libraryId, noticeKey)) as Record<string, unknown> | undefined
+    return r === undefined ? null : Number(r["seen_count"])
+  }
+
+  /** 「확인함」을 세운다. 같은 키를 다시 누르면 그때의 수로 갱신된다. */
+  async setNoticeAck(
+    libraryId: string,
+    noticeKey: string,
+    seenCount: number,
+    now: string,
+  ): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO notice_ack (library_id, notice_key, seen_count, acked_at)
+         VALUES (?,?,?,?)
+         ON CONFLICT(library_id, notice_key)
+         DO UPDATE SET seen_count = excluded.seen_count, acked_at = excluded.acked_at`,
+      )
+      .run(libraryId, noticeKey, seenCount, now)
+  }
+
+  /** 확인을 거둔다 — 「접은 것을 다시 편다」. 선언의 반대는 반대 선언이 아니라 «없음»이다. */
+  async clearNoticeAck(libraryId: string, noticeKey: string): Promise<void> {
+    await this.db
+      .prepare(`DELETE FROM notice_ack WHERE library_id = ? AND notice_key = ?`)
+      .run(libraryId, noticeKey)
+  }
+
   async overheadStance(
     libraryId: string,
     kind: "FIXED" | "OPS",

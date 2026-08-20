@@ -1246,6 +1246,11 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                               </span>
                             </span>
                             {" "}
+                            <span data-s21="dash-partial-ack" style={{ flex: "none" }}>
+                              <button className="v-btn" style={{ height: "28px" }} onClick={vals.partialAck}>
+                                {vals.partialAckLabel}
+                              </button>
+                            </span>
                             <button className="v-btn" style={{ height: "28px", flex: "none" }} onClick={vals.goFieldmap}>
                               양식 확인
                             </button>
@@ -1260,9 +1265,9 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                   {vals.heroLabel}
                                 </span>
                                 {" "}
-                                {vals.partial && (
+                                {vals.partialChip && (
                                     <span style={{ display: "inline-flex", alignItems: "center", height: "18px", padding: "0 6px", borderRadius: "var(--r-pill)", background: "rgba(242,201,76,0.14)", font: "var(--fw-semi) 10px var(--font-sans)", color: "var(--pnl-warn)" }}>
-                                      일부 제외
+                                      {vals.partialChipLabel}
                                     </span>
                                 )}
                               </span>
@@ -4242,7 +4247,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
             {/* ══════════ 파일 가져오기 ══════════ */}
             {" "}
             {vals.v.import && (
-                <section data-screen-label="가져오기" style={{ padding: "14px", maxWidth: "1000px" }}>
+                <section data-screen-label="가져오기" style={{ padding: "14px", maxWidth: "1180px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0", marginBottom: "14px", border: "1px solid var(--border)", borderRadius: "var(--r-md)", overflow: "hidden" }}>
                     {vals.impSteps.map((s: any, $index: number) => (
                         <span key={$index} style={{ flex: "1", minWidth: "0", display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px", background: s.bg, boxShadow: "1px 0 0 var(--border)" }}>

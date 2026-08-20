@@ -150,6 +150,10 @@ export function dashboardVals(
     onTrend?: (i: number) => void
     /** 파일에서 제외된 행 — 「일부 제외」 배너의 재료 (LOCK 6). */
     excluded?: { files: number; rows: number; reasons: readonly { reason: string; count: number }[] }
+    /** 「확인함」 당시의 제외 행 수 (012). `null`·`undefined`면 미확인이다. */
+    excludedAck?: number | null
+    /** 「확인하고 접기」. 지금 수를 저장한다. */
+    ackExcluded?: () => void
     /** 배너의 [양식 확인] — 「필드 매핑」 화면으로 간다. */
     goFieldmap?: () => void
   } = { products: [], channels: [] },
@@ -498,8 +502,30 @@ export function dashboardVals(
    * ─────────────────────────────────────────────────────────────
    */
   const ex = rows.excluded
-  vals.partial = ex !== undefined && ex.rows > 0
-  if (ex !== undefined && ex.rows > 0) {
+  const has = ex !== undefined && ex.rows > 0
+
+  /**
+   * ★ 「확인함」은 배너를 접되 **사실은 계속 센다** (2026-08-21 · 012) ★
+   *
+   * 사용자 지적: *"이게 계속 떠서 불편함. 한 번 확인하고 접거나 이런 버튼이 있어야 할 듯."*
+   * 그런데 그냥 닫으면 LOCK 6 위반이다 — 제외 7행 중 5행은 「읽지 못한 행」이고
+   * 그건 양식 해석이 틀렸다는 신호다. 닫는 버튼이 그 신호를 지우면 배너가 있던
+   * 이유가 사라진다.
+   *
+   * 그래서 **배너와 칩을 가른다.** 배너는 접히고, 히어로의 「일부 제외」 칩은
+   * 남는다 — ADR-016의 `dismissed`가 «삭제가 아니라 세고 있는 부재»인 것과 같다.
+   *
+   * ★ 수가 늘면 다시 펴진다 ★ 확인은 «이 배너를 봤다»가 아니라 «7행이라는 그
+   * 사실을 봤다»이다. 새 파일로 12행이 되면 확인한 적 없는 새 소식이다.
+   */
+  const b = excludedBanner(has ? ex.rows : 0, rows.excludedAck ?? null)
+  vals.partial = b.banner
+  vals.partialChip = b.chip
+  vals.partialChipLabel = b.chipLabel
+  vals.partialAckLabel = "확인하고 접기"
+  vals.partialAck = rows.ackExcluded ?? (() => {})
+
+  if (has) {
     vals.partialTitle = `파일에서 ${ex.rows.toLocaleString("ko-KR")}행이 제외됐습니다`
     // 사유를 그대로 보인다 — 「몇 행」만 말하면 사용자가 할 수 있는 일이 없다.
     // 합계·빈 행이면 정상이고, 오류가 섞여 있으면 양식 해석을 봐야 한다.
@@ -593,4 +619,36 @@ export function dashboardVals(
   // 스파크라인이 빠지면서(§21-4) KPI 카드가 한 줄 짧아진다. 비교가 없으면
   // "변화" 줄도 없으므로 한 줄 더 짧다 — 빈 칸을 남기지 않는다.
   vals.kpiRows = snap.hasPriorPeriod ? "15px 26px 15px 14px" : "15px 26px 14px"
+}
+
+/**
+ * ★ 제외 배너를 펼칠까 · 칩을 남길까 (2026-08-21 · 마이그레이션 012) ★
+ *
+ * 순수 함수다 — 스냅샷 없이 이 판단만 시험할 수 있어야 규칙이 안 썩는다.
+ *
+ * ```
+ * rows  지금 제외된 행 수
+ * acked 「확인함」 당시의 수. null이면 미확인
+ * ```
+ *
+ * 세 가지를 동시에 지킨다:
+ *   ① 접힌다 — 사용자가 «계속 떠서 불편하다»고 한 그것
+ *   ② 접혀도 **칩은 남는다** — 접힌 것은 «세고 있는 부재»다 (ADR-016의 `dismissed`)
+ *   ③ 수가 늘면 **다시 펴진다** — 확인은 «봤다»가 아니라 «이 수를 봤다»다.
+ *      새 파일로 제외가 늘면 확인한 적 없는 새 사실이고, 문제가 커지는데 화면이
+ *      조용해지는 것이 이 앱이 가장 경계하는 실패다 (LOCK 6)
+ *
+ * 수가 **줄면** 그대로 접혀 있다 — 되돌리기로 제외가 준 것은 다시 물을 일이 아니다.
+ */
+export function excludedBanner(
+  rows: number,
+  acked: number | null,
+): { banner: boolean; chip: boolean; chipLabel: string } {
+  if (rows <= 0) return { banner: false, chip: false, chipLabel: "일부 제외" }
+  const isAcked = acked !== null && rows <= acked
+  return {
+    banner: !isAcked,
+    chip: true,
+    chipLabel: isAcked ? "일부 제외 · 확인함" : "일부 제외",
+  }
 }
