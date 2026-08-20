@@ -19,7 +19,7 @@
  * 같은 발상이고, **빨간 게이트는 곧 꺼지지만 래칫은 안 꺼진다.**
  */
 
-import { readFileSync } from "node:fs"
+import { readFileSync, readdirSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
 /**
@@ -84,6 +84,114 @@ describe("U-2. 쓰기는 결과를 말한다", () => {
     expect(warns, `console.warn ${warns}곳 (상한 ${WARN_MAX})`).toBeLessThanOrEqual(WARN_MAX)
     // 상한이 낡지 않았는지 — 다 고쳤으면 상한을 내리라고 말한다
     expect(WARN_MAX - warns, "상한이 실측보다 3 이상 높다 — 내려라").toBeLessThan(3)
+  })
+
+  /**
+   * ★ 잠금에 막힌 자리도 «쓰기 실패»다 ★
+   *
+   * `if (!acquire()) return`은 화면에서 **«눌러도 아무 일 없음»**으로 보인다.
+   * 2026-08-16에 사용자가 신고한 증상이 정확히 그것이었고, 그때 원인은 해제 누락이었을
+   * 뿐 **조용히 돌아서는 코드는 같은 증상을 정상 동작으로 만든다.**
+   *
+   * 2026-08-20 감사 시점에 13자리 중 **11자리가 침묵**이었다. 여기서는 상한을 세지
+   * 않는다 — 침묵을 **선언하게** 만든다. 「침묵 OK」를 안 적었으면 말해야 한다.
+   *
+   * ★ 왜 원문(주석 포함)을 쓰나 ★ 선언이 주석에 살기 때문이다. 대신 «말하나»를 볼
+   * 때는 그 조각의 주석을 **다시 벗긴다** — 안 그러면 위와 똑같은 자해를 반복한다.
+   */
+  it("★ 잠금에 막혔으면 말하거나, 「침묵 OK」로 선언되어 있다 ★", () => {
+    const RAW = readFileSync("src/app/App.tsx", "utf8")
+    const lines = RAW.split("\n")
+    const silent: string[] = []
+    let declared = 0
+
+    for (const [i, line] of lines.entries()) {
+      if (!line.includes("!acquire()")) continue
+      const t = line.trim()
+      if (t.startsWith("//") || t.startsWith("*")) continue // 설명문 안의 예시
+
+      // 선언은 가드 **바로 위** 주석 뭉치에 산다. 멀리서 주워 오면 남의 선언을 쓴다.
+      const above = lines.slice(Math.max(0, i - 6), i).join("\n")
+      if (/침묵 OK/.test(above)) {
+        declared++
+        continue
+      }
+      // 이 분기가 끝나는 곳(`return`)까지만 본다 — 그 밖의 `sayBusy`는 남의 것이다
+      const rest = lines.slice(i).join("\n")
+      const end = rest.indexOf("return")
+      const branch = stripComments(end === -1 ? rest.slice(0, 300) : rest.slice(0, end))
+      if (!/sayBusy\(|sayConfirm\(|stop\(/.test(branch)) silent.push(`L${i + 1}`)
+    }
+
+    expect(silent, "잠금에 막혔는데 사용자에게 아무 말도 안 하는 자리").toEqual([])
+    // 선언된 침묵도 공짜가 아니다 — 늘어나면 눈에 띄어야 한다
+    expect(declared, "「침묵 OK」 선언이 늘었다 — 정말 말 안 해도 되나").toBeLessThanOrEqual(1)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────
+// U-1. 넣은 것은 전부 장부에 보인다
+// ─────────────────────────────────────────────────────────────
+
+describe("U-1. 넣은 것은 장부에 보인다", () => {
+  /**
+   * ★ 사용자가 겪은 사고 (2026-08-20) ★
+   * 13MB 단가표를 넣었는데 「가져오기 기록」이 비어 있었다. 원가는 batch를 안 만들기
+   * 때문이고 **저장 설계로는 옳다.** 그런데 사용자에게 그 장부는 「내가 넣은 파일들」이고,
+   * 거기 없으면 **장부가 거짓말을 한 것**이다.
+   *
+   * ★ 왜 「파일을 받는 함수」를 세나 ★
+   * 원인은 규칙 위반이 아니라 **빈자리**였다 — 새 적재 경로(ADR-016)가 들어올 때
+   * 「이건 장부에 어떻게 남지?」를 **아무도 묻지 않았다.** 리포지토리 쓰기 메서드는
+   * 40개가 넘지만 **사용자가 파일을 미는 입구는 둘뿐**이다. 그 둘이 셋이 되는 순간이
+   * 바로 그 질문을 다시 던져야 하는 순간이고, 이 시험이 거기서 멈춰 세운다.
+   */
+  const IMPORT_DIR = "src/core/import"
+  const ENTRIES = readdirSync(IMPORT_DIR)
+    .filter((f) => f.endsWith(".ts"))
+    .flatMap((f) => {
+      const src = stripComments(readFileSync(`${IMPORT_DIR}/${f}`, "utf8"))
+      return [...src.matchAll(/export async function (run[A-Za-z]*Import)\b/g)].map((m) => ({
+        fn: m[1] as string,
+        file: f,
+        src,
+      }))
+    })
+
+  it("★ 파일을 받는 입구는 둘뿐이다 — 셋째가 생기면 U-1을 답해야 한다 ★", () => {
+    expect(
+      ENTRIES.map((e) => e.fn).sort(),
+      "새 가져오기 경로다. 이것으로 넣은 파일은 「가져오기 기록」에 어떻게 남나? " +
+        "batch를 만들거나, 안 만든다면 화면이 그 사실을 말해야 한다 (U-1)",
+    ).toEqual(["runImport", "runReferenceImport"])
+  })
+
+  it("사실 가져오기는 장부에 남는다 — batch를 연다", () => {
+    const fact = ENTRIES.find((e) => e.fn === "runImport")
+    expect(fact?.src).toMatch(/openBatch\(/)
+    expect(fact?.src).toMatch(/commitBatch\(/)
+  })
+
+  /**
+   * 이 쌍이 U-1의 「부분 이행」을 붙들고 있다. 오늘 기준 데이터 적재는 장부에 안
+   * 남지만 **화면이 그 사실을 말한다** — LOCK 6은 지키고 U-1은 아직 못 지킨다.
+   * 둘 중 **아무거나 무너지면 붉어진다**: batch를 안 만드는데 말도 안 하면 그게
+   * 2026-08-20의 사고 그 자체다.
+   */
+  it("★ 기준 가져오기는 batch가 없다 — 그래서 화면이 그 사실을 말한다 ★", () => {
+    const ref = ENTRIES.find((e) => e.fn === "runReferenceImport")
+    const opensBatch = /openBatch\(/.test(ref?.src ?? "")
+    const IMPORT_UI = stripComments(readFileSync("src/app/import.ts", "utf8"))
+    const says = /「가져오기 기록」에는 나오지 않습니다/.test(IMPORT_UI)
+
+    expect(
+      opensBatch || says,
+      "기준 가져오기가 장부에도 안 남고 화면도 말하지 않는다 — 사용자에겐 «넣었는데 없다»다",
+    ).toBe(true)
+    // 오늘의 사실을 못박는다. batch를 만들게 되는 날 이 줄이 붉어지고, 그때
+    // 「부분 이행」 딱지를 문서에서 떼면 된다 (docs/사용자-불변식.md U-1)
+    expect(opensBatch, "기준 적재가 batch를 만들게 됐다 — U-1의 「부분 이행」을 지워라").toBe(false)
+    expect(says, "화면이 «장부에 안 나온다»고 말하던 문장이 사라졌다").toBe(true)
   })
 })
 

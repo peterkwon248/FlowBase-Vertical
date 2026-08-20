@@ -160,13 +160,29 @@ function render(m: FixtureManifest[]): string {
   return lines.join("\n")
 }
 
-if (!fixturesPresent()) {
-  console.error("픽스처가 fixtures/raw/ 에 없다. 하네스를 돌릴 수 없다.")
-  process.exit(1)
-}
+/**
+ * ★ 이 파일을 **직접 실행**했을 때만 쓴다 ★
+ *
+ * 2026-08-20에 골든 대조 시험(`tests/manifest-golden.test.ts`)이 `buildManifest`를
+ * import 하자 **그 import 만으로 정답지가 덮어써졌다.** 대조하려고 부른 시험이
+ * 대조 대상을 갈아치우는 꼴이라, 그 상태의 시험은 무엇도 못 잡는다 —
+ * 「정답지가 자기 자신을 따라간다」(B-1)를 고치려다 한 번 더 만든 셈이다.
+ */
+const isMain = process.argv[1]?.endsWith("build-manifest.ts") ?? false
 
-const manifest = await buildManifest()
-mkdirSync(OUT_DIR, { recursive: true })
-writeFileSync(join(OUT_DIR, "manifest.json"), JSON.stringify(manifest, null, 2), "utf-8")
-console.log(render(manifest))
-console.log(`\n→ ${join(OUT_DIR, "manifest.json")}`)
+if (isMain) {
+  if (!fixturesPresent()) {
+    console.error("픽스처가 없다. 하네스를 돌릴 수 없다.")
+    process.exit(1)
+  }
+
+  const manifest = await buildManifest()
+  mkdirSync(OUT_DIR, { recursive: true })
+  writeFileSync(join(OUT_DIR, "manifest.json"), JSON.stringify(manifest, null, 2), "utf-8")
+  console.log(render(manifest))
+  console.log(`\n→ ${join(OUT_DIR, "manifest.json")}`)
+  console.log(
+    "※ 정답지를 덮어썼다. **diff를 읽고** 커밋해라 — `tests/manifest-golden.test.ts`가\n" +
+      "   지금 파서와 이 파일을 대조한다. 값이 바뀌었다면 그것이 의도한 변경인지 여기서 판정된다.",
+  )
+}

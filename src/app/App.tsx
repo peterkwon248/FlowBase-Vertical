@@ -196,6 +196,20 @@ export function App(): React.JSX.Element {
   const [confirm, setConfirm] = useState<ConfirmDialog | null>(null)
 
   /**
+   * ★ 잠금에 막혔다고 **말한다** ★
+   *
+   * `if (!acquire()) return`은 사용자에게 **«눌러도 아무 일 없음»**이다 — 2026-08-16에
+   * 신고된 그 모양 그대로고, 그때는 원인이 «해제 누락»이었을 뿐 화면에 보이는 증상은
+   * 같다. 조용히 돌아서는 자리는 LOCK 6이 금지하는 침묵이다.
+   *
+   * 침묵이 옳은 자리도 있다(`pickMonth` — 「침묵 OK」로 선언한다). 선언하지 않은
+   * 침묵은 `tests/user-invariants.test.ts`가 막는다.
+   */
+  const sayBusy = useCallback((what: string): void => {
+    setConfirm(sayConfirm(what, BUSY_WHY, () => setConfirm(null)))
+  }, [])
+
+  /**
    * ★ 보는 범위 — 묶음 (013 · ADR-021) ★
    *
    * 저장된 범위는 DB에 있고(`collection_active`) 뷰가 그것을 읽으므로, 여기 있는
@@ -358,7 +372,9 @@ export function App(): React.JSX.Element {
         return
       }
       // 읽기도 연결을 연다 — 적재가 도는 중이면 저장 계층이 거절한다.
-      // 달 바꾸기가 그 거절을 모달로 띄우는 것보다, 잠시 안 받는 편이 낫다.
+      // 침묵 OK — 달 바꾸기는 **읽기**다. 쓴 것이 없으니 잃은 것도 없고, 적재가
+      // 끝나면 그냥 다시 고르면 된다. 이 한 자리에 모달을 띄우면 가져오기 진행
+      // 중에 화면을 훑는 동작마다 말이 튄다.
       if (!acquire()) return
       void loadDevSnapshot(ym)
         .then(take)
@@ -388,7 +404,10 @@ export function App(): React.JSX.Element {
 
   const write = useCallback(
     (fn: Parameters<typeof writeThenReload>[0]) => {
-      if (!acquire()) return
+      if (!acquire()) {
+        sayBusy("저장하지 못했습니다")
+        return
+      }
       // ★ 잠금은 **`finally`로만 푼다** (2026-08-16) ★
       // `.then` 안에서 풀면 그 뒤가 던졌을 때 잠금이 영영 남고, 그때부터 이 앱의
       // 모든 버튼이 «눌러도 아무 일 없음»이 된다 — 사용자가 신고한 바로 그 모양이다.
@@ -430,7 +449,7 @@ export function App(): React.JSX.Element {
         })
         .finally(release)
     },
-    [acquire, release, take],
+    [acquire, release, sayBusy, take],
   )
 
   const ids = (c: LinkingCard): string[] => c.listings.map((l) => l.id)
@@ -561,7 +580,12 @@ export function App(): React.JSX.Element {
   const saveCost = useCallback(
     (row: ProductSkuRow, draft: CostDraftState, replace: boolean) => {
       const parsed = parseCostDraft(draft)
-      if (!parsed.ok || !acquire()) return
+      // 폼이 무효인 것은 화면이 이미 말하고 있다. 잠금은 아무도 안 말하므로 여기서 말한다.
+      if (!parsed.ok) return
+      if (!acquire()) {
+        sayBusy("원가를 저장하지 못했습니다")
+        return
+      }
 
       // `writeThenReload`는 쓰기 결과를 돌려주지 않으므로 클로저로 받는다 —
       // 「넣었나 / 이미 있나」를 알아야 물을지 말지를 정할 수 있다.
@@ -619,7 +643,7 @@ export function App(): React.JSX.Element {
         })
         .finally(release)
     },
-    [acquire, dropDraft, release, take],
+    [acquire, dropDraft, release, sayBusy, take],
   )
 
   const productActions: ProductActions = {
@@ -657,7 +681,10 @@ export function App(): React.JSX.Element {
     body: (repo: Repository) => Promise<void>,
     after?: () => void,
   ): void => {
-    if (!acquire()) return
+    if (!acquire()) {
+      sayBusy(fail)
+      return
+    }
     void writeThenReload(body, monthRef.current)
       .then((r) => {
         if (r.error) {
@@ -853,7 +880,11 @@ export function App(): React.JSX.Element {
     add: (row) => {
       const delta = parseDelta(adjDraft.amount)
       const reason = adjDraft.why.trim()
-      if (delta === null || reason === "" || !acquire()) return
+      if (delta === null || reason === "") return
+      if (!acquire()) {
+        sayBusy("조정하지 못했습니다")
+        return
+      }
       const stamp = nowStamp()
       void writeThenReload(async (repo) => {
         await repo.addAdjustment({
@@ -884,7 +915,10 @@ export function App(): React.JSX.Element {
     },
 
     revoke: (id) => {
-      if (!acquire()) return
+      if (!acquire()) {
+        sayBusy("거두지 못했습니다")
+        return
+      }
       const stamp = nowStamp()
       void writeThenReload(async (repo) => {
         await repo.revokeAdjustment(id, stamp)
@@ -897,7 +931,10 @@ export function App(): React.JSX.Element {
     },
 
     reset: (row) => {
-      if (!acquire()) return
+      if (!acquire()) {
+        sayBusy("되돌리지 못했습니다")
+        return
+      }
       const stamp = nowStamp()
       void writeThenReload(async (repo) => {
         await repo.revokeAdjustmentsFor(
@@ -1269,7 +1306,10 @@ export function App(): React.JSX.Element {
   const scopeActions = useMemo(
     () => ({
       pick: (id: string | null): void => {
-        if (!acquire()) return
+        if (!acquire()) {
+          sayBusy("보는 범위를 바꾸지 못했습니다")
+          return
+        }
         setScopeEdit(null)
         void writeThenReload((repo) => repo.setActiveCollection(DEV_LIBRARY, id, nowStamp()), monthRef.current)
           .then(take)
@@ -1300,7 +1340,11 @@ export function App(): React.JSX.Element {
         if (e === null || e.name.trim() === "") return
         const id = e.mode === "new" ? `col-${nowStamp().replace(/[^0-9]/g, "")}` : scope.activeId
         // 잡기 **전에** 다 따진다 — 잡고 나서 물러나면 놓는 자리가 finally 밖에 생긴다
-        if (id === null || !acquire()) return
+        if (id === null) return
+        if (!acquire()) {
+          sayBusy("묶음을 저장하지 못했습니다")
+          return
+        }
         const before = e.mode === "new" ? [] : scope.activeBatches
         const add = e.picked.filter((b) => !before.includes(b))
         const drop = before.filter((b) => !e.picked.includes(b))
@@ -1323,7 +1367,11 @@ export function App(): React.JSX.Element {
       addJustImported: (): void => {
         const id = scope.activeId
         const b = justImported
-        if (id === null || b === null || !acquire()) return
+        if (id === null || b === null) return
+        if (!acquire()) {
+          sayBusy("묶음에 담지 못했습니다")
+          return
+        }
         setJustImported(null)
         void writeThenReload(async (repo) => {
           await repo.addToCollection(id, [b.id], nowStamp())
@@ -1334,7 +1382,11 @@ export function App(): React.JSX.Element {
       dismissJustImported: (): void => setJustImported(null),
       remove: (): void => {
         const id = scope.activeId
-        if (id === null || !acquire()) return
+        if (id === null) return
+        if (!acquire()) {
+          sayBusy("묶음을 지우지 못했습니다")
+          return
+        }
         setScopeEdit(null)
         // 묶음만 지운다. 파일도 행도 안 지운다 — 되돌리기와 다르다 (ADR-021)
         void writeThenReload((repo) => repo.deleteCollection(id, nowStamp()), monthRef.current)
@@ -1342,7 +1394,7 @@ export function App(): React.JSX.Element {
           .finally(release)
       },
     }),
-    [scope, scopeEdit, justImported, acquire, release, take],
+    [scope, scopeEdit, justImported, acquire, release, sayBusy, take],
   )
 
   const openRows = useCallback(
@@ -1363,7 +1415,10 @@ export function App(): React.JSX.Element {
           setConfirm(null)
           // 되돌리기도 DB에 닿는 동작이다 — 적재가 도는 중에 들어오면 저장 계층이
           // 거절한다. 잠금을 지나게 해서 그 거절을 애초에 안 만나게 한다.
-          if (!acquire()) return
+          if (!acquire()) {
+            sayBusy("되돌리지 못했습니다")
+            return
+          }
           void writeThenReload(async (repo) => {
             await repo.undoBatch(row.id, nowStamp())
           }, monthRef.current)
@@ -1378,7 +1433,7 @@ export function App(): React.JSX.Element {
         }),
       )
     },
-    [acquire, release, take],
+    [acquire, release, sayBusy, take],
   )
 
   const vals = shellVals(state, { go, toggleNav, closeNav, openNav, goImport, toggleTheme })
