@@ -235,3 +235,65 @@ run("가드 ② — 같은 바이트가 이미 들어왔으면 넣기 전에 말
     expect(String(vals.impDupNote)).toContain("UPSERT")
   })
 })
+
+/**
+ * ★ 끌어다 놓기 — 화면이 약속한 것을 지킨다 (2026-08-20 · 조사 1.3) ★
+ *
+ * ─────────────────────────────────────────────────────────────
+ * 첫 화면이 「정산 파일을 **여기에 끌어다 놓으세요**」라고 적어 놓고
+ * 저장소 전체에 `onDrop`/`onDragOver`가 **0건**이었다 (U-3 — 적어 놓고 안 되는 것).
+ *
+ * ★ 그런데 그냥 「안 된다」가 아니라 **위험했다** ★
+ * `tauri.conf.json`의 `dragDropEnabled: false`는 Tauri가 드롭을 **가로채지 않는다**는
+ * 뜻이다. 그러면 드롭이 웹뷰로 그대로 가고, `preventDefault`가 없으면 브라우저
+ * 기본 동작 — **그 파일로 내비게이션** — 이 일어난다. 데스크톱 앱에서 그건
+ * **SPA가 통째로 사라지는 것**이고, 되돌릴 길은 재시작뿐이다.
+ * 첫 사용자가 첫 동작에서 만나는 자리다.
+ * ─────────────────────────────────────────────────────────────
+ */
+describe("끌어다 놓기 (조사 1.3)", () => {
+  const app = readFileSync("src/app/App.tsx", "utf8")
+
+  it("★ document에 dragover·drop을 걸고 기본 동작을 막는다 ★", () => {
+    expect(app, "dragover를 안 막으면 drop 이벤트 자체가 안 온다").toMatch(
+      /document\.addEventListener\("dragover"/,
+    )
+    expect(app, "drop을 안 듣는다 — 화면의 「끌어다 놓으세요」가 거짓이다").toMatch(
+      /document\.addEventListener\("drop"/,
+    )
+    expect(app, "리스너를 안 걷으면 화면을 옮길 때마다 쌓인다").toMatch(
+      /removeEventListener\("dragover"[\s\S]*removeEventListener\("drop"/,
+    )
+  })
+
+  /**
+   * ★ 파일이 없어도 막아야 한다 ★
+   * 텍스트·링크 드롭도 기본 동작이 내비게이션이다. 「파일일 때만 막는다」로 짜면
+   * 링크 하나 떨어뜨렸을 때 앱이 사라진다.
+   */
+  it("★ 파일 유무를 보기 전에 preventDefault를 부른다 ★", () => {
+    const onDrop = app.slice(app.indexOf("const onDrop = (e: DragEvent)"))
+    const body = onDrop.slice(0, onDrop.indexOf("\n    }"))
+    const pd = body.indexOf("preventDefault")
+    const files = body.indexOf("dataTransfer?.files")
+    expect(pd, "onDrop 안에 preventDefault가 없다").toBeGreaterThan(-1)
+    expect(files, "파일을 안 읽는다").toBeGreaterThan(-1)
+    expect(
+      pd,
+      "파일이 있을 때만 막는다 — 링크·텍스트 드롭에 앱이 통째로 날아간다",
+    ).toBeLessThan(files)
+  })
+
+  /**
+   * 드롭존 하나에만 걸면 **빗나간 드롭**(창 아무 데나)이 그대로 위험하다.
+   * `document`에 거는 것이 이 결정의 핵심이라 시험이 그 자리를 문다.
+   */
+  it("드롭존이 아니라 document에 건다 — 빗나간 드롭도 안전해야 한다", () => {
+    expect(app).not.toMatch(/imp-dropzone[^\n]*addEventListener/)
+  })
+
+  it("★ 두 입구가 한 경로로 합쳐졌다 — change 이벤트와 drop 이벤트 ★", () => {
+    expect(app, "드롭의 파일 자리(dataTransfer)를 안 읽는다").toMatch(/dataTransfer\?\.\s*files/)
+    expect(app, "input의 파일 자리(target.files)를 안 읽는다").toMatch(/target\?\.\s*files/)
+  })
+})

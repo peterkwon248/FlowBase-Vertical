@@ -185,7 +185,20 @@ export const EMPTY_WIZARD: ImportWizardState = {
 }
 
 export interface ImportActions {
-  pickFile: (file: File) => void
+  /**
+   * 파일 하나를 받는다. **입구가 둘이다** (2026-08-20 · 조사 1.3):
+   *
+   *   `<input type="file">`의 change 이벤트  →  `target.files[0]`
+   *   끌어다 놓기(drop) 이벤트               →  `dataTransfer.files[0]`
+   *
+   * 담기는 자리만 다르고 그 뒤는 같은 `File`이라 **한 경로로 합쳤다** — 갈라 두면
+   * 한쪽만 고쳐지는 날 두 입구가 다르게 동작한다.
+   *
+   * ★ 타입이 `File`이 아닌 이유 ★ 전에는 `(file: File) => void`였는데
+   * **구현도 호출부도 이벤트를 넘기고 있었다** — 타입이 거짓이었고, TS는
+   * 구현부가 `unknown`을 받아서 잡지 못했다. 지금은 계약을 사실로 맞춘다.
+   */
+  pickFile: (ev: unknown) => void
   pickProfile: (index: number) => void
   pickSheet: (index: number) => void
   /** 기준 데이터의 적용 시작일을 사람이 고친다 (`YYYY-MM-DD`). */

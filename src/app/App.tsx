@@ -421,6 +421,7 @@ export function App(): React.JSX.Element {
     return () => document.removeEventListener("keydown", onKey)
   }, [])
 
+
   /**
    * 달을 바꾼다. **다시 조회한다** — 화면 상태만 바꾸고 숫자를 그대로 두면
    * 라벨과 값이 갈린다. 같은 달을 다시 고르면 아무 일도 하지 않는다.
@@ -1083,8 +1084,17 @@ export function App(): React.JSX.Element {
 
   const importActions: ImportActions = {
     pickFile: (ev: unknown) => {
-      const input = (ev as { target?: { files?: FileList | null } } | null)?.target
-      const file = input?.files?.[0]
+      /**
+       * ★ 두 입구를 받는다 — 파일 선택 **그리고 끌어다 놓기** (2026-08-20 · 조사 1.3) ★
+       * `<input type="file">`은 `target.files`, 드롭은 `dataTransfer.files`에 담는다.
+       * 담기는 자리만 다르고 그 뒤는 같은 `File`이라, **한 경로로 합친다** —
+       * 갈라 두면 한쪽만 고쳐지는 날 두 입구가 다르게 동작한다.
+       */
+      const e = ev as {
+        target?: { files?: FileList | null }
+        dataTransfer?: { files?: FileList | null } | null
+      } | null
+      const file = e?.target?.files?.[0] ?? e?.dataTransfer?.files?.[0]
       if (!file) return
       /**
        * ★ 웹판에서도 넣는다 — **막으면 시험할 길이 없다** (2026-08-19, ADR-018) ★
@@ -1295,6 +1305,56 @@ export function App(): React.JSX.Element {
     () => setState((s) => ({ ...s, theme: s.theme === "dark" ? "light" : "dark" })),
     [],
   )
+
+  /**
+   * ★ 끌어다 놓기 — **화면이 약속한 것을 지킨다** (2026-08-20 · 조사 1.3) ★
+   *
+   * ─────────────────────────────────────────────────────────────
+   * 첫 화면이 「정산 파일을 **여기에 끌어다 놓으세요**」라고 적어 놓고, 저장소
+   * 전체에 `onDrop`/`onDragOver`가 **0건**이었다. 첫 사용자가 첫 동작에서 만나는
+   * 거짓말이다 (U-3 — 적어 놓고 안 되는 것).
+   *
+   * ★ 그런데 그냥 「안 된다」가 아니라 **위험했다** ★
+   * `tauri.conf.json`의 `dragDropEnabled: false`는 **Tauri가 드롭을 가로채지
+   * 않는다**는 뜻이다. 그러면 드롭이 웹뷰로 그대로 가고, `preventDefault`가 없으면
+   * 브라우저 기본 동작 — **그 파일로 내비게이션** — 이 일어난다.
+   * 데스크톱 앱에서 그건 **SPA가 통째로 사라지는 것**이다. 되돌릴 길은 재시작뿐이다.
+   *
+   * ★ 그래서 `document`에 건다 ★
+   * 드롭존 하나에만 걸면 **빗나간 드롭**(창 아무 데나)이 그대로 위험하다.
+   * 여기서 막으면 창 전체가 안전하고, 드롭존 밖에 떨어뜨려도 파일이 들어간다 —
+   * 「여기에」를 정확히 못 맞춘 사용자를 벌하지 않는다.
+   *
+   * ★ 남은 것 ★ `.imp-dropzone.over` 강조(CSS는 준비돼 있다)는 아직 안 켠다 —
+   * `Template.tsx`가 생성물이라 상태를 받을 자리가 없다. 켜려면 vals 필드 신설이
+   * 필요하고 그건 변환기 경로다. **동작이 먼저다.**
+   * ─────────────────────────────────────────────────────────────
+   */
+  useEffect(() => {
+    // `dragover`를 막지 않으면 `drop` 자체가 안 온다 — 사양이 그렇다.
+    const onOver = (e: DragEvent): void => {
+      if (e.dataTransfer === null) return
+      e.preventDefault()
+      // 커서를 「복사」로 — 「이동」이면 원본을 옮기는 것처럼 보인다.
+      e.dataTransfer.dropEffect = "copy"
+    }
+    const onDrop = (e: DragEvent): void => {
+      // ★ 파일이 없어도 막는다 ★ 텍스트·링크 드롭도 기본 동작이 내비게이션이다.
+      e.preventDefault()
+      const file = e.dataTransfer?.files?.[0]
+      if (file === undefined) return
+      // 가져오기 화면으로 옮기고 같은 입구로 흘린다. 어느 화면에서 떨어뜨렸든
+      // 사용자가 뜻한 것은 「이 파일을 넣어라」 하나다.
+      goImport()
+      importActions.pickFile(e)
+    }
+    document.addEventListener("dragover", onOver)
+    document.addEventListener("drop", onDrop)
+    return () => {
+      document.removeEventListener("dragover", onOver)
+      document.removeEventListener("drop", onDrop)
+    }
+  }, [goImport, importActions])
 
   /**
    * 되돌리기 — **묻고, 실행하고, 다시 읽는다.**

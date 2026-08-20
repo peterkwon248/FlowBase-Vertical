@@ -404,11 +404,37 @@ describe("지금 0이라 못박는다", () => {
   })
 
   /**
-   * 헌장 C-6 «Fact 화면 드래그 영구 금지». 오늘 0건이라 무비용이고,
-   * 칸반이나 열 재정렬을 붙이는 날 자동으로 걸린다.
+   * 헌장 C-6 «Fact 화면 드래그 **상태 변경** 영구 금지». 칸반이나 행 재정렬을
+   * 붙이는 날 자동으로 걸린다.
+   *
+   * ★ 2026-08-20에 **좁혔다** — 느슨하게가 아니라 정밀하게 ★
+   *
+   * 전 판정은 `WIRED`에서 `dataTransfer`라는 **낱말 자체**를 막았다. 그런데
+   * 조항 원문(구현-헌장:78)은 「Fact 화면 드래그 **상태 변경** 영구 금지」이고,
+   * 금지의 대상은 **끌어서 값을 바꾸는 것**(칸반·재정렬)이다.
+   *
+   * 파일을 끌어다 놓아 **가져오기**를 여는 것은 그 반대다 — 값을 바꾸는 게 아니라
+   * 파이프라인 입구에 바이트를 넣는 것이고, 그 경로는 이미 «가져오기»라는 이름으로
+   * 승인돼 있다(ADR-013). 낱말로 막으면 **조항이 금지하지 않은 것까지 막는다.**
+   *
+   * 그래서 신호를 바꾼다:
+   *   `draggable` · `onDragStart`      우리 UI에서 드래그를 **시작**시키는 것 — 금지
+   *   `dataTransfer.setData/getData`   드래그에 **값을 실어 나르는** 것 — 금지
+   *   `dataTransfer.files`             떨어진 **파일을 받는** 것 — 가져오기 입구, 허용
+   *
+   * ★ 부러뜨려 확인했고, **두 번 새는 것을 잡았다** (작업 리듬 3) ★
+   * 좁힌 정규식에 `el.ondragstart = …` + `ev.dataTransfer?.setData(…)`를 실제로
+   * 심어 봤더니 **17건 전부 통과했다.** 두 구멍이었다:
+   *   ① `onDragStart\b`  — DOM 속성은 **소문자** `ondragstart`다
+   *   ② `dataTransfer\.` — 옵셔널 체이닝 `dataTransfer?.setData`에 점이 안 붙는다
+   * 「좁힌다」와 「무뎌진다」는 한 글자 차이라, 좁힐 때는 반드시 부러뜨려 본다.
    */
   it("Fact 화면에 드래그 어포던스가 없다 (헌장 C-6)", () => {
-    expect(TEMPLATE).not.toMatch(/\bdraggable\b/)
-    expect(WIRED).not.toMatch(/onDragStart|dataTransfer/)
+    expect(TEMPLATE, "행을 끌 수 있게 만들었다").not.toMatch(/\bdraggable\b/)
+    expect(WIRED, "우리 UI에서 드래그를 시작시킨다").not.toMatch(/\bon[Dd]rag[Ss]tart\b/)
+    expect(
+      WIRED,
+      "드래그에 값을 실어 나른다 — 그것이 C-6이 금지한 «드래그 상태 변경»이다",
+    ).not.toMatch(/dataTransfer\s*\??\.\s*(setData|getData|setDragImage)\b/)
   })
 })
