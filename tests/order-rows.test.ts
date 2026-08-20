@@ -376,3 +376,81 @@ runEsm("부분 취소 — 통합해도 금액을 잃지 않는다", () => {
  *
  * 내용은 한 곳 그대로다 — 옮긴 것은 이름뿐이다.
  */
+
+/**
+ * ★ 주문 화면의 상품·수량이 «—»였다 (2026-08-20 · 조사 1.11) ★
+ *
+ * ─────────────────────────────────────────────────────────────
+ * `order.ts:101`의 주석이 「`fact_order_item`이 **비어 있다**」였는데
+ * **거짓이었다** — `run.ts:364` `repo.loadChunk("fact_order_item", …)`가 적재한다.
+ * 실측: 실 DB 434행 · 데모 1,286행, 전부 리스팅 제목이 붙어 있다.
+ *
+ * 진짜 원인은 **조회**였다. `loadOrderRows`의 SQL에 `fact_order_item`이 아예 없었다.
+ * 그 결과 **같은 데이터로 대시보드 상품별 표는 품목 단위로 그려지는데 주문 화면만
+ * 비어 있었고, 사용자는 두 화면 중 어느 쪽이 맞는지 알 수 없었다.**
+ *
+ * 잘못된 주석이 왜 위험한지의 표본이다 — 「데이터가 없다」로 읽은 다음 사람은
+ * 프로파일 매핑을 의심하러 가고, 정작 한 줄짜리 조인은 안 본다.
+ * ─────────────────────────────────────────────────────────────
+ *
+ * 절대값을 걸지 않는다 — 사용자가 파일을 더 넣으면 수가 는다. **불변식**을 문다.
+ */
+run("주문 화면 — 품목이 «—»가 아니다 (조사 1.11)", () => {
+  /** 이 블록 전용 로더 — 위 describe의 `load`는 그 스코프 안에 산다. */
+  async function load(): Promise<{ rows: readonly OrderRow[] }> {
+    const db = openNodeDriver(DB, { pragmas: false })
+    try {
+      return { rows: await loadOrderRows(db, LIB, PERIOD) }
+    } finally {
+      await db.close()
+    }
+  }
+
+  it("★ 품목이 적재돼 있으면 주문 행이 그것을 든다 ★", async () => {
+    const { rows } = await load()
+    const orders = rows.filter((r) => r.kind === "order")
+    if (orders.length === 0) return // 데이터가 없는 기기에서는 판정하지 않는다
+
+    const withItems = orders.filter((r) => r.items !== null)
+    expect(
+      withItems.length,
+      "주문이 있는데 품목을 든 행이 하나도 없다 — 조인이 빠졌다",
+    ).toBeGreaterThan(0)
+  })
+
+  it("품목을 들면 수량이 1 이상이다 — 0은 「모른다」와 구분돼야 한다", async () => {
+    const { rows } = await load()
+    for (const r of rows) {
+      if (r.items === null) continue
+      expect(r.items.count, "품목 줄 수가 0인데 객체가 있다").toBeGreaterThan(0)
+      expect(r.items.quantity, "수량이 음수다").toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  /**
+   * ★ 품목 조인이 주문 행을 불리면 금액이 중복 계상된다 ★
+   * 주문 하나에 품목이 여럿일 수 있으므로 **먼저 주문 단위로 접고** 붙였다.
+   * 그냥 조인하면 여기서 행 수가 늘고, 매출 합이 조용히 부풀어 오른다.
+   */
+  it("★ 품목 조인이 행을 불리지 않는다 — 금액 중복 계상 방지 ★", async () => {
+    const { rows } = await load()
+    const orders = rows.filter((r) => r.kind === "order")
+    const keys = orders.map((r) => `${r.at}|${r.channel}|${r.amount}|${r.status}`)
+    // 같은 키가 품목 수만큼 반복되면 접기가 깨진 것이다. 완전 중복이 없어야 한다는
+    // 뜻은 아니므로(같은 값의 다른 주문이 실재한다) **품목 수와 견준다.**
+    const dup = keys.length - new Set(keys).size
+    const totalItemLines = orders.reduce((a, r) => a + (r.items?.count ?? 0), 0)
+    expect(
+      dup,
+      `행이 품목 수만큼 불었다 — 부질의로 접지 않고 조인했다 (중복 ${dup} · 품목 줄 ${totalItemLines})`,
+    ).toBeLessThan(totalItemLines)
+  })
+
+  it("홀로 선 클레임은 품목이 null이다 — 0건이 아니라 «없다»다 (§22)", async () => {
+    const { rows } = await load()
+    for (const r of rows) {
+      if (r.kind !== "claim") continue
+      expect(r.items, "홀로 선 클레임에 품목이 달렸다").toBeNull()
+    }
+  })
+})

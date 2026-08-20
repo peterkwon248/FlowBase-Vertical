@@ -12,7 +12,7 @@
  * 사실이다 (헌장 A-5). 무엇이 왜 비었는지는 아래 각 자리의 주석에 있다.
  */
 
-import type { OrderRow } from "@core/order/rows.js"
+import type { OrderItems, OrderRow } from "@core/order/rows.js"
 import type { Period } from "@core/profit/index.js"
 import type { TemplateVals } from "./generated/vals.js"
 import { won } from "./format.js"
@@ -20,6 +20,21 @@ import { won } from "./format.js"
 const DIM = "var(--fg-4)"
 const WARN = "var(--label-orange, #F2994A)"
 const NONE = "—"
+
+/**
+ * 품목 요약을 사람 말로. **세 갈래를 구분한다** (§22 — 부재는 일급이다).
+ *
+ *   이름을 안다      「무선충전거치대 F5」 · 여럿이면 「무선충전거치대 F5 외 2건」
+ *   이름을 모른다     「상품 3건」 — 리스팅이 아직 안 붙어 제목이 없다
+ *   품목이 없다       «—» — 정산만 있는 연결이나 품목 열이 없는 양식
+ *
+ * 마지막 갈래를 「0개」로 찍으면 안 된다. 「안 팔렸다」와 「모른다」는 다른 말이다.
+ */
+function itemLabel(items: OrderItems | null): string {
+  if (items === null) return NONE
+  const more = items.count > 1 ? ` 외 ${won(items.count - 1)}건` : ""
+  return items.title === null ? `상품 ${won(items.count)}건` : `${items.title}${more}`
+}
 
 /**
  * 클레임 유형 → 사람이 읽는 말. 목업의 클레임 열 표기를 따른다.
@@ -98,15 +113,29 @@ export function orderVals(
       extId: NONE,
       ch: r.channel,
       color: "var(--fg-2)",
-      // 상품 — `fact_order_item`이 비어 있다. ESM 주문통합검색에는 상품명이 있지만
-      // 아직 품목 테이블로 매핑하지 않았다 (프로파일 스코프 밖).
-      item: claim ? `클레임 · ${CLAIM_LABEL[r.claimType ?? ""] ?? r.claimType ?? ""}` : NONE,
-      itemColor: claim ? WARN : DIM,
+      /**
+       * ★ 상품 — 상수 «—»였다 (2026-08-20 · 조사 1.11) ★
+       *
+       * 옛 주석은 「`fact_order_item`이 **비어 있다**」였는데 **거짓이었다.**
+       * `run.ts:364`가 적재하고 있었고, 빠진 것은 **조회의 조인**이었다
+       * (`core/order/rows.ts`). 그래서 같은 데이터로 대시보드 상품별 표는
+       * 품목 단위로 그려지는데 이 화면만 비어 있었다 — 두 화면이 다른 말을 했다.
+       *
+       * 세 갈래를 구분해서 말한다 (§22 — 부재는 일급이다):
+       *   품목이 있고 이름도 안다   「무선충전거치대 F5」 · 여럿이면 「… 외 2건」
+       *   품목은 있는데 이름을 모른다  「상품 3건」 — 리스팅이 아직 안 붙었다
+       *   품목 자체가 없다          «—» — 정산만 있는 연결·품목 열이 없는 양식
+       */
+      item: claim
+        ? `클레임 · ${CLAIM_LABEL[r.claimType ?? ""] ?? r.claimType ?? ""}`
+        : itemLabel(r.items),
+      itemColor: claim ? WARN : r.items === null ? DIM : "var(--fg-2)",
       // ↑ 홀로 선 클레임만 여기서 자기 성격을 말한다. 통합 행의 취소는 **취소 열**이
       // 말하므로(아래 `claim`), 상품 열까지 쓰면 한 행이 같은 말을 두 번 한다.
       // 연결하기 — 상품 연결은 쓰기 경로다. 어포던스를 그리지 않는다.
       unlinked: false,
-      qty: NONE,
+      // 수량 — 품목이 없으면 «—»다. 0으로 찍으면 「0개 팔렸다」로 읽힌다 (§22).
+      qty: claim || r.items === null ? NONE : won(r.items.quantity),
       rev: won(r.amount),
       // 기여이익 — **주문 단위 배분은 아직 없다.** 손익 계산기가 기간 단위로만
       // 계산한다. 여기에 임의 배분을 넣으면 그 순간 계산기가 둘이 된다

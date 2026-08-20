@@ -92,6 +92,33 @@ export interface OrderRow {
    * 잃지 않아야 해서 `dateEstimated`와 **따로** 둔다.
    */
   readonly claimDateEstimated: boolean
+  /**
+   * ★ 이 주문에 딸린 품목 (2026-08-20 · 조사 1.11) ★
+   *
+   * ─────────────────────────────────────────────────────────────
+   * 전에는 화면이 상품·수량을 **상수 «—»**로 찍었고, `order.ts:101`이 그 이유를
+   * 「`fact_order_item`이 **비어 있다**」고 적어 뒀다. **거짓이었다** —
+   * `run.ts:364` `repo.loadChunk("fact_order_item", …)`가 실제로 적재한다.
+   *
+   * 진짜 원인은 조회였다: 이 SQL에 `fact_order_item`이 아예 없었다. 그래서
+   * **같은 데이터로 대시보드 상품별 표는 품목 단위로 그려지는데 주문 화면만
+   * 비어 있었고, 사용자는 두 화면 중 어느 쪽이 맞는지 알 수 없었다.**
+   * ─────────────────────────────────────────────────────────────
+   *
+   * `null`은 **「품목이 없다」**이지 「0개」가 아니다 — 정산만 있는 연결이나
+   * 품목 열이 없는 양식이 실재한다 (§22 — 부재는 0이 아니다).
+   */
+  readonly items: OrderItems | null
+}
+
+/** 한 주문에 딸린 품목의 요약. 행 하나가 여러 품목을 들 수 있어 합쳐서 든다. */
+export interface OrderItems {
+  /** 대표 품목의 이름. 리스팅이 아직 안 붙었으면 `null`. */
+  readonly title: string | null
+  /** 품목 줄 수. 1이면 대표가 곧 전부다. */
+  readonly count: number
+  /** 수량 합. */
+  readonly quantity: number
 }
 
 export async function loadOrderRows(
@@ -104,14 +131,36 @@ export async function loadOrderRows(
       // 주문 행 — 짝이 되는 클레임이 **같은 기간 안에** 있으면 달고 선다.
       // `fact_claim`의 UNIQUE(connection_id, source_key)가 짝을 최대 하나로
       // 묶으므로 이 LEFT JOIN은 행을 불리지 않는다.
+      // ★ 품목 조인 (조사 1.11) ★ 주문 하나에 품목이 여럿일 수 있으므로 **먼저
+      // 주문 단위로 접고** 나서 붙인다. 그냥 조인하면 주문 행이 품목 수만큼 불어나
+      // 금액이 중복 계상된다.
+      //
+      // 대표 이름은 `MIN(title)` — 아무거나가 아니라 **결정적**이어야 한다.
+      // 회차마다 다른 이름이 뜨면 사용자는 데이터가 변한 줄 안다.
+      //
+      // 기간 필터를 부질의 안에도 건다 — 없으면 라이브러리의 전 품목을 접는다
+      // (LOCK 5). 바깥 조건과 같은 값을 쓴다.
       `SELECT 'order' AS kind, o.ordered_at AS at,
               COALESCE(cn.display_name, '(이름 없는 연결)') AS ch,
               o.status AS st, o.total_amount AS amt,
               c.claim_type AS ctype, COALESCE(c.amount, 0) AS camt,
               0 AS est,
-              CASE WHEN c.date_precision = 'proxy' THEN 1 ELSE 0 END AS cest
+              CASE WHEN c.date_precision = 'proxy' THEN 1 ELSE 0 END AS cest,
+              it.icount AS icount, it.iqty AS iqty, it.ititle AS ititle
          FROM active_order o
          LEFT JOIN connection cn ON cn.id = o.connection_id
+         LEFT JOIN (
+                SELECT oi.order_id AS oid,
+                       COUNT(*) AS icount,
+                       SUM(oi.quantity) AS iqty,
+                       MIN(ml.title) AS ititle
+                  FROM active_order_item oi
+                  JOIN active_order oo ON oo.id = oi.order_id
+                  LEFT JOIN marketplace_listing ml ON ml.id = oi.listing_id
+                 WHERE oo.library_id = ?
+                   AND oo.ordered_at >= ? AND oo.ordered_at < date(?, '+1 day')
+                 GROUP BY oi.order_id
+              ) it ON it.oid = o.id
          LEFT JOIN active_claim c
                 ON c.library_id = o.library_id
                AND c.connection_id = o.connection_id
@@ -127,7 +176,10 @@ export async function loadOrderRows(
               c.status AS st, c.amount AS amt,
               c.claim_type AS ctype, c.amount AS camt,
               CASE WHEN c.date_precision = 'proxy' THEN 1 ELSE 0 END AS est,
-              CASE WHEN c.date_precision = 'proxy' THEN 1 ELSE 0 END AS cest
+              CASE WHEN c.date_precision = 'proxy' THEN 1 ELSE 0 END AS cest,
+              -- 홀로 선 클레임에는 딸린 품목이 없다. 0이 아니라 **NULL**이다 —
+              -- 「품목이 없다」와 「0개 팔렸다」는 다른 말이다 (§22).
+              NULL AS icount, NULL AS iqty, NULL AS ititle
          FROM active_claim c
          LEFT JOIN connection cn ON cn.id = c.connection_id
         WHERE c.library_id = ?
@@ -142,6 +194,7 @@ export async function loadOrderRows(
         ORDER BY at DESC, kind`,
     )
     .all(
+      libraryId, period.from, period.to, // 품목 부질의의 기간 (LOCK 5 — 전량 접기 금지)
       period.from, period.to, // 주문 쪽 LEFT JOIN의 클레임 기간
       libraryId, period.from, period.to,
       libraryId, period.from, period.to,
@@ -158,5 +211,14 @@ export async function loadOrderRows(
     claimAmount: Number(r["camt"] ?? 0),
     dateEstimated: Number(r["est"] ?? 0) === 1,
     claimDateEstimated: Number(r["cest"] ?? 0) === 1,
+    // `icount`가 NULL이면 **품목이 아예 없다** — 0건이 아니다 (§22).
+    items:
+      r["icount"] == null
+        ? null
+        : {
+            title: r["ititle"] == null ? null : String(r["ititle"]),
+            count: Number(r["icount"]),
+            quantity: Number(r["iqty"] ?? 0),
+          },
   }))
 }
