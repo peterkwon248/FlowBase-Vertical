@@ -264,12 +264,18 @@ describe("U-3. 못 누르는 것은 그리지 않는다", () => {
    * 한다 — 광고된 단축키가 무반응인 것은 「아직 안 만든 기능」이 아니라 **거짓말**이다.
    * 그래서 이 자리는 CUTS 선언으로 면제되지 않는다.
    */
-  it("⌘K — 화면에 적힌 단축키는 배선되거나, 적히지 않거나", () => {
-    const advertised = /⌘K/.test(TEMPLATE)
-    const wired = isWired("openCmd") || /addEventListener\(\s*["']keydown/.test(WIRED)
-    // 오늘은 적혀 있는데 안 돈다. 그 사실을 붙들어 둔다 — 고치면 이 시험을 뒤집는다.
-    expect(advertised && !wired, "⌘K가 적혀 있는데 배선이 없다 (2026-08-20 감사 A-2-3)")
-      .toBe(true)
+  /**
+   * ★ 래칫이었고, 오늘 뒤집었다 ★ 원래 단언은 «적혀 있는데 배선이 없다»를
+   * `toBe(true)`로 붙들고 있었다 — 감사 A-2-3. 이제 반대를 요구한다.
+   */
+  it("★ 화면에 적힌 단축키는 동작한다 ★", () => {
+    if (!/⌘K/.test(TEMPLATE)) return // 안 적었으면 이 불변식은 안 걸린다
+    expect(
+      /addEventListener\(\s*["']keydown/.test(WIRED),
+      "⌘K가 적혀 있는데 여는 리스너가 없다 — 적어 놓고 안 되는 것이 U-3 위반이다",
+    ).toBe(true)
+    // 팔레트가 열려도 **낼 것이 없으면** 그것대로 죽은 화면이다
+    expect(isWired("cmdItems"), "팔레트가 비어 있다").toBe(true)
   })
 })
 

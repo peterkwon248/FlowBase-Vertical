@@ -80,6 +80,7 @@ import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
 import { periodVals } from "./period.js"
 import { headMoreVals } from "./head-more.js"
 import { exportVals, type ExportKey } from "./export-wire.js"
+import { paletteVals } from "./palette.js"
 import {
   costTable,
   historyTable,
@@ -211,6 +212,13 @@ export function App(): React.JSX.Element {
    * 그 표에 맞는 문장을 실을 수 있다.
    */
   const [expOpen, setExpOpen] = useState<ExportKey | null>(null)
+  /**
+   * ★ ⌘K 명령 팔레트 (감사 A-2-3) ★
+   * 마크업은 처음부터 있었고 배선만 0이었다. 헤더에 **「⌘K」라고 적혀 있는데**
+   * 여는 코드도 키 리스너도 없었다 — 적어 놓고 안 되는 것이 U-3 위반이다.
+   */
+  const [cmdOpen, setCmdOpen] = useState(false)
+  const [cmdQuery, setCmdQuery] = useState("")
   /** 쓰기 뒤 재조회가 **보던 달**로 돌아오게 하는 참조 (`take`가 갱신한다). */
   const monthRef = useRef<Month>(new Date().toISOString().slice(0, 7))
   /** 되돌리기·원가 정정 확인 다이얼로그. `null`이면 안 떠 있다. */
@@ -381,6 +389,29 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     void loadDevSnapshot().then(take)
   }, [take])
+
+  /**
+   * ★ ⌘K / Ctrl+K — **문서 전역**이라야 한다 ★
+   *
+   * 팔레트 안의 `onKeyDown`은 이미 열린 뒤에만 듣는다. 여는 키는 어디에
+   * 포커스가 있든 들어야 하므로 `document`에 건다.
+   *
+   * `preventDefault`가 필요하다 — 브라우저의 기본 ⌘K(주소창 검색)를 막지 않으면
+   * 팔레트가 열리면서 주소창으로 포커스가 튄다.
+   *
+   * 입력칸 안에서도 연다. ⌘K는 조합키라 글자를 안 먹고, 「어디서든 열린다」가
+   * 이 단축키의 뜻이다.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey)) return
+      e.preventDefault()
+      setCmdOpen((o) => !o)
+      setCmdQuery("")
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [])
 
   /**
    * 달을 바꾼다. **다시 조회한다** — 화면 상태만 바꾸고 숫자를 그대로 두면
@@ -1474,6 +1505,23 @@ export function App(): React.JSX.Element {
     pick: pickMonth,
     goImport,
   })
+  // ⌘K — 이동 · 가져오기 · SKU 검색 (A-2-3). 좁은 화면의 두 번째 통로이기도 하다.
+  paletteVals(
+    vals,
+    cmdOpen,
+    cmdQuery,
+    { products: profitRows, linking },
+    {
+      close: () => {
+        setCmdOpen(false)
+        setCmdQuery("")
+      },
+      setQuery: setCmdQuery,
+      go,
+      goImport,
+    },
+  )
+
   /**
    * ★ 내보내기 다섯 자리 (LOCK 8) ★
    * 헌장 B-10은 「무료 전면 개방」인데 오늘까지 **전면 부재**였다. 표가 없는
