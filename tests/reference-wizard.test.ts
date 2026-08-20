@@ -51,6 +51,9 @@ function analysisOf(profile: MappingProfile, headers: readonly string[]): Import
     autoSelected: null,
     header: { rowIndex: 0, columns: [...headers], confidence: 1 },
     sample: [["A1", "머그컵", "M-1", "3200", "0", "주방", "M-1"]],
+    // 표본 행의 **물리 행 번호**. 격자가 이걸로 파일 좌표를 그린다 — 헤더가 0행이니
+    // 첫 데이터 행은 1행이다. 없으면 그 행은 격자에 서지 않는다.
+    sampleRowIndices: [1],
     sampleExcluded: [],
     columns: [],
     judge: { verdicts: [], tierCounts: { alias: 0, identity: 0, candidate: 0, unknown: 0 } },

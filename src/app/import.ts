@@ -22,11 +22,38 @@
  */
 
 import type { ImportAnalysis } from "@core/import/analyze.js"
+import type { RawCell } from "@core/import/types.js"
 import type { ReferenceRunResult } from "@core/import/run-reference.js"
 import { columnRoles, type ColumnRole } from "@core/import/mapping/index.js"
 import type { BatchDigest } from "@core/store/repository.js"
 import type { TemplateVals } from "./generated/vals.js"
 import { won } from "./format.js"
+
+/**
+ * 0-기준 열 번호 → **엑셀 열 문자** (0→A · 25→Z · 26→AA).
+ *
+ * 화면에 «3번째 열»이라고 적으면 사용자가 엑셀에서 못 찾는다 — 파일을 여는
+ * 도구의 좌표로 말한다. 행 번호를 1-기준으로 보이는 것(`errRows`)과 같은 이유다.
+ */
+function colRef(index: number): string {
+  let n = index
+  let out = ""
+  do {
+    out = String.fromCharCode(65 + (n % 26)) + out
+    n = Math.floor(n / 26) - 1
+  } while (n >= 0)
+  return out
+}
+
+/**
+ * 제외 사유를 사람 말로. **새 실패 상태를 발명하지 않는다** (LOCK 6) — 파이프라인이
+ * 이미 가진 네 종(`ExcludedRow.reason`)을 옮기기만 한다.
+ */
+const EXCL_WORD: Record<string, string> = {
+  total: "합계 행 — 제외",
+  subtitle: "제목·부제 행 — 제외",
+  blank: "빈 행",
+}
 
 const DIM = "var(--fg-4)"
 const G = "var(--pnl-pos)"
@@ -330,6 +357,10 @@ export function importVals(
     vals.setImpReferDate = act.setEffectiveFrom
     vals.impPick = act.pickFile
     vals.impReset = act.reset
+    vals.impGrid = false
+    vals.impGridCols = []
+    vals.impGridRows = []
+    vals.impGridNote = ""
     return
   }
 
@@ -528,6 +559,133 @@ export function importVals(
     code: e.reason,
     msg: e.detail,
   }))
+  /**
+   * ★ 원본 파일 격자 (§21 «import-grid» · 신설) ★
+   *
+   * ─────────────────────────────────────────────────────────────
+   * 목업 위저드는 **열 목록만** 그렸다 — 「파일 헤더 | 샘플 값 | Canonical 필드 |
+   * 추론 근거 | 확신도」가 열 하나에 한 줄씩. 그래서 사용자는 «이게 내 파일이
+   * 맞나»를 **열 이름만 보고** 판단하고 있었다. 그 표는 «이 열이 무슨 뜻인가»에
+   * 답하지 «파일이 어떻게 생겼나»에 답하지 않는다. 격자는 뒤쪽 질문의 자리이고,
+   * 그래서 열 목록을 대체하지 않고 **나란히 선다**.
+   *
+   * ★★ 행 번호는 파일의 좌표다 — 표본의 순서가 아니다 ★★
+   *
+   * `a.sample`은 «파일이 생긴 것»이 아니라 «파이프라인이 본 것»이다. 헤더 위
+   * 제목·헤더·합계·빈 행이 이미 빠져 있어서, i번째 표본이 파일의 몇 행인지는
+   * `a.sampleRowIndices`로만 안다. 순서대로 1,2,3…을 그리면 **파일에 없는 좌표를
+   * 지어내는 것**이고(LOCK 6), 그 거짓말이 실제로 큰 파일이 있다:
+   *
+   * ```
+   * 「파워클릭 보고서」  표본 17행이 물리 6~65에 흩어져 있다
+   *                     16~34행은 통째로 비어 있고, 35행부터 다른 표가 시작한다
+   *                     → 순서로 그리면 «17행짜리 정상 표»로 보인다
+   * ```
+   *
+   * 그래서 빠진 자리를 **접어서 그대로 남긴다** — 「합계 행 — 제외」가 제자리에
+   * 있어야 헌장 C-5의 «제외 행 삭선 + 카운트»가 성립한다.
+   *
+   * ★ 편집 어포던스 0 ★ 원본 셀은 사실층이고, §21-1이 «못 누르는 버튼을 그려놓고
+   * 막는 것이 아니라 아예 안 그린다»고 못박았다 (LOCK 9의 시각적 대응). 회색
+   * 입력칸도 어포던스이므로 두지 않는다. 값을 고치는 자리는 조정 레이어다(ADR-020).
+   * ─────────────────────────────────────────────────────────────
+   */
+  const hdrRow = a.header.rowIndex
+  // 표본 행이 헤더보다 넓을 수 있다 — 헤더 폭으로만 그리면 그 칸이 조용히 사라진다.
+  const gridWidth = a.sample.reduce((w, r) => Math.max(w, r.length), a.header.columns.length)
+  vals.impGridCols = Array.from({ length: gridWidth }, (_, c) => ({
+    ref: colRef(c),
+    // 헤더에 이름이 없는 꼬리 칸은 «(헤더 없음)»이다. 빈칸으로 두면 안 센 것과 같다.
+    name: a.header.columns[c] ?? "",
+    extra: c >= a.header.columns.length,
+  }))
+
+  /** 물리 행 → 그 행에 대해 아는 것. 헤더·데이터·제외가 **한 좌표계**에 산다. */
+  const rowAt = new Map<number, { kind: string; note: string; cells: readonly RawCell[] }>()
+  // 헤더 행은 **자리만** 표시한다 — 이름은 격자 머리글에 상시 떠 있으므로 셀로
+  // 또 그리면 같은 것을 두 번 말하는 꼴이다. 여기서 답할 질문은 «헤더가 몇 행인가»다
+  // (「파워클릭 보고서」는 6행이고, 그 사실이 «이건 표가 아니라 리포트»를 말한다).
+  if (hdrRow !== null) rowAt.set(hdrRow, { kind: "head", note: "헤더 행 — 위 열 이름이 여기서 나왔다", cells: [] })
+  // ★ 표본을 돌되 **좌표가 있는 행만** 그린다 ★ 좌표가 없으면 그 행은 격자에
+  // 서지 않는다 — 순서로 자리를 지어내느니 안 그리는 편이 참이다 (LOCK 6).
+  a.sample.forEach((cells, i) => {
+    const r = a.sampleRowIndices[i]
+    if (r === undefined) return
+    rowAt.set(r, { kind: "", note: "", cells })
+  })
+  for (const e of a.sampleExcluded) {
+    // 제외된 행은 **내용이 남아 있지 않다** — 자리와 사유만 안다. 그걸 그대로 말한다.
+    if (e.reason === "trailing-blank") {
+      // 이 한 항목이 N행을 대표한다 (detail에 개수가 적혀 있다).
+      rowAt.set(e.rowIndex, { kind: "excl", note: e.detail, cells: [] })
+      continue
+    }
+    if (rowAt.has(e.rowIndex)) continue
+    rowAt.set(e.rowIndex, { kind: "excl", note: EXCL_WORD[e.reason] ?? e.reason, cells: [] })
+  }
+
+  const seen = [...rowAt.keys()].sort((x, y) => x - y)
+  // 격자는 **헤더 행부터** 그린다 — 그 위는 파이프라인이 보고 대상으로 삼지 않아
+  // 「모르는 행」이 되고, 모르는 것을 격자에 그리면 아는 척이 된다.
+  const from = hdrRow ?? seen[0] ?? 0
+  const rows: TemplateVals["impGridRows"][number][] = []
+  let blankRun: number[] = []
+  const flushRun = (): void => {
+    if (blankRun.length === 0) return
+    const lo = blankRun[0]!
+    const hi = blankRun[blankRun.length - 1]!
+    rows.push({
+      no: lo === hi ? `${lo + 1}` : `${lo + 1}–${hi + 1}`,
+      kind: "skip",
+      cells: [],
+      note: `빈 행 ${won(blankRun.length)}개`,
+    })
+    blankRun = []
+  }
+  for (const r of seen) {
+    if (r < from) continue
+    const k = rowAt.get(r)!
+    // 빈 행은 이어 붙여 한 줄로 접는다 — 19줄을 「빈 행」으로 채우면 격자가 안 읽힌다.
+    if (k.kind === "excl" && k.note === "빈 행") {
+      blankRun.push(r)
+      continue
+    }
+    flushRun()
+    rows.push({
+      no: `${r + 1}`,
+      kind: k.kind,
+      cells: Array.from({ length: k.cells.length === 0 ? 0 : gridWidth }, (_, c) => {
+        const v = k.cells[c]
+        return {
+          text: v === null || v === undefined ? "" : String(v).slice(0, 40),
+          // 숫자는 우측 정렬 + tabular-nums (§21-4). 판정이 아니라 **생김새**다.
+          num: typeof v === "number",
+        }
+      }),
+      note: k.note,
+    })
+  }
+  flushRun()
+  vals.impGridRows = rows
+  vals.impGrid = rows.length > 0
+
+  /**
+   * ★ 화면에 그린 것이 전부가 아니라는 사실을 **말한다** (LOCK 6) ★
+   * 새 문구를 발명하지 않고 `impExcludedLabel`의 «전체 수는 가져온 뒤에 나옵니다»
+   * 계열을 그대로 잇는다.
+   */
+  const above = hdrRow === null ? 0 : hdrRow
+  vals.impGridNote = [
+    `미리보기 ${won(a.sample.length)}행 — 파일의 ${won(from + 1)}행부터 봅니다`,
+    above > 0 ? `이 위에 ${won(above)}행이 더 있습니다 (제목·안내 행)` : "",
+    gridWidth > a.header.columns.length
+      ? `헤더에 이름이 없는 칸이 ${won(gridWidth - a.header.columns.length)}개 있습니다`
+      : "",
+    "전체 행 수는 가져온 뒤에 나옵니다",
+  ]
+    .filter((t) => t !== "")
+    .join(" · ")
+
   vals.impExcludedLabel =
     a.sampleExcluded.length === 0
       ? "미리보기 범위에서 제외된 행이 없습니다"

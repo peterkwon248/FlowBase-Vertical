@@ -4523,6 +4523,57 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                         ))}
                       </div>
                       {" "}
+                      {vals.impGrid && (
+                        <div data-s21="import-grid" style={{ marginTop: "12px", border: "1px solid var(--border)", borderRadius: "var(--r-md)", overflow: "hidden" }}>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
+                            <span style={{ font: "var(--fw-semi) 13px var(--font-sans)", color: "var(--fg)" }}>
+                              원본 표 미리보기
+                            </span>
+                            <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                              {vals.impGridNote}
+                            </span>
+                          </div>
+                          <div className="db-table-wrap">
+                            <table className="db-table">
+                              <thead>
+                                <tr>
+                                  <th style={{ textAlign: "right" }}>
+                                    <span className="db-th">행</span>
+                                  </th>
+                                  {vals.impGridCols.map((gc, $index: number) => (
+                                    <th key={$index}>
+                                      <span className="db-th" style={{ whiteSpace: "nowrap" }}>{gc.ref}</span>
+                                      <span style={{ display: "block", font: "var(--fw-regular) 10px var(--font-sans)", color: gc.extra ? "var(--pnl-warn)" : "var(--fg-4)", whiteSpace: "nowrap" }}>
+                                        {gc.extra ? "(헤더 없음)" : gc.name}
+                                      </span>
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {vals.impGridRows.map((gr, $index: number) => (
+                                  <tr key={$index} className="fb-row">
+                                    <td className="db-td" style={{ font: "var(--fw-regular) 11px var(--font-mono)", color: "var(--fg-4)", textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                                      {gr.no}
+                                    </td>
+                                    {gr.cells.length === 0 ? (
+                                      <td className="db-td" colSpan={vals.impGridCols.length} style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: gr.kind === "head" ? "var(--fg-3)" : "var(--fg-4)", textDecoration: gr.kind === "excl" ? "line-through" : "none" }}>
+                                        {gr.note}
+                                      </td>
+                                    ) : (
+                                      gr.cells.map((cell, $c: number) => (
+                                        <td key={$c} className="db-td" style={{ font: "var(--fw-regular) 11px var(--font-mono)", color: "var(--fg-2)", textAlign: cell.num ? "right" : "left", fontVariantNumeric: cell.num ? "tabular-nums" : "normal", whiteSpace: "nowrap" }}>
+                                          {cell.text}
+                                        </td>
+                                      ))
+                                    )}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
                       <div style={{ marginTop: "12px", border: "1px solid var(--border)", borderRadius: "var(--r-md)", overflow: "hidden" }}>
                         <div style={{ display: "flex", alignItems: "baseline", gap: "8px", padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
                           <span style={{ font: "var(--fw-semi) 13px var(--font-sans)", color: "var(--fg)" }}>

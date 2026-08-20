@@ -22,6 +22,33 @@
  * 목록은 «데이터가 있는 달»뿐이다 — 그 판정은 DB가 한다
  * (`core/profit/months.ts`). 화면은 고를 수 있는 것만 보여준다.
  */
+/**
+ * ★ 손으로 더한 자리 — 원본 파일 격자 (§21 «import-grid», 2026-08-20) ★
+ *
+ * 목업에 대응물이 없어 변환기가 만들지 않는다. 가져오기 위저드가 «이 열이 무슨
+ * 뜻인가»(열 목록)에만 답하고 «내 파일이 어떻게 생겼나»에 답하지 않던 자리다.
+ */
+export interface ImportGridCol {
+  /** 엑셀 열 좌표 (A · B · … · AA) — 사용자가 파일을 여는 도구의 말이다. */
+  readonly ref: string
+  /** 헤더 행에서 읽은 이름. 헤더 폭 밖의 꼬리 칸은 ""다. */
+  readonly name: string
+  /** 헤더에 이름이 없는 칸인가 — 세어서 말해야 하는 자리다 (LOCK 6). */
+  readonly extra: boolean
+}
+
+/** 격자 한 줄. 데이터 행·헤더 행·제외된 행·접힌 빈 구간이 **한 좌표계**에 산다. */
+export interface ImportGridRow {
+  /** 왼쪽 행 번호. **1-기준**(엑셀과 같다). 접힌 구간은 "17–35" 범위다. */
+  readonly no: string
+  /** "head" 헤더 · "" 데이터 · "excl" 제외 · "skip" 접힌 빈 구간 */
+  readonly kind: string
+  /** 셀. 제외·접힘 줄은 **비어 있다** — 그 행의 내용은 남아 있지 않다. */
+  readonly cells: readonly { readonly text: string; readonly num: boolean }[]
+  /** 제외 사유 · 접힌 행 수. 데이터 행은 ""다. */
+  readonly note: string
+}
+
 export interface PeriodPick {
   /** "2026년 7월" — 지금 보고 있는 달. */
   readonly label: string
@@ -360,6 +387,11 @@ export interface TemplateVals {
   impEditMap: (...args: any[]) => void
   impError: string
   impExcludedLabel: string
+  /** §21 «import-grid» — 격자를 그릴 수 있나. 표본이 0행이면 거짓이다. */
+  impGrid: boolean
+  impGridCols: readonly ImportGridCol[]
+  impGridNote: string
+  impGridRows: readonly ImportGridRow[]
   impHasError: boolean
   impManySheets: boolean
   importCounts: readonly any[]
@@ -943,6 +975,10 @@ export function emptyVals(): TemplateVals {
     impEditMap: () => {},
     impError: "",
     impExcludedLabel: "",
+    impGrid: false,
+    impGridCols: [],
+    impGridNote: "",
+    impGridRows: [],
     impHasError: false,
     impManySheets: false,
     importCounts: [],

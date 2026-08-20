@@ -237,6 +237,7 @@ describe("위저드 확인 표 — 프로파일이 없으면 판정이 말한다
       autoSelected: null,
       header: { rowIndex: 0, columns: ["정산금액", "처음 보는 열"], confidence: 1 },
       sample: [["1000", "x"]],
+      sampleRowIndices: [1],
       sampleExcluded: [],
       columns: cols,
       judge: judgeColumns(cols, buildAliasIndex(PROFILES)),

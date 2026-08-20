@@ -125,6 +125,24 @@ export function streamSheet(
     // 꼬리 빈 행 보류함. 실데이터가 다시 오면 함께 흘려보내고,
     // 끝까지 안 오면 그게 곧 꼬리다.
     let pendingBlanks: { row: RawRow; index: number }[] = []
+    /**
+     * 보류된 빈 행을 **세어서 비운다** (LOCK 6).
+     *
+     * ★ 왜 함수인가 ★ 같은 판단이 세 곳에 있었는데 **한 곳만 세고 있었다.**
+     * 스트리밍 경로는 `excluded`에 넣었고(중간 빈 행), 프롤로그 두 경로는
+     * `pendingBlanks = []`로 그냥 버렸다. 그래서 **빈 행이 앞 200행 안에 있으면
+     * 세어지지 않고, 뒤에 있으면 세어졌다** — 같은 파일의 같은 빈 행이 위치에
+     * 따라 다르게 회계되는 자리다. 실측: 픽스처 「파워클릭 보고서」의 16~34행
+     * (19행)이 통째로 사라져 `sampleExcluded`에 흔적이 없었다.
+     *
+     * 흘려보내는 행은 바뀌지 않는다 — **세는 것만 는다.**
+     */
+    const drainBlanks = (): void => {
+      for (const b of pendingBlanks) {
+        excluded.push({ rowIndex: b.index, reason: "blank", detail: "빈 행" })
+      }
+      pendingBlanks = []
+    }
 
     // ── columnar 버퍼 ──────────────────────────────────────────
     // 청크 하나당 배열 3개. 셀 수와 무관하게 3개다.
@@ -273,7 +291,7 @@ export function streamSheet(
               const p = prologue[r]!
               if (isBlankRow(p)) pendingBlanks.push({ row: p, index: r })
               else {
-                pendingBlanks = []
+                drainBlanks()
                 yield* emit(p, r)
               }
             }
@@ -288,10 +306,7 @@ export function streamSheet(
           continue
         }
         // 실데이터가 왔으니 보류분은 중간 빈 행이었다.
-        for (const b of pendingBlanks) {
-          excluded.push({ rowIndex: b.index, reason: "blank", detail: "빈 행" })
-        }
-        pendingBlanks = []
+        drainBlanks()
         yield* emit(row, index)
       }
     }
@@ -303,7 +318,7 @@ export function streamSheet(
         const p = prologue[r]!
         if (isBlankRow(p)) pendingBlanks.push({ row: p, index: r })
         else {
-          pendingBlanks = []
+          drainBlanks()
           yield* emit(p, r)
         }
       }

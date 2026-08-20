@@ -84,6 +84,18 @@ export interface ImportAnalysis {
   readonly header: HeaderDetection
   /** 미리보기 행. 헤더 아래 실데이터다. */
   readonly sample: readonly RawRow[]
+  /**
+   * `sample[i]`의 **물리 행 번호** (0-기준). 길이는 `sample`과 같다.
+   *
+   * ★ 왜 따로 드나 ★ `sample`은 «파일이 생긴 것»이 아니라 «파이프라인이 본 것»이다 —
+   * 헤더 위 제목·헤더·합계·빈 행이 이미 빠져 있다. 그래서 표본의 i번째가 파일의
+   * 몇 행인지는 이 배열로만 안다. 없으면 화면이 «1,2,3…»을 그리게 되고, 그건
+   * 파일에 없는 좌표를 지어내는 것이다 (LOCK 6).
+   *
+   * `sampleExcluded[].rowIndex`와 **같은 좌표계**다 — 둘을 나란히 놓아야
+   * 「합계 행 — 제외」를 제자리에 그릴 수 있다 (헌장 C-5).
+   */
+  readonly sampleRowIndices: readonly number[]
   /** ⚠ **미리보기 범위에서** 제외된 행. 전체 수가 아니다. */
   readonly sampleExcluded: readonly ExcludedRow[]
   /**
@@ -205,6 +217,18 @@ async function peekSheet(
 ): Promise<{
   header: HeaderDetection
   sample: RawRow[]
+  /**
+   * `sample[i]`가 시트에서 **몇 번째 물리 행이었나**. 길이는 `sample`과 같다.
+   *
+   * ★ `startRow + i`로 계산할 수 없다 ★ 합계 행과 빈 행은 청크에 실리지 않고
+   * 건너뛰므로 표본의 순서와 파일의 행 번호가 어긋난다 (`types.ts`의
+   * `NormalizedChunk.rowIndices` 주석이 같은 사고를 경계한다). 실측: 픽스처 #12의
+   * 첫 청크는 3,4,5,**7**,8,9,**11**,… 로 3행째부터 갈라진다.
+   *
+   * 이걸 버리면 `excluded`의 `rowIndex`(물리 행)와 표본 행(순서)이 **다른 좌표계**가
+   * 되어 제외된 행을 제자리에 그릴 수 없다 (헌장 C-5 «제외 행 삭선+카운트»).
+   */
+  rowIndices: number[]
   excluded: readonly ExcludedRow[]
   /**
    * 표본 범위 **모든 칸**의 텍스트. 헤더 행이 없는 양식(카드 레이아웃)은 이걸로만
@@ -217,10 +241,13 @@ async function peekSheet(
   // ★ 첫 청크만 본다 ★ 판정에 필요한 것(헤더·표본)은 앞에서 다 나오고,
   // 8만 행짜리를 끝까지 흘려서 사용자를 기다리게 할 이유가 없다.
   const sample: RawRow[] = []
+  const rowIndices: number[] = []
   for await (const chunk of chunks) {
     for (let i = 0; i < chunk.rowCount; i++) {
       const base = i * chunk.width
       sample.push(chunk.raws.slice(base, base + chunk.width))
+      // 청크가 이미 들고 있다 — 여기서 안 받으면 파일 좌표를 영영 잃는다.
+      rowIndices.push(chunk.rowIndices[i] ?? -1)
     }
     break
   }
@@ -234,7 +261,13 @@ async function peekSheet(
       if (t !== "" && t.length <= 24) cellTexts.add(t)
     }
   }
-  return { header: sum.header, sample, excluded: sum.excluded, cellTexts: [...cellTexts] }
+  return {
+    header: sum.header,
+    sample,
+    rowIndices,
+    excluded: sum.excluded,
+    cellTexts: [...cellTexts],
+  }
 }
 
 export async function analyzeImport(
@@ -361,6 +394,7 @@ export async function analyzeImport(
     const sum =
       (moved === null ? picked : null) ?? (await peekSheet(src, effectiveIndex, sampleRows))
     const sample = sum.sample
+    const rowIndices = sum.rowIndices
 
     const mine = sheetMatches.find((m) => m.sheetIndex === effectiveIndex)
     const matched = mine
@@ -435,6 +469,7 @@ export async function analyzeImport(
       profiles: matched,
       header: sum.header,
       sample,
+      sampleRowIndices: rowIndices,
       sampleExcluded: sum.excluded,
       columns: sightings,
       judge: judgeColumns(sightings, buildAliasIndex(profiles), identities),
