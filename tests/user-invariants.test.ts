@@ -438,3 +438,53 @@ describe("지금 0이라 못박는다", () => {
     ).not.toMatch(/dataTransfer\s*\??\.\s*(setData|getData|setDragImage)\b/)
   })
 })
+
+/**
+ * ★ 목업의 데모 컨트롤은 제품에 안 그린다 (2026-08-20 · 조사 1.6 · U-3) ★
+ *
+ * ─────────────────────────────────────────────────────────────
+ * U-3은 「못 누르는 것은 **아예 안 그린다**」이다. 답은 배선하거나 지우거나 둘 중
+ * 하나인데, 아래는 **목업이 자기를 시연하려고 둔 장치**라 제품에 배선할 대상이 없다.
+ *
+ * 실측(Chromium): 채널 화면에 「상태 미리보기」 라벨 + 빈 세그먼트(0×0) +
+ * **라벨 없는 26×28 빈 버튼**이 그려져 있었다. `stateTabs=[]` · `firstRunLabel=""` ·
+ * `toggleFirstRun=() => {}` — 배선 0곳이다. 버튼만 지우면 라벨이 가리킬 것 없이
+ * 남으므로 **줄을 통째로** 지운다.
+ *
+ * ★ 왜 CSS인가 ★ `Template.tsx`는 생성물이고 `refuseIfPatched`가 지킨다. 마크업에서
+ * 빼려면 변환기를 고치고 이탈을 선언해야 하는데 그건 별건의 큰 일이다. CSS는 우리
+ * 것이고 이미 «구조로 짚는» 선례가 있다(768px `.fb-head-more`).
+ *
+ * ★ `!important`가 필요한 이유 ★ 생성물이 레이아웃을 **인라인 style**로 박아서
+ * 스타일시트가 진다. 실측으로 한 번 속았다 — 선택자도 맞고 `matches()`도 참인데
+ * 계산값이 `flex`였다.
+ * ─────────────────────────────────────────────────────────────
+ */
+describe("목업 데모 컨트롤은 제품에 안 그린다 (U-3)", () => {
+  it("★ 채널 화면의 「상태 미리보기」 데모 줄을 지운다 ★", () => {
+    expect(THEME, "데모 줄을 숨기는 규칙이 없다").toMatch(
+      /\[data-screen-label="채널"\]\s*>\s*div:has\(\s*>\s*\.segmented\s*\)/,
+    )
+    const rule = THEME.slice(THEME.indexOf('[data-screen-label="채널"]'))
+    expect(
+      rule.slice(0, 120),
+      "인라인 style이 이긴다 — !important 없이는 시트에 들어가고도 안 먹는다",
+    ).toMatch(/display:\s*none\s*!important/)
+  })
+
+  it("★ 라벨도 아이콘도 없는 버튼은 그리지 않는다 ★", () => {
+    expect(THEME, "빈 버튼을 숨기는 규칙이 없다").toMatch(/\.v-btn:empty\s*\{[^}]*display:\s*none/)
+  })
+
+  /**
+   * ★ 이 규칙은 **한시적이다** ★
+   * 채널 화면에 진짜 세그먼트(상태 필터 등)가 생기면 이 선택자가 그것까지 가린다.
+   * `stateTabs`가 배선되는 날 이 시험이 붉어져 «규칙을 지워라»를 말한다.
+   */
+  it("★ stateTabs가 배선되면 위 규칙을 지워야 한다 — 그때 이 시험이 붉어진다 ★", () => {
+    expect(
+      WIRED,
+      "stateTabs가 배선됐다 — flowbase-theme.css의 채널 데모 줄 숨김 규칙을 지워라",
+    ).not.toMatch(/vals\.stateTabs\s*=/)
+  })
+})
