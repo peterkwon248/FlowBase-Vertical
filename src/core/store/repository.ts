@@ -297,6 +297,16 @@ export interface BatchHistoryRow {
   } | null
 }
 
+/** 묶음 한 줄 — 화면의 목록이 쓰는 모양 (ADR-021 · 013). */
+export interface CollectionRow {
+  readonly id: string
+  readonly name: string
+  /** 담긴 파일 수. **지금 몇 행인가**는 아니다 — 그건 `batchHistory`가 답한다. */
+  readonly batchCount: number
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
 export interface BatchDigest {
   readonly id: string
   readonly sourceName: string
@@ -2116,6 +2126,224 @@ export class Repository {
             AND revoked_at IS NULL`,
       )
       .run(now, connectionId, table, sourceKey)
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 묶음 (마이그레이션 013 · ADR-021) — 어느 파일들을 합쳐 볼 것인가
+  // ─────────────────────────────────────────────────────────
+  //
+  // ★ 이 절의 메서드는 **조회 결과를 바꾸지 않는다** ★
+  // 범위 필터는 `active_*` 뷰 안에 있고(013), 뷰가 `collection_active`를 읽는다.
+  // 여기 있는 것은 그 표를 손보는 입구뿐이다 — 그래서 조회 51곳이 인자를 하나도
+  // 더 받지 않는다. 필터를 «빠뜨릴 수 있는 자리»를 만들지 않는 것이 요점이다.
+  //
+  // 「전체」는 행이 아니다 — `collection_active`에 행이 없으면 전체다.
+
+  /** 묶음 목록. 「전체」는 여기 없다 — 데이터가 아니라 화면의 항목이다. */
+  async collections(libraryId: string): Promise<readonly CollectionRow[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT c.id, c.name, c.created_at, c.updated_at,
+                (SELECT COUNT(*) FROM collection_batch cb WHERE cb.collection_id = c.id) AS batch_count
+           FROM collection c WHERE c.library_id = ? ORDER BY c.name`,
+      )
+      .all(libraryId)
+    return rows.map((r) => ({
+      id: String(r["id"]),
+      name: String(r["name"]),
+      batchCount: Number(r["batch_count"] ?? 0),
+      createdAt: String(r["created_at"]),
+      updatedAt: String(r["updated_at"]),
+    }))
+  }
+
+  /**
+   * 묶음을 만든다. **비어 있는 묶음도 만들 수 있다** — 고르기 전에 이름부터 짓는
+   * 순서를 막지 않는다. 빈 묶음을 고르면 화면이 통째로 0인데, 그건 사고가 아니라
+   * 사용자가 아직 아무것도 안 담은 상태다(그리고 화면이 그렇게 말해야 한다).
+   */
+  async createCollection(c: {
+    id: string
+    libraryId: string
+    name: string
+    batchIds?: readonly string[]
+    now: string
+  }): Promise<void> {
+    const name = c.name.trim()
+    if (name === "") throw new Error("묶음 이름이 비어 있다")
+    return this.db.transaction(async () => {
+      await this.db
+        .prepare(
+          `INSERT INTO collection (id, library_id, name, created_at, updated_at) VALUES (?,?,?,?,?)`,
+        )
+        .run(c.id, c.libraryId, name, c.now, c.now)
+      await this.logCollection(c.libraryId, c.id, "created", null, name, c.now)
+      for (const b of c.batchIds ?? []) await this.attach(c.libraryId, c.id, b, c.now)
+    })
+  }
+
+  async renameCollection(id: string, name: string, now: string): Promise<void> {
+    const trimmed = name.trim()
+    if (trimmed === "") throw new Error("묶음 이름이 비어 있다")
+    return this.db.transaction(async () => {
+      const r = await this.db.prepare(`SELECT library_id FROM collection WHERE id = ?`).get(id)
+      if (r === undefined) throw new Error(`없는 묶음이다: ${id}`)
+      await this.db
+        .prepare(`UPDATE collection SET name = ?, updated_at = ? WHERE id = ?`)
+        .run(trimmed, now, id)
+      await this.logCollection(String(r["library_id"]), id, "renamed", null, trimmed, now)
+    })
+  }
+
+  /**
+   * 묶음을 지운다. **파일은 하나도 안 지운다** — 묶음은 «어느 파일을 볼까»일 뿐이다
+   * (ADR-021 「되돌리기와 반드시 가른다」). 지운 묶음이 활성이었으면 선택이 함께
+   * 사라져 「전체」로 돌아간다 (013의 ON DELETE CASCADE).
+   */
+  async deleteCollection(id: string, now: string): Promise<void> {
+    return this.db.transaction(async () => {
+      const r = await this.db.prepare(`SELECT library_id, name FROM collection WHERE id = ?`).get(id)
+      if (r === undefined) return // 이미 없다 — 두 번 눌러도 같은 결과다
+      await this.db.prepare(`DELETE FROM collection WHERE id = ?`).run(id)
+      await this.logCollection(
+        String(r["library_id"]), id, "deleted", null, String(r["name"]), now,
+      )
+    })
+  }
+
+  /** 담기. 이미 든 것은 조용히 지나간다 — 「담아라」의 결과는 «들어 있다»이다. */
+  async addToCollection(id: string, batchIds: readonly string[], now: string): Promise<number> {
+    return this.db.transaction(async () => {
+      const r = await this.db.prepare(`SELECT library_id FROM collection WHERE id = ?`).get(id)
+      if (r === undefined) throw new Error(`없는 묶음이다: ${id}`)
+      let n = 0
+      for (const b of batchIds) n += (await this.attach(String(r["library_id"]), id, b, now)) ? 1 : 0
+      if (n > 0) await this.touchCollection(id, now)
+      return n
+    })
+  }
+
+  /** 빼기. **계산에서만 뺀다** — 되돌리기와 다르다 (ADR-021). */
+  async removeFromCollection(id: string, batchIds: readonly string[], now: string): Promise<number> {
+    return this.db.transaction(async () => {
+      const r = await this.db.prepare(`SELECT library_id FROM collection WHERE id = ?`).get(id)
+      if (r === undefined) throw new Error(`없는 묶음이다: ${id}`)
+      let n = 0
+      for (const b of batchIds) {
+        const had = await this.db
+          .prepare(`SELECT 1 AS x FROM collection_batch WHERE collection_id = ? AND batch_id = ?`)
+          .get(id, b)
+        if (had === undefined) continue
+        await this.db
+          .prepare(`DELETE FROM collection_batch WHERE collection_id = ? AND batch_id = ?`)
+          .run(id, b)
+        await this.logCollection(String(r["library_id"]), id, "removed", b, null, now)
+        n++
+      }
+      if (n > 0) await this.touchCollection(id, now)
+      return n
+    })
+  }
+
+  /** 이 묶음에 담긴 batch. */
+  async collectionBatches(id: string): Promise<readonly string[]> {
+    const rows = await this.db
+      .prepare(`SELECT batch_id FROM collection_batch WHERE collection_id = ? ORDER BY added_at, batch_id`)
+      .all(id)
+    return rows.map((r) => String(r["batch_id"]))
+  }
+
+  /** 지금 보고 있는 묶음. `null`이면 **전체**다 (행 없음 = 미선언). */
+  async activeCollection(libraryId: string): Promise<string | null> {
+    const r = await this.db
+      .prepare(`SELECT collection_id FROM collection_active WHERE library_id = ?`)
+      .get(libraryId)
+    return r === undefined ? null : String(r["collection_id"])
+  }
+
+  /**
+   * 묶음을 고른다. `null`은 「전체」이고 **행을 지우는 것**으로 표현한다 —
+   * 「전체를 골랐다」를 값으로 저장하지 않는다 (010·012 관례 · §22).
+   */
+  async setActiveCollection(
+    libraryId: string,
+    collectionId: string | null,
+    now: string,
+  ): Promise<void> {
+    if (collectionId === null) {
+      await this.db.prepare(`DELETE FROM collection_active WHERE library_id = ?`).run(libraryId)
+      return
+    }
+    const r = await this.db.prepare(`SELECT 1 AS x FROM collection WHERE id = ?`).get(collectionId)
+    // 없는 묶음을 고르면 화면이 통째로 빈다. 조용히 «전체»로 흘리지도 않는다 (LOCK 6).
+    if (r === undefined) throw new Error(`없는 묶음이다: ${collectionId}`)
+    await this.db
+      .prepare(
+        `INSERT INTO collection_active (library_id, collection_id, set_at) VALUES (?,?,?)
+           ON CONFLICT (library_id) DO UPDATE SET collection_id = excluded.collection_id, set_at = excluded.set_at`,
+      )
+      .run(libraryId, collectionId, now)
+  }
+
+  /**
+   * 이 batch가 **지금 보는 범위**에 드는가. 가져오기 결과가 «이 파일은 「7월 결산」에
+   * 없습니다»라고 말할 수 있어야 한다 (ADR-021 「함정 — 새 파일이 조용히 빠진다」).
+   */
+  async batchInActiveScope(libraryId: string, batchId: string): Promise<boolean> {
+    const active = await this.activeCollection(libraryId)
+    if (active === null) return true // 전체
+    const r = await this.db
+      .prepare(`SELECT 1 AS x FROM collection_batch WHERE collection_id = ? AND batch_id = ?`)
+      .get(active, batchId)
+    return r !== undefined
+  }
+
+  /** 묶음 변경 이력 — append-only. 최신이 먼저 온다. */
+  async collectionEvents(libraryId: string, limit = 200): Promise<readonly Row[]> {
+    return this.db
+      .prepare(
+        `SELECT id, collection_id, kind, batch_id, name, at FROM collection_event
+          WHERE library_id = ? ORDER BY at DESC, id DESC LIMIT ?`,
+      )
+      .all(libraryId, limit)
+  }
+
+  /** 담기 한 건. 이미 있으면 `false` — 이력도 안 쌓는다(같은 사실을 두 번 적지 않는다). */
+  private async attach(
+    libraryId: string,
+    collectionId: string,
+    batchId: string,
+    now: string,
+  ): Promise<boolean> {
+    const had = await this.db
+      .prepare(`SELECT 1 AS x FROM collection_batch WHERE collection_id = ? AND batch_id = ?`)
+      .get(collectionId, batchId)
+    if (had !== undefined) return false
+    await this.db
+      .prepare(`INSERT INTO collection_batch (collection_id, batch_id, added_at) VALUES (?,?,?)`)
+      .run(collectionId, batchId, now)
+    await this.logCollection(libraryId, collectionId, "added", batchId, null, now)
+    return true
+  }
+
+  private async touchCollection(id: string, now: string): Promise<void> {
+    await this.db.prepare(`UPDATE collection SET updated_at = ? WHERE id = ?`).run(now, id)
+  }
+
+  private async logCollection(
+    libraryId: string,
+    collectionId: string,
+    kind: string,
+    batchId: string | null,
+    name: string | null,
+    at: string,
+  ): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO collection_event (library_id, collection_id, kind, batch_id, name, at)
+         VALUES (?,?,?,?,?,?)`,
+      )
+      .run(libraryId, collectionId, kind, batchId, name, at)
   }
 
   // ─────────────────────────────────────────────────────────
