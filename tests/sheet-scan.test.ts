@@ -229,3 +229,60 @@ run("자동 시트 선택 — §18-A 가드", () => {
     expect(a.autoSelected).toBeNull()
   })
 })
+
+/**
+ * ★ 파서가 한 말이 화면에 닿는다 (2026-08-20 · 조사 1.9 · LOCK 6) ★
+ *
+ * `analyze.ts`가 「시트가 N장이라 앞 M장만 훑었습니다」·「시트 i 「…」를 읽지
+ * 못했습니다」를 **만들어 놓고 있었는데 소비처가 0곳이었다** —
+ * `grep -rn '\.warnings' src/app/` → 0건. `run-reference.ts:93`이 스스로
+ * 「warnings의 소비처는 0이다」라고 적어 뒀다.
+ *
+ * 만들어 두고 안 보여주는 것은 **조용한 실패**다. 사용자는 자기가 못 본 시트가
+ * 있다는 사실을 모른다.
+ *
+ * 그리고 섞여 있던 것을 **타입으로 갈랐다** — `sheetNotes`(우리 한국어 문장,
+ * 그대로 보여준다)와 `warnings`(SheetJS 영문 원문, 화면에 안 낸다 · U-5).
+ */
+describe("파서가 한 말이 화면에 닿는다 (조사 1.9)", () => {
+  it("★ 시트를 다 못 훑었으면 그 사실이 문장으로 화면에 온다 ★", async () => {
+    // MAX_SCAN_SHEETS(50)를 넘기려면 시트가 51장 이상이어야 한다.
+    const sheets: [string, unknown[][]][] = [["공유정보", coverSheet as unknown as unknown[][]]]
+    for (let i = 0; i < 55; i++) {
+      sheets.push([`시트${i}`, cardSheet([`품목${i}`, `M-${i}`, 1000 + i])])
+    }
+    const a = await analyzeImport(
+      workbookBytes(sheets as never),
+      "많은시트.xlsx",
+      [COST_CARD],
+    )
+
+    expect(a.sheetNotes.length, "다 못 훑었는데 아무 말도 안 만든다").toBeGreaterThan(0)
+    expect(a.sheetNotes.join(" "), "몇 장 중 몇 장인지 말하지 않는다").toMatch(/시트가 \d+장/)
+
+    const vals = emptyVals()
+    importVals(vals, { ...EMPTY_WIZARD, analysis: a })
+    expect(
+      String(vals.impSheetAutoNote),
+      "파서가 만든 말이 화면에 안 닿는다 — 조용한 실패다 (LOCK 6)",
+    ).toContain("훑었습니다")
+  })
+
+  it("★ SheetJS 영문 원문은 화면에 내지 않는다 (U-5) ★", async () => {
+    const a = await analyzeImport(coverAndCards(), "단가표.xlsx", [COST_CARD])
+    // 원문 채널은 따로 남아 있다 — 진단용이라 지우지는 않는다.
+    expect(Array.isArray(a.warnings), "원문 채널이 사라졌다").toBe(true)
+    // 그리고 그 문장들은 사람 말이어야 한다 — 섞여 들어오면 안 된다.
+    for (const n of a.sheetNotes) {
+      expect(n, `사람 말이 아닌 것이 sheetNotes에 섞였다: ${n}`).toMatch(/[가-힣]/)
+    }
+  })
+
+  it("훑을 것이 없으면 조용하다 — 빈 고지가 자리를 차지하지 않는다", async () => {
+    const a = await analyzeImport(coverAndCards(), "단가표.xlsx", [COST_CARD], { sheetIndex: 1 })
+    expect(a.sheetNotes).toEqual([])
+    const vals = emptyVals()
+    importVals(vals, { ...EMPTY_WIZARD, analysis: a })
+    expect(vals.impSheetAutoNote).toBe("")
+  })
+})

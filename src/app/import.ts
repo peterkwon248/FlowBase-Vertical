@@ -452,7 +452,7 @@ export function importVals(
    */
   const auto = a.autoSelected ?? null
   const autoTo = auto === null ? undefined : a.sheets[auto.to]
-  vals.impSheetAutoNote =
+  const autoNote =
     auto === null || autoTo === undefined
       ? ""
       : `「${a.sheets[auto.from]?.name ?? `시트 ${auto.from + 1}`}」 시트에는 맞는 양식이 없어 ` +
@@ -461,6 +461,24 @@ export function importVals(
           ? ""
           : ` — ${match.profile.label} ${Math.round(match.confidence * 100)}%`) +
         `. 다른 시트를 보려면 아래에서 고르세요.`
+
+  /**
+   * ★ 파서가 한 말을 화면이 받는다 (2026-08-20 · 조사 1.9 · LOCK 6) ★
+   *
+   * `analyze.ts`가 「시트가 14장이라 앞 8장만 훑었습니다」·「시트 3 「…」를 읽지
+   * 못했습니다」를 **만들어 놓고 있었는데 소비처가 0곳이었다.** 만들어 두고 안
+   * 보여주는 것은 조용한 실패다 — 사용자는 자기가 못 본 시트가 있다는 걸 모른다.
+   *
+   * 이 자리에 붙이는 이유: 둘 다 **시트에 관한 말**이고, 이 문단이 정확히 시트
+   * 고르기 블록 안이다. 자동 이동 안내와 같은 곳에서 읽혀야 「그래서 내가 뭘
+   * 골라야 하나」가 한 번에 이어진다.
+   *
+   * `sheetNotes`는 우리가 한국어로 쓴 문장이라 **그대로** 낸다.
+   * `warnings`(SheetJS 원문)는 아래에서 **세기만** 한다 — U-5.
+   */
+  // `?? []` 가드 — 위 `autoSelected ?? null`과 같은 이유다. 시험 목업이
+  // `as unknown as ImportAnalysis` 캐스트라 이 필드가 없는 객체가 실제로 들어온다.
+  vals.impSheetAutoNote = [autoNote, ...(a.sheetNotes ?? [])].filter((s) => s !== "").join(" ")
 
   // ── 확인: 무엇이 들어가나 ────────────────────────────────────────
   //

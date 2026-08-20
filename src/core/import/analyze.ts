@@ -162,8 +162,35 @@ export interface ImportAnalysis {
    * 단독으로 든다.
    */
   readonly autoSelected: { readonly from: number; readonly to: number } | null
-  /** 파서가 남긴 말. 오늘까지 아무 호출부도 이걸 보지 않았다. */
+  /**
+   * SheetJS가 콘솔로 뱉은 **영문 원문**. `captureWarnings`가 그대로 담는다
+   * (`parsers/sheetjs-common.ts:143`).
+   *
+   * ★ 이것은 화면에 내지 않는다 — 그리고 그게 LOCK 6 위반이 아니다 ★
+   * LOCK 6이 요구하는 것은 「**읽지 못한 것을 제외하고 그 제외를 표시하라**」인데,
+   * 여기 담기는 것은 제외가 아니라 **라이브러리의 진단 출력**이다. 제외는 이미
+   * 따로 세어 화면에 낸다(`sampleExcluded` · 다이제스트의 제외 사유).
+   *
+   * 그대로 뿌리면 U-5 위반(사용자에게 라이브러리 어휘를 보여준다)이고, 건수만
+   * 내면 **손댈 수 없는 숫자로 겁만 준다** — §22가 「안 열어도 되는 지표는
+   * 조용하다」고 정한 것과 같은 이유로 조용히 둔다.
+   *
+   * 사람에게 말해야 하는 것은 아래 `sheetNotes`다. 전에는 **둘이 이 배열에
+   * 섞여 있었고, 그래서 둘 다 안 보였다.**
+   */
   readonly warnings: readonly string[]
+  /**
+   * ★ 우리가 사람 말로 쓴 경고 — **화면이 그대로 보여준다** (2026-08-20 · 조사 1.9) ★
+   *
+   * 전에는 이것이 `warnings`에 함께 섞여 있었고, 그 배열의 소비처가 **0곳**이었다
+   * (`run-reference.ts:93`이 「소비처는 0이다」라고 스스로 적어 뒀다).
+   * 즉 「시트가 14장이라 앞 8장만 훑었습니다」를 **만들어 놓고 아무도 안 보여줬다** —
+   * LOCK 6이 금지하는 조용한 실패의 정확한 형태다.
+   *
+   * 섞인 채로 두면 화면이 둘을 못 가른다. 그래서 **타입으로 가른다** —
+   * 여기 들어오는 문장은 전부 「사용자에게 그대로 보여도 되는 한국어」다.
+   */
+  readonly sheetNotes: readonly string[]
   /**
    * 파일 바이트의 지문 (SHA-1 hex).
    *
@@ -477,7 +504,9 @@ export async function analyzeImport(
       sheetMatches,
       suggestedSheetIndex,
       autoSelected,
-      warnings: [...src.warnings, ...scanWarnings],
+      // 라이브러리 원문과 우리 문장을 **섞지 않는다** — 화면이 둘을 다르게 다룬다.
+      warnings: [...src.warnings],
+      sheetNotes: [...scanWarnings],
       contentHash: hex(sha1Bytes(bytes)),
     }
   } finally {
