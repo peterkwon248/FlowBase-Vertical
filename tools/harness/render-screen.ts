@@ -36,7 +36,7 @@ import { orderVals } from "../../src/app/order.js"
 import { linkingVals, type LinkTab } from "../../src/app/linking.js"
 import { channelVals } from "../../src/app/channel.js"
 import { loadCoverage } from "../../src/core/coverage/load.js"
-import { historyVals, batchRowVals, ROWS_PER_PAGE } from "../../src/app/history.js"
+import { historyVals, scopeVals, batchRowVals, ROWS_PER_PAGE } from "../../src/app/history.js"
 import { productVals } from "../../src/app/product.js"
 import { costsVals, emptyCostsDraft, type CostsView } from "../../src/app/costs.js"
 import { loadProductRows } from "../../src/core/product/rows.js"
@@ -215,6 +215,30 @@ orderVals(vals, orders, PERIOD)
 linkingVals(vals, linking, TAB, new Set(), undefined, pendingCost)
 channelVals(vals, coverage, { goImport: noop }, dictOf)
 historyVals(vals, history)
+/**
+ * 보는 범위 — 실제 DB의 묶음을 읽어 그린다 (013 · ADR-021).
+ * 편집 패널은 **닫힌 채**다: 이 하네스는 한 번 그리는 층이라 상호작용을 증명하지
+ * 못한다. `--scope-edit`를 주면 열어 놓고 그린다 — 눈으로 볼 길은 있어야 한다.
+ */
+{
+  const scopeRepo = new Repository(db)
+  const activeId = await scopeRepo.activeCollection("lib-1")
+  const bundles = (await scopeRepo.collections("lib-1")).map((c) => ({
+    id: c.id, name: c.name, count: c.batchCount,
+  }))
+  const activeBatches = activeId === null ? [] : await scopeRepo.collectionBatches(activeId)
+  const openEdit = process.argv.includes("--scope-edit")
+  scopeVals(vals, history, {
+    bundles,
+    activeId,
+    inScope: activeBatches.length,
+    revenue: await scopeRepo.scopeRevenue("lib-1"),
+    edit: openEdit
+      ? { mode: activeId === null ? "new" : "edit", name: bundles.find((b) => b.id === activeId)?.name ?? "", query: "", picked: activeBatches }
+      : null,
+  })
+  console.log(`보는 범위: ${activeId === null ? "전체" : (bundles.find((b) => b.id === activeId)?.name ?? "?")} · 묶음 ${bundles.length}개`)
+}
 const NO_ROWS_ACT = { toggle: () => {}, pickTable: () => {}, pickPage: () => {} }
 if (rowsHit && rowsPage) {
   batchRowVals(

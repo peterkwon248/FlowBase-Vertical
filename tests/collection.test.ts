@@ -347,6 +347,49 @@ describe("④ 빼기 ≠ 되돌리기 — 데이터는 남는다", () => {
   })
 })
 
+describe("★ 뷰를 고쳤어도 안 건드려진 것 ★", () => {
+  it("되돌리기는 묶음과 무관하다 — 범위 밖 파일도 되돌려진다 (ADR-004)", async () => {
+    const db = openNodeDriver(":memory:")
+    try {
+      const repo = await seed(db)
+      await addBatch(db, "b1", "7월.xlsx")
+      await addBatch(db, "b2", "8월.xlsx")
+      await addOrder(db, "b1", "o1", "2026-07-05", 10_000)
+      await addOrder(db, "b2", "o2", "2026-08-05", 20_000)
+      await repo.createCollection({ id: "col-1", libraryId: LIB, name: "7월", batchIds: ["b1"], now: NOW })
+      await repo.setActiveCollection(LIB, "col-1", NOW)
+
+      // b2는 지금 «안 보인다». 그렇다고 «되돌릴 것이 없다»가 되면 ADR-004가 깨진다 —
+      // 되돌리기는 batch·row_shadow를 직접 보므로 뷰와 무관해야 한다.
+      const removed = await repo.undoBatch("b2", NOW)
+      expect(removed, "범위 밖이라고 되돌릴 게 없어지면 안 된다").toBeGreaterThan(0)
+      const left = await db.prepare(`SELECT COUNT(*) AS n FROM fact_order`).get()
+      expect(Number(left?.["n"]), "b2의 행이 실제로 지워졌다").toBe(1)
+    } finally {
+      await db.close()
+    }
+  })
+
+  it("★ 가져오기 기록은 전부 보인다 — 안 그러면 묶음을 만들 수가 없다 ★", async () => {
+    const db = openNodeDriver(":memory:")
+    try {
+      const repo = await seed(db)
+      await addBatch(db, "b1", "7월.xlsx")
+      await addBatch(db, "b2", "8월.xlsx")
+      await addOrder(db, "b1", "o1", "2026-07-05", 10_000)
+      await addOrder(db, "b2", "o2", "2026-08-05", 20_000)
+      await repo.createCollection({ id: "col-1", libraryId: LIB, name: "7월", batchIds: ["b1"], now: NOW })
+      await repo.setActiveCollection(LIB, "col-1", NOW)
+
+      // 파일 목록이 범위에 걸리면 «담을 파일을 고를 화면»이 자기 자신을 가린다
+      const hist = await repo.batchHistory(LIB)
+      expect(hist.length, "묶음 밖 파일도 목록에는 있어야 한다").toBe(2)
+    } finally {
+      await db.close()
+    }
+  })
+})
+
 describe("함정 — 새 파일이 조용히 빠진다 (ADR-021)", () => {
   it("가져오기 결과가 «이 파일은 이 묶음에 없습니다»를 말할 수 있다", async () => {
     const db = openNodeDriver(":memory:")

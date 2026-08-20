@@ -109,6 +109,25 @@ export interface LoadResult {
   /** 「확인함」 당시의 제외 행 수 (012). `null`이면 미확인 — 그때만 배너가 펴진다. */
   excludedAck: number | null
   /**
+   * 보는 범위 — 묶음 목록과 지금 고른 것 (013 · ADR-021).
+   *
+   * ★ 인자로 안 받는다 ★ 범위 필터는 `active_*` 뷰 안에 있고 뷰가
+   * `collection_active`를 읽으므로, 이 스냅샷은 **이미 걸러진 것**이다. 여기서
+   * 읽는 것은 «무엇으로 걸렀나»를 화면이 말할 재료뿐이다.
+   *
+   * 기간을 받지 않는다 — 가져오기 기록과 같은 판단이다(«이 파일이 묶음에 있나»는
+   * 어느 달을 보든 답이 같다). 그래서 `revenue`도 **전 기간**이다.
+   */
+  scope: {
+    readonly bundles: readonly { readonly id: string; readonly name: string; readonly count: number }[]
+    /** `null`이면 「전체」. 저장된 행이 없는 상태다 (013). */
+    readonly activeId: string | null
+    /** 활성 묶음에 담긴 batch id — 편집 패널이 체크 상태를 그리는 재료다. */
+    readonly activeBatches: readonly string[]
+    /** 전 기간 매출 — 전체 / 지금 범위. 「뺀 것의 크기」를 말하는 유일한 수다. */
+    readonly revenue: { readonly all: number; readonly inScope: number }
+  }
+  /**
    * 상품 화면이 그리는 SKU 목록과 원가 (③).
    *
    * 기간을 **받기는 한다** — 판매 수량 칸 때문이다. 원가와 연결은 «기준»이라
@@ -335,6 +354,18 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
       const channelRows = await loadChannelRows(db, DEV_LIBRARY, period)
       const daily = await loadDailySeries(db, DEV_LIBRARY, period)
       const excluded = await repo.exclusionTotals(DEV_LIBRARY)
+      // 묶음 — 스냅샷은 이미 뷰에서 걸러져 왔다. 여기서는 «무엇으로 걸렀나»만 읽는다.
+      const activeId = await repo.activeCollection(DEV_LIBRARY)
+      const scope = {
+        bundles: (await repo.collections(DEV_LIBRARY)).map((c) => ({
+          id: c.id,
+          name: c.name,
+          count: c.batchCount,
+        })),
+        activeId,
+        activeBatches: activeId === null ? [] : await repo.collectionBatches(activeId),
+        revenue: await repo.scopeRevenue(DEV_LIBRARY),
+      }
       /**
        * 항목마다 **이력 건수**를 함께 센다 — 「임대료 · 03부터 (이력 3)」이 되려면
        * 필요하다. 항목 수가 열 개 안팎이라 N+1이 실질 비용이 아니고, 세는 규칙을
@@ -366,6 +397,7 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
         history,
         excluded,
         excludedAck: await new Repository(db).noticeAck(DEV_LIBRARY, EXCLUDED_NOTICE),
+        scope,
         products,
         costs,
         profitRows,
@@ -403,6 +435,9 @@ function failed(e: unknown, want?: Month): LoadResult {
     // 못 읽었으면 «제외가 없다»가 아니라 «모른다»이고, 배너는 그때 뜨지 않는다.
     excluded: { files: 0, rows: 0, reasons: [] },
     excludedAck: null,
+    // 못 읽었으면 묶음도 모른다 — 「전체」로 **가정하지 않는다**. 목록이 비면
+    // 화면은 「전체」 하나만 그리고, 그건 «묶음이 없다»가 아니라 «못 읽었다»의 결과다.
+    scope: { bundles: [], activeId: null, activeBatches: [], revenue: { all: 0, inScope: 0 } },
     products: null,
     // 못 읽었으면 «고정비가 없다»가 아니라 «모른다»이다. 화면이 그때 «두지 않음»을
     // 그리면 사용자가 자기 선언이 사라진 줄 안다.

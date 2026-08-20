@@ -49,6 +49,81 @@ export interface ImportGridRow {
   readonly note: string
 }
 
+/**
+ * ★ 손으로 더한 자리 — 보는 범위 (§21 «scope-bar», 2026-08-21 · ADR-021) ★
+ *
+ * 목업에 대응물이 없다. 목업은 **모든 파일이 늘 합쳐진 세계**를 그렸기 때문이다 —
+ * 「어느 파일을 볼까」라는 물음 자체가 없었다.
+ *
+ * ★ 이름을 가른다 ★
+ * 저장된 것은 **묶음**(`collection`)이고, 화면이 말하는 것은 **범위**(지금 무엇을
+ * 보고 있나)다. 둘은 다르다 — 묶음은 여럿이고 범위는 하나다. `colRows`(열 목록)와
+ * 한 글자 차이가 나는 이름을 피하는 뜻도 있다.
+ */
+export interface ScopeBundle {
+  /** 「전체」는 `id`가 `null`이다 — 저장된 행이 아니라 지울 수 없는 기본 항목이다. */
+  readonly id: string | null
+  readonly name: string
+  /** 담긴 파일 수. 「전체」는 전부다. */
+  readonly count: number
+  readonly active: boolean
+  readonly pick: () => void
+}
+
+/** 묶음 편집 패널 한 줄 — 파일 하나. `batch_id`는 화면에 안 나온다 (헌장 C-4). */
+export interface ScopeFile {
+  /** React key 전용. 화면에 그리지 않는다. */
+  readonly key: string
+  readonly name: string
+  /** "07-14 09:20 · 쿠팡" — 사람이 파일을 알아보는 말 */
+  readonly at: string
+  readonly checked: boolean
+  readonly toggle: () => void
+  /** 「나중 파일이 12행을 가져갔습니다」 같은 사실. 없으면 "". */
+  readonly note: string
+}
+
+/** 묶음 만들기·편집. 열려 있을 때만 있다. */
+export interface ScopeEdit {
+  readonly title: string
+  readonly name: string
+  readonly setName: (v: string) => void
+  readonly query: string
+  readonly setQuery: (v: string) => void
+  readonly files: readonly ScopeFile[]
+  /** 고른 파일 수 — 「3개 담김」 */
+  readonly picked: number
+  readonly canSave: boolean
+  /** 못 저장하는 이유. 아무 말 없이 회색인 버튼은 «고장»으로 읽힌다 (§21-1). */
+  readonly why: string
+  readonly save: () => void
+  readonly cancel: () => void
+  /** 편집 중인 묶음 지우기. 새로 만드는 중이면 `null`. */
+  readonly remove: (() => void) | null
+}
+
+export interface ScopeBar {
+  /** 지금 보는 범위의 이름 — 「전체」 또는 묶음 이름. */
+  readonly label: string
+  /** 「파일 12개 전부」 / 「12개 중 3개 · 9개는 계산 밖」 */
+  readonly summary: string
+  /**
+   * 계산 밖으로 뺀 것의 **크기**. ADR-021 — 막지 않는 대신 크기를 말한다.
+   * 「전체」를 보고 있으면 뺀 것이 없으므로 "".
+   */
+  readonly excluded: string
+  readonly bundles: readonly ScopeBundle[]
+  /**
+   * 방금 넣었는데 지금 묶음 밖인 파일. 없으면 `null`.
+   * 「전체」를 보는 중이면 늘 `null`이다 — 새 파일이 자동으로 들어가므로 할 말이 없다.
+   */
+  readonly fresh: { readonly text: string; readonly add: () => void; readonly dismiss: () => void } | null
+  readonly openNew: () => void
+  /** 지금 묶음을 고쳐 연다. 「전체」를 보는 중이면 `null` — 전체는 편집 대상이 아니다. */
+  readonly openEdit: (() => void) | null
+  readonly edit: ScopeEdit | null
+}
+
 export interface PeriodPick {
   /** "2026년 7월" — 지금 보고 있는 달. */
   readonly label: string
@@ -590,6 +665,8 @@ export interface TemplateVals {
    * 선택기를 그리면 «여기서 달을 고를 수 있다»가 거짓이 된다.
    */
   periodPick: PeriodPick | null
+  /** 보는 범위 — 묶음 전환 + 편집 (ADR-021 · 013). 늘 있다. */
+  scope: ScopeBar
   presetItems: readonly any[]
   prevDis: string
   prevMonth: (...args: any[]) => void
@@ -1188,6 +1265,16 @@ export function emptyVals(): TemplateVals {
     pnlRows: [],
     // 데이터가 하나도 없으면 고를 달도 없다. 빈 목록이 아니라 **선택기 자체가 없다**.
     periodPick: null,
+    scope: {
+      label: "전체",
+      summary: "",
+      excluded: "",
+      bundles: [],
+      fresh: null,
+      openNew: () => {},
+      openEdit: null,
+      edit: null,
+    },
     presetItems: [],
     prevDis: "",
     prevMonth: () => {},

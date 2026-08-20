@@ -420,3 +420,150 @@ export function undoConfirm(r: HistoryRow, run: () => void): ConfirmDialog {
     run,
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// 보는 범위 — 묶음 전환 + 편집 (§21 «scope-bar» · ADR-021 · 013)
+// ═══════════════════════════════════════════════════════════════
+//
+// ★ 이름을 가른다 ★
+// 저장된 것은 **묶음**(`collection`), 화면이 말하는 것은 **범위**(지금 무엇을
+// 보고 있나)다. 묶음은 여럿이고 범위는 하나다.
+//
+// ★ 이 화면이 범위에 안 걸린다 ★
+// 파일 목록이 범위로 걸러지면 «담을 파일을 고르는 화면»이 자기 자신을 가린다.
+// 그래서 `batchHistory`는 늘 전부를 준다 (`tests/collection.test.ts`가 못 박는다).
+
+/** 화면이 들고 있는 상태. App이 소유하고 여기서는 읽기만 한다. */
+export interface ScopeState {
+  readonly bundles: readonly { readonly id: string; readonly name: string; readonly count: number }[]
+  /** `null`이면 「전체」 — 저장된 행이 없는 상태다 (013). */
+  readonly activeId: string | null
+  /** 지금 범위에 든 파일 수. 「전체」면 전부와 같다. */
+  readonly inScope: number
+  /** 전 기간 매출 — 전체 / 지금 범위. 아직 안 읽었으면 `null`. */
+  readonly revenue: { readonly all: number; readonly inScope: number } | null
+  readonly edit: {
+    readonly mode: "new" | "edit"
+    readonly name: string
+    readonly query: string
+    /** 담긴 batch id. 화면에 안 나온다 (헌장 C-4). */
+    readonly picked: readonly string[]
+  } | null
+  /** 방금 넣은 파일. 지금 묶음 밖이면 그 사실을 말한다 (ADR-021 「함정」). */
+  readonly justImported?: { readonly id: string; readonly name: string } | null
+}
+
+export interface ScopeActions {
+  readonly pick: (id: string | null) => void
+  readonly openNew: () => void
+  readonly openEdit: () => void
+  readonly setName: (v: string) => void
+  readonly setQuery: (v: string) => void
+  readonly toggleFile: (batchId: string) => void
+  readonly save: () => void
+  readonly cancel: () => void
+  readonly remove: () => void
+  readonly addJustImported: () => void
+  readonly dismissJustImported: () => void
+}
+
+const NOOP_SCOPE: ScopeActions = {
+  pick: () => {}, openNew: () => {}, openEdit: () => {}, setName: () => {},
+  setQuery: () => {}, toggleFile: () => {}, save: () => {}, cancel: () => {}, remove: () => {},
+  addJustImported: () => {}, dismissJustImported: () => {},
+}
+
+export function scopeVals(
+  vals: TemplateVals,
+  rows: readonly HistoryRow[],
+  st: ScopeState,
+  act: ScopeActions = NOOP_SCOPE,
+): void {
+  const total = rows.length
+  const active = st.bundles.find((b) => b.id === st.activeId) ?? null
+  const inScope = active === null ? total : st.inScope
+
+  // 「전체」가 목록의 첫 항목이고 **지울 수 없다** (ADR-021 — Linear식).
+  const bundles = [
+    { id: null, name: "전체", count: total, active: st.activeId === null, pick: () => act.pick(null) },
+    ...st.bundles.map((b) => ({
+      id: b.id,
+      name: b.name,
+      count: b.count,
+      active: b.id === st.activeId,
+      pick: () => act.pick(b.id),
+    })),
+  ]
+
+  const q = (st.edit?.query ?? "").trim().toLowerCase()
+  const picked = new Set(st.edit?.picked ?? [])
+  const files = rows
+    .filter((r) => q === "" || r.sourceName.toLowerCase().includes(q))
+    .map((r) => ({
+      key: r.id,
+      name: r.sheetName === null ? r.sourceName : `${r.sourceName} · ${r.sheetName}`,
+      at: `${stamp(r.at)} · ${r.channel}`,
+      checked: picked.has(r.id),
+      toggle: () => act.toggleFile(r.id),
+      // 겹치는 파일의 실제 증상은 「두 배」가 아니라 「조용히 빠짐」이다 (ADR-021 개정 ②).
+      // 담아 둔 파일의 행을 나중 파일이 가져갔으면 그 사실을 여기서 말한다.
+      note: r.blockedBy === null ? "" : `나중 파일이 가져감`,
+    }))
+
+  const name = (st.edit?.name ?? "").trim()
+  const canSave = name !== ""
+
+  vals.scope = {
+    label: active?.name ?? "전체",
+    summary:
+      st.activeId === null
+        ? `파일 ${won(total)}개 전부를 보고 있습니다`
+        : `파일 ${won(total)}개 중 ${won(inScope)}개 · ${won(total - inScope)}개는 계산 밖입니다`,
+    // ★ 막지 않는다. 크기를 말한다 (ADR-021) ★
+    // 이 수가 없으면 사용자는 «뺐다»만 알고 «얼마를 뺐는지»를 모른다.
+    excluded:
+      st.activeId === null || st.revenue === null
+        ? ""
+        : `계산 밖 매출 ${won(st.revenue.all - st.revenue.inScope)}원 (전 기간)`,
+    bundles,
+    /**
+     * ★ 넣었는데 안 보이는 일을 없앤다 (ADR-021 「함정」) ★
+     * 「전체」를 보는 중이면 새 파일은 자동으로 든다 — 할 말이 없다.
+     * Lightroom은 이걸 안 한다(임포트와 앨범이 무관한 일이라서). 우리는 다르다.
+     */
+    fresh:
+      st.justImported === null || st.justImported === undefined || st.activeId === null
+        ? null
+        : {
+            text: `방금 넣은 「${st.justImported.name}」은 이 묶음에 없습니다 — 지금 화면에 안 들어갑니다`,
+            add: act.addJustImported,
+            dismiss: act.dismissJustImported,
+          },
+    openNew: act.openNew,
+    // 「전체」는 편집 대상이 아니다 — 저장된 행이 아니기 때문이다 (013).
+    openEdit: st.activeId === null ? null : act.openEdit,
+    edit:
+      st.edit === null
+        ? null
+        : {
+            title: st.edit.mode === "new" ? "새 묶음" : "묶음 편집",
+            name: st.edit.name,
+            setName: act.setName,
+            query: st.edit.query,
+            setQuery: act.setQuery,
+            files,
+            picked: picked.size,
+            canSave,
+            // 아무 말 없이 회색인 버튼은 «고장»으로 읽힌다 (§21-1).
+            // 열자마자는 안 띄운다 — 아직 아무것도 안 쓴 상태는 «틀림»이 아니라 «아직»이다.
+            why: canSave
+              ? picked.size === 0
+                ? "파일을 하나도 안 담아도 만들 수 있습니다 — 그때는 화면이 0을 그립니다"
+                : ""
+              : "이름을 지어야 저장할 수 있습니다",
+            save: act.save,
+            cancel: act.cancel,
+            remove: st.edit.mode === "edit" ? act.remove : null,
+          },
+  }
+}

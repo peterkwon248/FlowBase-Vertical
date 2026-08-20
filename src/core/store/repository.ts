@@ -2298,6 +2298,34 @@ export class Repository {
     return r !== undefined
   }
 
+  /**
+   * ★ 범위 **밖**을 보는 유일한 조회다 ★
+   *
+   * ADR-021의 태도는 「막지 않는다. **크기를 말한다**」이다 — 사용자가 파일을 빼서
+   * 숫자를 예쁘게 만들 수 있고, 앱이 할 일은 막는 게 아니라 «뺀 것이 얼마인지»를
+   * 보이는 데까지다. 그 문장을 쓰려면 **범위 밖을 한 번은 봐야 한다.**
+   *
+   * 그래서 `all`만 `fact_order`를 직접 읽는다. 그 예외를 여기 한 곳에 가둔다 —
+   * `inScope`는 `active_order` 뷰를 그대로 쓰므로 두 수가 **같은 규칙**으로 나온다.
+   *
+   * 기간을 안 받는다. 가져오기 기록 화면이 기간을 안 받기 때문이다(«7월 파일을
+   * 언제 넣었나»는 8월을 봐도 답이 같다). 그래서 이 수는 **전 기간**이고,
+   * 화면 문구도 그렇게 말해야 한다.
+   */
+  async scopeRevenue(libraryId: string): Promise<{ all: number; inScope: number }> {
+    const all = await this.db
+      .prepare(
+        `SELECT COALESCE(SUM(o.total_amount),0) AS s FROM fact_order o
+           JOIN batch b ON b.id = o.batch_id
+          WHERE o.library_id = ? AND b.status = 'committed'`,
+      )
+      .get(libraryId)
+    const inScope = await this.db
+      .prepare(`SELECT COALESCE(SUM(total_amount),0) AS s FROM active_order WHERE library_id = ?`)
+      .get(libraryId)
+    return { all: Number(all?.["s"] ?? 0), inScope: Number(inScope?.["s"] ?? 0) }
+  }
+
   /** 묶음 변경 이력 — append-only. 최신이 먼저 온다. */
   async collectionEvents(libraryId: string, limit = 200): Promise<readonly Row[]> {
     return this.db

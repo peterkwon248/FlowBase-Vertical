@@ -21,7 +21,7 @@
  * **시드를 넣어 채워 보이지 않는다.** 화면이 비어 보이는 것이 지금의 사실이다.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Template } from "./generated/Template.js"
 import { dashboardVals } from "./dashboard.js"
 import {
@@ -38,6 +38,7 @@ import { linkingVals, type LinkTab, type LinkingActions } from "./linking.js"
 import { channelVals } from "./channel.js"
 import {
   historyVals,
+  scopeVals,
   batchRowVals,
   undoConfirm,
   ROWS_PER_PAGE,
@@ -195,6 +196,28 @@ export function App(): React.JSX.Element {
   const [confirm, setConfirm] = useState<ConfirmDialog | null>(null)
 
   /**
+   * ★ 보는 범위 — 묶음 (013 · ADR-021) ★
+   *
+   * 저장된 범위는 DB에 있고(`collection_active`) 뷰가 그것을 읽으므로, 여기 있는
+   * 것은 조회가 준 사본(`scope`)과 **편집 중인 초안**(`scopeEdit`)뿐이다.
+   * 초안은 저장 전까지 DB에 안 간다 — 고르는 중에 손익이 흔들리면 안 된다.
+   */
+  const [scope, setScope] = useState<LoadResult["scope"]>({
+    bundles: [], activeId: null, activeBatches: [], revenue: { all: 0, inScope: 0 },
+  })
+  /**
+   * ★ 방금 넣은 파일 (ADR-021 「함정 — 새 파일이 조용히 빠진다」) ★
+   *
+   * 「7월 결산」을 보는 중에 8월 파일을 넣으면 그 파일은 묶음에 없다. 맞는 동작이지만
+   * 아무 말이 없으면 **«넣었는데 안 보인다»**가 된다. 가져오기는 «손익을 보려고»
+   * 하는 일이라, 넣었는데 화면이 안 변하면 목적이 깨진다.
+   */
+  const [justImported, setJustImported] = useState<{ id: string; name: string } | null>(null)
+  const [scopeEdit, setScopeEdit] = useState<
+    { mode: "new" | "edit"; name: string; query: string; picked: readonly string[] } | null
+  >(null)
+
+  /**
    * ★ **DB에 닿는 동작은 한 번에 하나** — 이 앱의 잠금은 이것 하나다 ★
    *
    * 2d에서 사용자가 [새 SKU로 등록]을 두 번 눌러 고아 SKU가 남았다. 근본 방어는
@@ -309,6 +332,7 @@ export function App(): React.JSX.Element {
     setDaily(r.daily)
     setExcluded(r.excluded)
     setExcludedAck(r.excludedAck)
+    setScope(r.scope)
     // 기간은 **조회가 정한 것**을 받는다. 요청한 달이 사라졌으면 물러난 달이 온다.
     setPer(r.period)
     setMonth(r.month)
@@ -1130,6 +1154,8 @@ export function App(): React.JSX.Element {
             return
           }
           take(r)
+          // 묶음을 보는 중이라면 이 파일이 그 묶음 밖일 수 있다 — 조용히 두지 않는다
+          if (!isRef) setJustImported({ id: batchId, name: a.fileName })
           // 기준 데이터는 batch가 없어 **다시 읽을 다이제스트가 없다.** 결과는
           // 적재 함수가 센 것 그대로다 — 되돌아가 확인할 batch 행이 애초에 없다.
           if (isRef) {
@@ -1232,6 +1258,89 @@ export function App(): React.JSX.Element {
       fetchRows(openBatch.batchId, openBatch.table, page, openBatch.tables)
     },
   }
+
+  /**
+   * 묶음 동작. 전부 **쓰고 다시 조회한다** — 화면 상태만 갈면 뷰가 바뀐 사실이
+   * 손익에 안 내려온다. 달 선택(`pickMonth`)과 같은 규율이고 같은 잠금을 지난다.
+   */
+  const scopeActions = useMemo(
+    () => ({
+      pick: (id: string | null): void => {
+        if (!acquire()) return
+        setScopeEdit(null)
+        void writeThenReload((repo) => repo.setActiveCollection(DEV_LIBRARY, id, nowStamp()), monthRef.current)
+          .then(take)
+          .finally(release)
+      },
+      openNew: (): void => setScopeEdit({ mode: "new", name: "", query: "", picked: [] }),
+      openEdit: (): void => {
+        const cur = scope.bundles.find((b) => b.id === scope.activeId)
+        if (cur === undefined) return
+        setScopeEdit({ mode: "edit", name: cur.name, query: "", picked: scope.activeBatches })
+      },
+      setName: (v: string): void => setScopeEdit((e) => (e === null ? e : { ...e, name: v })),
+      setQuery: (v: string): void => setScopeEdit((e) => (e === null ? e : { ...e, query: v })),
+      toggleFile: (batchId: string): void =>
+        setScopeEdit((e) =>
+          e === null
+            ? e
+            : {
+                ...e,
+                picked: e.picked.includes(batchId)
+                  ? e.picked.filter((x) => x !== batchId)
+                  : [...e.picked, batchId],
+              },
+        ),
+      cancel: (): void => setScopeEdit(null),
+      save: (): void => {
+        const e = scopeEdit
+        if (e === null || e.name.trim() === "") return
+        const id = e.mode === "new" ? `col-${nowStamp().replace(/[^0-9]/g, "")}` : scope.activeId
+        // 잡기 **전에** 다 따진다 — 잡고 나서 물러나면 놓는 자리가 finally 밖에 생긴다
+        if (id === null || !acquire()) return
+        const before = e.mode === "new" ? [] : scope.activeBatches
+        const add = e.picked.filter((b) => !before.includes(b))
+        const drop = before.filter((b) => !e.picked.includes(b))
+        setScopeEdit(null)
+        void writeThenReload(async (repo) => {
+          const now = nowStamp()
+          if (e.mode === "new") {
+            await repo.createCollection({ id, libraryId: DEV_LIBRARY, name: e.name, batchIds: e.picked, now })
+            // 만들자마자 그 묶음을 본다 — 만들고 «아무 일도 안 일어남»이면 왜 만들었는지 모른다
+            await repo.setActiveCollection(DEV_LIBRARY, id, now)
+          } else {
+            await repo.renameCollection(id, e.name, now)
+            if (add.length > 0) await repo.addToCollection(id, add, now)
+            if (drop.length > 0) await repo.removeFromCollection(id, drop, now)
+          }
+        }, monthRef.current)
+          .then(take)
+          .finally(release)
+      },
+      addJustImported: (): void => {
+        const id = scope.activeId
+        const b = justImported
+        if (id === null || b === null || !acquire()) return
+        setJustImported(null)
+        void writeThenReload(async (repo) => {
+          await repo.addToCollection(id, [b.id], nowStamp())
+        }, monthRef.current)
+          .then(take)
+          .finally(release)
+      },
+      dismissJustImported: (): void => setJustImported(null),
+      remove: (): void => {
+        const id = scope.activeId
+        if (id === null || !acquire()) return
+        setScopeEdit(null)
+        // 묶음만 지운다. 파일도 행도 안 지운다 — 되돌리기와 다르다 (ADR-021)
+        void writeThenReload((repo) => repo.deleteCollection(id, nowStamp()), monthRef.current)
+          .then(take)
+          .finally(release)
+      },
+    }),
+    [scope, scopeEdit, justImported, acquire, release, take],
+  )
 
   const openRows = useCallback(
     (row: HistoryRow) => {
@@ -1389,6 +1498,20 @@ export function App(): React.JSX.Element {
   // 잠긴 것을 말하는 화면이라 데이터가 적을수록 오히려 할 말이 많다 (§22).
   channelVals(vals, coverage, { goImport }, marketDict)
   historyVals(vals, history, { askUndo, openRows })
+  // 파일 목록은 **범위에 안 걸린다** — 담을 파일을 고르는 화면이 자기를 가리면 안 된다
+  scopeVals(
+    vals,
+    history,
+    {
+      bundles: scope.bundles,
+      activeId: scope.activeId,
+      inScope: scope.activeBatches.length,
+      revenue: scope.revenue,
+      edit: scopeEdit,
+      justImported,
+    },
+    scopeActions,
+  )
   batchRowVals(vals, openBatch, rowsActions)
   // 상품도 **0장이 사실**이다 — SKU가 없으면 «연결된 SKU가 아직 없습니다»가 게이지에
   // 뜬다. 연결 화면과 같은 판단이고, 원가를 넣을 대상이 없다는 것 자체가 할 말이다.

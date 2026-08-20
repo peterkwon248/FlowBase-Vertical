@@ -4712,6 +4712,128 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
             {" "}
             {vals.v.sync && (
                 <section data-screen-label="가져오기 기록">
+                  <div data-s21="scope-bar" style={{ margin: "12px 14px 0" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      <span style={{ font: "var(--fw-semi) 12px var(--font-sans)", color: "var(--fg-4)", flex: "none" }}>
+                        보는 범위
+                      </span>
+                      {vals.scope.bundles.map((b: any, $index: number) => (
+                        <button
+                          key={$index}
+                          className="v-btn"
+                          onClick={b.pick}
+                          style={{
+                            height: "26px",
+                            padding: "0 10px",
+                            font: "var(--fw-medium) 11px var(--font-sans)",
+                            color: b.active ? "var(--fg)" : "var(--fg-4)",
+                            borderColor: b.active ? "var(--border-strong)" : "var(--border)",
+                            background: b.active ? "var(--bg-elevated)" : "transparent",
+                          }}
+                        >
+                          {b.name}
+                          <span style={{ marginLeft: "5px", color: "var(--fg-5)" }}>{b.count}</span>
+                        </button>
+                      ))}
+                      <span style={{ flex: "1" }} />
+                      {vals.scope.openEdit && (
+                        <button className="v-btn" onClick={vals.scope.openEdit} style={{ height: "26px", padding: "0 10px", font: "var(--fw-medium) 11px var(--font-sans)" }}>
+                          이 묶음 편집
+                        </button>
+                      )}
+                      <button className="v-btn" onClick={vals.scope.openNew} style={{ height: "26px", padding: "0 10px", font: "var(--fw-medium) 11px var(--font-sans)" }}>
+                        새 묶음
+                      </button>
+                    </div>
+                    <div style={{ marginTop: "6px", font: "var(--fw-regular) 11px/1.6 var(--font-sans)", color: "var(--fg-4)" }}>
+                      {vals.scope.summary}
+                      {vals.scope.excluded !== "" && (
+                        <span style={{ marginLeft: "8px", color: "var(--pnl-warn)" }}>{vals.scope.excluded}</span>
+                      )}
+                    </div>
+                    {vals.scope.fresh && (
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px", padding: "8px 10px", borderRadius: "var(--r-sm)", background: "var(--bg-subtle)", border: "1px solid var(--pnl-warn)" }}>
+                        <span style={{ flex: "1", font: "var(--fw-regular) 11px/1.5 var(--font-sans)", color: "var(--fg-2)" }}>
+                          {vals.scope.fresh.text}
+                        </span>
+                        <button className="v-btn" onClick={vals.scope.fresh.add} style={{ height: "25px", padding: "0 10px", flex: "none", font: "var(--fw-semi) 11px var(--font-sans)" }}>
+                          이 묶음에 담기
+                        </button>
+                        <button className="v-btn" onClick={vals.scope.fresh.dismiss} style={{ height: "25px", padding: "0 10px", flex: "none", font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+                          그대로 두기
+                        </button>
+                      </div>
+                    )}
+                    {vals.scope.edit && (
+                      <div style={{ marginTop: "10px", padding: "12px", borderRadius: "var(--r-sm)", background: "var(--bg-subtle)", border: "1px solid var(--border-strong)" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+                          <span style={{ font: "var(--fw-semi) 12px var(--font-sans)", color: "var(--fg)", flex: "none" }}>
+                            {vals.scope.edit.title}
+                          </span>
+                          <input
+                            className="v-input"
+                            value={vals.scope.edit.name}
+                            placeholder="묶음 이름 (필수)"
+                            onChange={(e) => vals.scope.edit?.setName(e.target.value)}
+                            style={{ height: "27px", width: "180px", font: "var(--fw-regular) 12px var(--font-sans)" }}
+                          />
+                          <input
+                            className="v-input"
+                            value={vals.scope.edit.query}
+                            placeholder="파일 이름으로 찾기"
+                            onChange={(e) => vals.scope.edit?.setQuery(e.target.value)}
+                            style={{ height: "27px", flex: "1", minWidth: "120px", maxWidth: "360px", font: "var(--fw-regular) 12px var(--font-sans)" }}
+                          />
+                          <span style={{ flex: "1" }} />
+                          <span style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--fg-4)", flex: "none" }}>
+                            {vals.scope.edit.picked}개 담김
+                          </span>
+                        </div>
+                        <div style={{ maxHeight: "230px", overflowY: "auto", display: "grid", gap: "2px" }}>
+                          {vals.scope.edit.files.map((f: any, $index: number) => (
+                            <label
+                              key={$index}
+                              style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 8px", borderRadius: "var(--r-sm)", cursor: "pointer", background: f.checked ? "var(--bg-elevated)" : "transparent" }}
+                            >
+                              <input type="checkbox" checked={f.checked} onChange={f.toggle} />
+                              <span style={{ flex: "1", minWidth: "0", font: "var(--fw-medium) 12px var(--font-sans)", color: "var(--fg-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {f.name}
+                              </span>
+                              <span style={{ flex: "none", font: "var(--fw-regular) 11px var(--font-mono)", color: "var(--fg-5)" }}>
+                                {f.at}
+                              </span>
+                              {f.note !== "" && (
+                                <span style={{ flex: "none", font: "var(--fw-regular) 11px var(--font-sans)", color: "var(--pnl-warn)" }}>
+                                  {f.note}
+                                </span>
+                              )}
+                            </label>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "10px" }}>
+                          <span style={{ flex: "1", font: "var(--fw-regular) 11px/1.5 var(--font-sans)", color: "var(--fg-4)" }}>
+                            {vals.scope.edit.why}
+                          </span>
+                          {vals.scope.edit.remove && (
+                            <button className="v-btn" onClick={vals.scope.edit.remove} style={{ height: "27px", padding: "0 10px", font: "var(--fw-medium) 11px var(--font-sans)", color: "var(--pnl-neg)" }}>
+                              묶음 지우기
+                            </button>
+                          )}
+                          <button className="v-btn" onClick={vals.scope.edit.cancel} style={{ height: "27px", padding: "0 12px", font: "var(--fw-medium) 11px var(--font-sans)" }}>
+                            취소
+                          </button>
+                          <button
+                            className="v-btn v-btn-primary"
+                            onClick={vals.scope.edit.save}
+                            disabled={!vals.scope.edit.canSave}
+                            style={{ height: "27px", padding: "0 14px", font: "var(--fw-semi) 11px var(--font-sans)", opacity: vals.scope.edit.canSave ? 1 : 0.45 }}
+                          >
+                            저장
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <div style={{ display: "flex", alignItems: "flex-start", gap: "8px", margin: "12px 14px", padding: "10px 12px", borderRadius: "var(--r-sm)", background: "var(--bg-subtle)", border: "1px solid var(--border)" }}>
                     <Lic name="history" size={14} />
                     {" "}
