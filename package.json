@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "convert": "tsx tools/convert/convert.ts",
     "convert:gate": "tsx tools/convert/gate.ts",
+    "state": "tsx tools/harness/state.ts",
     "harness": "tsx tools/harness/build-manifest.ts",
     "perf": "tsx tools/harness/perf-gate.ts",
     "e2e": "tsx tools/harness/e2e-gate.ts",
