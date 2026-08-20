@@ -24,6 +24,7 @@ import type { Period } from "../src/core/profit/index.js"
 import { settlementVals, effectivePayout } from "../src/app/settlement.js"
 import { Template } from "../src/app/generated/Template.js"
 import { shellVals, shellStateFor } from "../src/app/shell.js"
+import { emptyVals } from "../src/app/generated/vals.js"
 import { DEV_SNAPSHOT } from "./dev-db.js"
 
 /**
@@ -144,5 +145,95 @@ run("정산 화면 — 화면 숫자 = 손익 단서 숫자", () => {
   it("조정이 없으면 지급액은 원본 그대로다 — 얹을 것이 없다", async () => {
     const { rows } = await load()
     for (const r of rows) expect(effectivePayout(r), r.settledOn).toBe(r.net)
+  })
+})
+
+/**
+ * ★ 「일치」가 금액을 보지 않고 있었다 (2026-08-20 · 조사 1.1) ★
+ *
+ * ─────────────────────────────────────────────────────────────
+ * `settlement.ts:152`의 판정 근거는 **「주문에 이어졌나」 하나**였는데, 화면 부제는
+ * 「Settlement · **마켓 정산서 대사**」이고 초록 라벨은 **「일치」**였다.
+ * 즉 **금액은 아무것도 안 보고 「일치」라고 말하고 있었다.**
+ *
+ * 이 앱이 파는 것이 정확히 그 신뢰다 — 「대사가 끝났다」는 말은 돈을 봤다는 뜻이다.
+ *
+ * ★ 지금 보는 금액 ★
+ *     지급액 =? 판매액 − 수수료 − VAT − 배송비
+ * 전부 Canonical 필드라 마켓을 모른다 (LOCK 4). 실측: 실 DB 128행 **전부 성립**이라
+ * 오늘은 조용하고, **깨지는 날 말한다.**
+ *
+ * 깨진다는 것은 「파일이 틀렸다」가 아니라 **「이 정산서에 우리가 못 받은 항목이
+ * 있다」**이다. 후보가 이미 알려져 있다 — 11번가의 도서산간배송비·반품배송비는
+ * **열이 있는데 아직 매핑하지 않았다**(`11st-settlement@1.json:86`).
+ *
+ * ★ 여전히 없는 것 ★ 「정산서 금액 vs 우리가 계산한 금액」 대사. 조사가 처방으로
+ * 적은 `core/accounting/recon.ts`에는 **그 기능이 없다**(`reconKey`·`withinPeriod`뿐).
+ * ─────────────────────────────────────────────────────────────
+ */
+describe("정산 대사 — 라벨이 검사한 것만 말한다 (조사 1.1)", () => {
+  /** 표 행 하나를 만든다. DB 없이 도는 순수 조립이라 이 블록은 skip되지 않는다. */
+  const rowOf = (over: Partial<Record<string, unknown>> = {}) => {
+    const base = {
+      settledOn: "2026-07-07",
+      connectionId: "conn-11st",
+      channel: "11번가",
+      count: 3,
+      gross: 100_000,
+      fee: 8_000,
+      vat: 800,
+      shipping: 500,
+      net: 90_700,
+      linked: 3,
+      payOutOn: "2026-07-14",
+      adjustments: [] as unknown[],
+      adjSum: 0,
+      ...over,
+    }
+    const vals = emptyVals()
+    settlementVals(vals, [base] as never, PERIOD)
+    return (vals.setRows as readonly Record<string, unknown>[])[0]!
+  }
+
+  it("★ 「일치」라고 말하지 않는다 — 우리는 정산서와 우리 숫자를 대조하지 않았다 ★", () => {
+    const r = rowOf()
+    expect(
+      String(r["recon"]),
+      "금액을 안 보고 「일치」라고 말한다 — 부제는 「마켓 정산서 대사」다",
+    ).not.toBe("일치")
+  })
+
+  it("항등식이 맞고 주문도 이어지면 「이상 없음」", () => {
+    const r = rowOf()
+    expect(r["recon"]).toBe("이상 없음")
+    expect(String(r["reconColor"])).toContain("pnl-pos")
+  })
+
+  it("항등식은 맞는데 주문이 안 이어지면 그 사실만 말한다", () => {
+    const r = rowOf({ linked: 1 })
+    expect(r["recon"]).toBe("주문 미연결")
+  })
+
+  /**
+   * ★ 이 시험이 이 커밋의 값이다 ★
+   * 못 받은 열이 생기는 날(11번가 도서산간배송비 등) 이 자리가 먼저 붉어진다.
+   */
+  it("★ 지급액이 계산과 어긋나면 붉게, 그리고 **금액을 함께** 말한다 ★", () => {
+    // 도서산간배송비 3,200원이 파일에 있는데 우리가 못 받은 상황을 흉내낸다.
+    const r = rowOf({ net: 90_700 - 3_200 })
+    const label = String(r["recon"])
+    expect(label, "금액이 어긋났는데 조용하다 — 조용한 실패다 (LOCK 6)").toContain("안 맞음")
+    expect(label, "「안 맞습니다」만으로는 손댈 수 없다 — 수를 말해야 한다").toContain("3,200")
+    expect(String(r["reconColor"]), "진짜 결손인데 초록·주황이다").toContain("pnl-neg")
+  })
+
+  it("어긋남이 반대 방향이어도 잡는다 — 절댓값으로 말한다", () => {
+    const r = rowOf({ net: 90_700 + 1_500 })
+    expect(String(r["recon"])).toContain("1,500")
+  })
+
+  it("주문 미연결보다 금액 불일치가 우선한다 — 더 무거운 사실이다", () => {
+    const r = rowOf({ net: 90_700 - 100, linked: 0 })
+    expect(String(r["recon"])).toContain("안 맞음")
   })
 })

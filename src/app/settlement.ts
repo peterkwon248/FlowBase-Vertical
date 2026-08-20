@@ -21,6 +21,8 @@ import { signed, won } from "./format.js"
 const DIM = "var(--fg-4)"
 const WARN = "var(--label-orange, #F2994A)"
 const GREEN = "var(--pnl-pos, #4CB782)"
+/** 진짜 결손을 칠하는 색. 「못 찾음」류에는 쓰지 않는다 — 그건 정상이다. */
+const NEG = "var(--pnl-neg, #E5484D)"
 
 /**
  * 이 묶음의 **유효 지급액** — 원본 + 조정 스택 (헌장 B-3 · ADR-020 A2).
@@ -146,10 +148,35 @@ export function settlementVals(
   vals.adjAddOpacity = guard.can ? "1" : "0.45"
 
   vals.setRows = rows.map((r) => {
-    // 대사 — **원본끼리의 비교만 말한다** (헌장 B-3). 여기서 판정하는 것은
-    // "이 정산이 주문에 이어지나" 하나뿐이고, 이어지지 않으면 그만큼의 수수료가
-    // 손익에서 빠져 있다는 뜻이다. 대시보드 단서 카드와 같은 사실이다.
+    // 대사 — **원본끼리의 비교만 말한다** (헌장 B-3).
     const linked = r.linked === r.count
+    /**
+     * ★ 항등식 — 정산서가 **자기 값끼리** 맞는가 (2026-08-20 · 조사 1.1) ★
+     *
+     * ─────────────────────────────────────────────────────────────
+     * 전에는 이 열이 「주문에 이어졌나」 **하나만** 보고 초록에 **「일치」**라고
+     * 적었다. 화면 부제는 「마켓 정산서 대사」인데, **금액은 아무것도 안 보고
+     * 「일치」라고 말하고 있었다.** 이 앱이 파는 것이 정확히 그 신뢰다.
+     *
+     * ★ 그래서 금액을 하나 본다 ★
+     *     지급액 =? 판매액 − 수수료 − VAT − 배송비
+     * 전부 Canonical 필드라 마켓을 모른다 (LOCK 4). 실측: 실 DB 128행 **전부 성립**.
+     * 즉 오늘은 조용하고, **깨지는 날 말한다.**
+     *
+     * ★ 깨진다는 것의 뜻 ★ 「파일이 틀렸다」가 아니라 **「이 정산서에 우리가 못 받은
+     * 항목이 있다」**이다. 실제 후보가 이미 알려져 있다 — 11번가 정산의
+     * 도서산간배송비·반품배송비는 **열이 있는데 아직 매핑하지 않았다**
+     * (`11st-settlement@1.json:86`). 그 달이 오면 이 검사가 먼저 붉어진다.
+     *
+     * ★ 아직 안 하는 것 — 다음 손을 위해 적어 둔다 ★
+     * **「정산서 금액 vs 우리가 계산한 금액」 대사는 여전히 없다.** 그건 정산 행을
+     * 주문 쪽 합계와 견주는 일이라 조회가 늘고(core), 조사가 처방으로 적은
+     * `core/accounting/recon.ts`에는 **그 기능이 없다** — 거기 있는 것은
+     * `reconKey`(식별자 생성)와 `withinPeriod`(기간 비교)뿐이다.
+     * ─────────────────────────────────────────────────────────────
+     */
+    const balanceDiff = r.net - (r.gross - r.fee - r.vat - r.shipping)
+    const balanced = balanceDiff === 0
     const key = adjustmentKey(r.settledOn, r.connectionId)
     const hasAdj = r.adjustments.length > 0
     const eff = effectivePayout(r)
@@ -172,8 +199,21 @@ export function settlementVals(
       src: "파일",
       srcColor: DIM,
       needsMap: false,
-      recon: linked ? "일치" : "주문 미연결",
-      reconColor: linked ? GREEN : WARN,
+      /**
+       * ★ 라벨이 **검사한 것만** 말한다 ★
+       * 이 셀에는 툴팁 자리가 없다(`recon`·`reconColor` 둘뿐). 그래서 라벨 자체가
+       * 무엇을 봤는지 말해야 한다. 「일치」는 «정산서와 우리 숫자가 같다»로 읽히는데
+       * 우리는 그걸 보지 않았다 — 「이상 없음」은 «검사한 둘 다 통과»라는 뜻이고
+       * 그건 참이다.
+       *
+       * 깨진 금액은 **수를 함께 말한다** — 「안 맞습니다」만으로는 손댈 수 없다 (LOCK 6).
+       */
+      recon: !balanced
+        ? `금액 ${won(Math.abs(balanceDiff))}원 안 맞음`
+        : linked
+          ? "이상 없음"
+          : "주문 미연결",
+      reconColor: !balanced ? NEG : linked ? GREEN : WARN,
       // ── 조정 (ADR-020) ─────────────────────────────────────────
       // ★ 합이 0이어도 «—»이 아니다 ★ (+100, −100)처럼 상쇄되는 스택이 있으면
       // 합은 0이지만 **조정은 있었다.** «—»로 그리면 그 사실이 사라진다 (LOCK 6).
