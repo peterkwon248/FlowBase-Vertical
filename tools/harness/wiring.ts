@@ -90,12 +90,23 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
     fields: /^(ad(Alloc|Count|Roas|Rows|Total|Unalloc)|cd[A-Z]|cost(Changes|Miss|Rows|Total)|ct(Ad|Cogs)|set(CdCost|CdFrom|CdMemo))/,
     why:
       "컷 목록 — 비용 화면의 **남은 두 탭**. 운영·고정비 탭은 배선됐고(010), " +
-      "원가는 상품 화면에 이미 있으며, 광고비 배분은 재료(캠페인↔상품 연결)가 아직 없다",
+      "원가는 상품 화면에 이미 있다. " +
+      "★ 「광고비 배분은 재료가 아직 없다」던 사유는 2026-08-20에 **거짓이 됐다** — " +
+      "014가 `fact_ad_spend.listing_key`를 열어 광고비의 95.3%가 상품까지 내려간다 " +
+      "(ADR-022). 즉 여기 남은 것은 «재료 부족»이 아니라 **«그 재료를 보여주는 탭을 " +
+      "아직 안 만들었다»**이다. 숫자는 이미 손익과 단서 카드에 서 있다",
   },
   {
-    name: "미구현 화면 — 설정·라이선스·커맨드팔레트",
+    /**
+     * ★ 커맨드 팔레트는 **더 이상 컷이 아니다** (2026-08-20 · 감사 A-2-3) ★
+     * `cmd*`·`closeCmd`·`onCmd*`가 배선됐다. 이름과 사유에서 뺀다 — 낡은 선언이
+     * 남아 있으면 다음 사람이 «팔레트는 안 만들기로 했구나»로 읽는다.
+     * 정규식에는 남겨 둔다: `openCmd`처럼 **목업에만 있고 우리가 안 쓰는 이름**이
+     * 아직 있고, 그건 여전히 안 만드는 것이 맞다.
+     */
+    name: "미구현 화면 — 설정·라이선스",
     fields: /^(lic[A-Z]|setLicKey|ss[A-Z]|creds|genRows|adjRows|askReset|setSections|confirmType|setConfirmType|cmd[A-Z]|openCmd|closeCmd|onCmd[A-Z]|modal|modalOpen|closeModal|detail|hasDetail|closeDetail|closeQuadFull)/,
-    why: "컷 목록 — 설정 화면과 커맨드 팔레트. 배포 단계 일이다",
+    why: "컷 목록 — 설정 화면. 배포 단계 일이다 (커맨드 팔레트는 2026-08-20에 배선됐다)",
   },
   {
     // ★ 2026-08-19 B1에서 필드매핑 읽기 배선이, B2에서 확인 완료(confirmFm·
