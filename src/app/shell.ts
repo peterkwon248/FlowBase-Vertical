@@ -174,9 +174,33 @@ function byNav<T>(make: (k: NavKey) => T): Record<NavKey, T> {
  * 값이 **빈 채로 정직하게** 남고, 채운 것과 안 채운 것이 이 함수의 diff로
  * 한눈에 보인다.
  */
+/**
+ * 팝오버·모달 안쪽 클릭이 **바깥의 「닫기」로 새지 않게** 막는다.
+ *
+ * ★ 앱 전체가 이것 하나로 반쯤 죽어 있었다 (2026-08-20 실측) ★
+ * `Template`이 `onClick={vals.stopEvt}`를 **14곳**, `onClick={vals.stop}`을 2곳
+ * 달아 놓았는데 둘 다 `vals.ts`의 기본값 `() => {}` 그대로였고 저장소 어디에도
+ * 대입이 없었다. React 합성 이벤트는 버블하므로, 안쪽을 누르면 그 클릭이 그대로
+ * 바깥 스크림에 닿아 **자기가 연 것을 자기가 닫는다.**
+ *
+ * 브라우저 실측: ⌘K 팔레트를 열고 입력칸을 마우스로 누르면 그 자리에서 닫힌다 —
+ * 즉 **마우스만 쓰는 사람은 검색어를 한 글자도 못 친다.** 조정 팝오버·내보내기
+ * 메뉴·원가 입력칸·「언제부터」 select도 같은 배선을 쓴다.
+ *
+ * 이름이 둘인 것은 생성물의 사정이고 하는 일은 같다. 한 자리에서 준다 —
+ * 화면마다 배선하면 다음에 추가되는 팝오버가 또 죽는다.
+ */
+const stopBubble = (e?: { stopPropagation?: () => void }): void => {
+  e?.stopPropagation?.()
+}
+
 export function shellVals(state: ShellState, actions: ShellActions): TemplateVals {
   const vals = emptyVals()
   const { view, navCollapsed, theme, isNarrow, firstRun, loading } = state
+
+  // 셸이 모든 화면의 바깥이므로 여기서 한 번 준다 (위 `stopBubble` 참조).
+  vals.stop = stopBubble
+  vals.stopEvt = stopBubble
 
   // 목업 L3915~3917
   vals.v = byNav((k) => k === view)

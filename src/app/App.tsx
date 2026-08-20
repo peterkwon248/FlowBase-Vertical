@@ -1516,6 +1516,13 @@ export function App(): React.JSX.Element {
         setCmdOpen(false)
         setCmdQuery("")
       },
+      // 사이드바 상자를 눌러서 여는 길. 키보드 경로(위 `onKey`)는 토글이지만
+      // 이쪽은 **열기만** 한다 — 상자를 누르는 사람은 「열어라」를 뜻하지
+      // 「열려 있으면 닫아라」를 뜻하지 않는다.
+      open: () => {
+        setCmdOpen(true)
+        setCmdQuery("")
+      },
       setQuery: setCmdQuery,
       go,
       goImport,

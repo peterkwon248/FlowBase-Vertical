@@ -15,7 +15,17 @@ import { describe, expect, it } from "vitest"
 import { readFileSync } from "node:fs"
 import { emptyVals } from "../src/app/generated/vals.js"
 import { paletteVals } from "../src/app/palette.js"
-import { NAV, TITLES, UNBUILT } from "../src/app/shell.js"
+import { NAV, TITLES, UNBUILT, shellVals, shellStateFor } from "../src/app/shell.js"
+
+/** 셸 배선만 보는 시험이라 행동은 필요 없다. */
+const SHELL_NOOP = {
+  go: () => {},
+  toggleNav: () => {},
+  closeNav: () => {},
+  openNav: () => {},
+  goImport: () => {},
+  toggleTheme: () => {},
+}
 import type { ProfitRow } from "../src/core/profit/rows.js"
 
 type Item = { icon: string; label: string; sub: string; run: () => void }
@@ -28,6 +38,7 @@ function build(query: string, opts: { products?: readonly ProfitRow[] } = {}) {
   const vals = emptyVals()
   const went: string[] = []
   let closed = false
+  let opened = false
   paletteVals(
     vals,
     true,
@@ -35,12 +46,19 @@ function build(query: string, opts: { products?: readonly ProfitRow[] } = {}) {
     { products: opts.products ?? [], linking: null },
     {
       close: () => { closed = true },
+      open: () => { opened = true },
       setQuery: () => {},
       go: (v) => went.push(v),
       goImport: () => went.push("import!"),
     },
   )
-  return { vals, items: vals.cmdItems as readonly Item[], went, closed: () => closed }
+  return {
+    vals,
+    items: vals.cmdItems as readonly Item[],
+    went,
+    closed: () => closed,
+    opened: () => opened,
+  }
 }
 
 describe("⌘K — 이동", () => {
@@ -138,5 +156,60 @@ describe("여는 키가 실제로 걸려 있다", () => {
     expect(app, "metaKey·ctrlKey를 안 본다 — 맥과 윈도 중 하나가 죽는다").toMatch(/metaKey.*ctrlKey|ctrlKey.*metaKey/)
     expect(app, "기본 동작을 안 막으면 주소창으로 포커스가 튄다").toMatch(/preventDefault\(\)/)
     expect(app, "리스너를 안 걷으면 화면을 옮길 때마다 쌓인다").toMatch(/removeEventListener\("keydown"/)
+  })
+})
+
+describe("마우스로도 열린다 — 사이드바의 「검색 ⌘K」 상자", () => {
+  /**
+   * ★ 이 상자는 눌리는 척하고 있었다 (2026-08-20) ★
+   * `Template.tsx:88`이 `cursor: "pointer"`와 `onClick={vals.openCmd}`를 달아 놨는데
+   * `vals.ts:1251`의 `openCmd`가 `() => {}`였고 저장소 어디에도 대입이 없었다.
+   * 키보드를 안 쓰는 사람에게는 팔레트가 **없는 것과 같았다.**
+   *
+   * U-3이 「못 누르는 것은 아예 안 그린다」이므로 답은 둘 중 하나였다 —
+   * 배선하거나 상자를 지우거나. 「⌘K」라고 적힌 상자는 지울 것이 아니라 배선할 것이다.
+   */
+  it("★ openCmd가 빈 함수가 아니다 ★", () => {
+    const b = build("")
+    expect(typeof b.vals.openCmd, "openCmd가 함수가 아니다").toBe("function")
+    ;(b.vals.openCmd as () => void)()
+    expect(b.opened(), "사이드바 상자를 눌러도 팔레트가 안 열린다").toBe(true)
+  })
+
+  it("여는 것은 토글이 아니다 — 열려 있으면 그대로 열려 있다", () => {
+    // 키보드 ⌘K는 토글이지만 상자를 누르는 사람은 「열어라」를 뜻한다.
+    // 토글로 만들면 이미 열린 팔레트에서 상자를 누를 때 닫혀 버린다.
+    const app = readFileSync("src/app/App.tsx", "utf8")
+    expect(app, "open이 setCmdOpen(true)로 열지 않는다").toMatch(/open:\s*\(\)\s*=>\s*\{\s*setCmdOpen\(true\)/)
+  })
+})
+
+describe("팝오버 안을 눌러도 안 닫힌다 — 앱 전체", () => {
+  /**
+   * ★ 앱 전체가 이것 하나로 반쯤 죽어 있었다 (2026-08-20) ★
+   * `Template`이 `onClick={vals.stopEvt}`를 14곳, `vals.stop`을 2곳 달아 놨는데
+   * 둘 다 `() => {}`였다. React 합성 이벤트는 버블하므로 안쪽 클릭이 바깥
+   * 스크림에 닿아 **자기가 연 것을 자기가 닫는다.**
+   *
+   * 브라우저 실측: ⌘K를 열고 입력칸을 마우스로 누르면 그 자리에서 닫혔다 —
+   * 마우스만 쓰는 사람은 검색어를 한 글자도 못 쳤다.
+   *
+   * 조정 팝오버·내보내기 메뉴·원가 입력칸·「언제부터」 select가 같은 배선을 쓴다.
+   * 그래서 화면별이 아니라 **셸 한 자리**에서 준다.
+   */
+  it("★ stop·stopEvt가 실제로 버블을 막는다 ★", () => {
+    const vals = shellVals(shellStateFor(false), SHELL_NOOP)
+    for (const key of ["stop", "stopEvt"] as const) {
+      let stopped = false
+      const fn = vals[key] as (e: { stopPropagation: () => void }) => void
+      expect(typeof fn, `${key}가 함수가 아니다`).toBe("function")
+      fn({ stopPropagation: () => { stopped = true } })
+      expect(stopped, `${key}가 버블을 안 막는다 — 팝오버가 자기를 닫는다`).toBe(true)
+    }
+  })
+
+  it("인자 없이 불려도 안 터진다", () => {
+    const vals = shellVals(shellStateFor(false), SHELL_NOOP)
+    expect(() => (vals.stop as () => void)()).not.toThrow()
   })
 })

@@ -53,6 +53,12 @@ export interface PaletteItem {
 
 export interface PaletteActions {
   readonly close: () => void
+  /**
+   * **마우스로 여는 길.** 사이드바의 「검색 ⌘K」 상자가 `cursor: pointer`로 그려져
+   * 있는데 `onClick`이 빈 함수라 눌러도 아무 일이 없었다 (2026-08-20).
+   * 「⌘K」라고 적힌 것을 키보드로만 열 수 있으면, 그 상자는 **눌리는 척하는 장식**이다.
+   */
+  readonly open: () => void
   readonly setQuery: (q: string) => void
   readonly go: (view: NavKey) => void
   readonly goImport: () => void
@@ -82,6 +88,7 @@ export function paletteVals(
   vals.cmdOpen = open
   vals.cmdQuery = query
   vals.closeCmd = actions.close
+  vals.openCmd = actions.open
   vals.onCmdInput = (e: { target: { value: string } }) => actions.setQuery(e.target.value)
   /**
    * `esc`로 닫는다 — 팝오버 안에 «esc»라고 적혀 있다. 적힌 것은 동작해야 한다.
