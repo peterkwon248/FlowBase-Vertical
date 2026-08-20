@@ -60,3 +60,7 @@ public/demo.sqlite
 
 # 단일 파일 빌드 산출물 (`npm run single`)
 dist-single/
+
+# oh-my-claudecode 런타임 상태 — 세션·기기마다 다르고 저장소의 사실이 아니다.
+# (플러그인 문서는 `.omc/skills/`만 커밋 대상으로 본다. 지금 우리는 안 쓴다)
+.omc/

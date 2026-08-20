@@ -521,6 +521,11 @@ export async function loadPnlSnapshot(
     shipping: num(joined, "ship"),
     claims,
     cogs: num(cogsRow, "cogs"),
+    // ⚠ **리터럴 0이다 — 등재된 결함이다** (2026-08-20 감사 A-1, 0순위)
+    // 광고비 전액이 `adUnallocated`로 간다. 그래서 **1층(상품 기여이익)과 2층(채널
+    // 기여이익)의 경계가 통째로 틀린다** — 상품별 손익이 광고비를 한 푼도 안 진다.
+    // 배분 규칙(캠페인→상품)이 없어서 0으로 둔 자리고, 「0이라서 안 보인다」와
+    // 「배분을 안 했다」가 화면에서 구별되지 않는다.
     adDirect: 0,
     adUnallocated: adSpend,
     ops,

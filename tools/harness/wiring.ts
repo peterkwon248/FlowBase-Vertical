@@ -316,6 +316,23 @@ export function formatReport(r: WiringReport): string {
   return out.join("\n")
 }
 
+/**
+ * ★ CLI는 판정할 수 있어야 한다 — 아니면 리포트라고 불러야 한다 ★
+ *
+ * 2026-08-20 감사 B-5: 이 CLI가 `process.exitCode`를 **한 번도 안 세웠다.**
+ * 남은 일이 100건이어도 exit 0이었고, 그런 명령을 CI에 걸면 **늘 초록인 게이트**가
+ * 하나 더 생긴다 — 사람을 훈련시켜 게이트를 무시하게 만드는 바로 그 장치다
+ * (`convert:gate`가 늘 빨개서 생긴 문제의 거울상).
+ *
+ * ★ 진짜 판정자는 여전히 `tests/wiring-coverage.test.ts`다 ★ 거기 `TODO_MAX = 0`이
+ * 래칫으로 박혀 있고 그 시험은 CI의 `npm test`가 돌린다. `--check`는 **사람이 손으로
+ * 부를 때** 같은 답을 내게 하려는 것이지, CI에 한 줄을 더 걸려는 게 아니다.
+ */
 if ((process.argv[1] ?? "").endsWith("wiring.ts")) {
-  console.log(formatReport(wiringReport()))
+  const report = wiringReport()
+  console.log(formatReport(report))
+  if (process.argv.includes("--check") && report.allTodo.length > 0) {
+    console.error(`\n✖ 선언되지 않은 미배선 ${report.allTodo.length}건 — 배선하거나 컷으로 선언해라`)
+    process.exitCode = 1
+  }
 }
