@@ -892,6 +892,79 @@ export class Repository {
     })
   }
 
+  /**
+   * 원가 한 줄을 **지운다**. 잘못 들어간 행을 되돌리는 유일한 경로다.
+   *
+   * ★ 왜 삭제가 허용되는가 ★
+   * 원가는 Fact가 아니다 — `batch_id`도 `row_shadow`도 없고 되돌리기 대상도 아니다
+   * (이 절 머리말). LOCK 2의 append-only는 «가져오기는 덮어쓰기가 아니라 batch
+   * 추가»라는 **Fact 적재의 규약**이라 여기 걸리지 않는다. ADR-005도 원가 이력을
+   * «감사 기록이 아니라 **계산의 입력**»으로 규정한다 — 틀린 날짜로 들어간 행은
+   * 보존해야 할 원본이 아니라 **틀린 입력**이다.
+   *
+   * ★ id가 아니라 자연키로 특정한다 ★
+   * `cost_history.id`는 AUTOINCREMENT라 기기마다 다르다. 시험 DB에서 본 id를 실기기에
+   * 그대로 쓰면 **엉뚱한 행을 지운다.** 그래서 `UNIQUE (library_id, sku_id, kind,
+   * effective_from)`로만 연다.
+   *
+   * ★ 지운 것을 돌려준다 — 복구 재료는 이 반환값이 전부다 ★
+   * 그림자가 없으므로 되돌릴 수 없다. 부르는 쪽이 지운 행의 전 컬럼을 **눈에 보이게
+   * 남기도록** 통째로 돌려준다 (LOCK 6 — 조용히 지나가지 않는다).
+   *
+   * 함께 돌려주는 둘은 «지운 뒤 무슨 일이 생기는가»다:
+   *   `remaining` 같은 (SKU·종류)에 남는 이력. 비면 그 SKU는 «0원»이 아니라
+   *             **«미상»**이 되어 손익 합계에서 통째로 빠진다 (`costAt`이 null).
+   *   `bridge`   ADR-016의 다리 사전에 이 SKU가 걸려 있는가. 걸려 있으면 다음 원가
+   *             파일 가져오기가 **같은 값을 다시 넣는다** — 지운 것이 조용히 되살아난다.
+   *             여기서 손대지 않는다(resolved 행은 지우지 않는 것이 ADR-016의 결정이다).
+   *             사람이 알고 결정할 수 있도록 **사실만** 올린다.
+   */
+  async removeCost(c: {
+    libraryId: string
+    skuId: string
+    kind: string
+    effectiveFrom: string
+  }): Promise<{
+    removed: Row | null
+    remaining: readonly Row[]
+    bridge: readonly Row[]
+  }> {
+    return this.db.transaction(async () => {
+      const removed =
+        (await this.db
+          .prepare(
+            `SELECT id, library_id, sku_id, kind, amount, effective_from, note, entered_at, entered_by
+               FROM cost_history
+              WHERE library_id = ? AND sku_id = ? AND kind = ? AND effective_from = ?`,
+          )
+          .get(c.libraryId, c.skuId, c.kind, c.effectiveFrom)) ?? null
+
+      if (removed !== null) {
+        await this.db
+          .prepare(`DELETE FROM cost_history WHERE id = ?`)
+          .run(Number(removed["id"]))
+      }
+
+      const remaining = await this.db
+        .prepare(
+          `SELECT amount, effective_from, entered_by FROM cost_history
+            WHERE library_id = ? AND sku_id = ? AND kind = ?
+            ORDER BY effective_from DESC`,
+        )
+        .all(c.libraryId, c.skuId, c.kind)
+
+      const bridge = await this.db
+        .prepare(
+          `SELECT id, source_key, title, amount, effective_from FROM pending_cost
+            WHERE library_id = ? AND kind = ? AND resolved_sku_id = ? AND state = 'resolved'
+            ORDER BY source_key`,
+        )
+        .all(c.libraryId, c.kind, c.skuId)
+
+      return { removed, remaining, bridge }
+    })
+  }
+
   // ─────────────────────────────────────────────────────────────
   // 원가 대기 (마이그레이션 011) — 못 붙은 원가를 버리지 않는다
   // ─────────────────────────────────────────────────────────────
