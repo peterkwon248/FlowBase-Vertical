@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest"
-import { NAV, TITLES, INITIAL_SHELL, shellStateFor, shellVals, type NavKey } from "../src/app/shell.js"
+import { NAV, TITLES, INITIAL_SHELL, landingView, shellStateFor, shellVals, type NavKey } from "../src/app/shell.js"
 
 const noop = { go: () => {}, toggleNav: () => {}, closeNav: () => {}, openNav: () => {}, goImport: () => {}, toggleTheme: () => {} }
 const at = (over: Partial<typeof INITIAL_SHELL> = {}) =>
@@ -204,5 +204,57 @@ describe("셸이 건드리지 않은 값은 비어 있다", () => {
     expect(vals.setRows).toEqual([])
     expect(vals.pendingCount).toBe("")
     expect(vals.confirm).toBeNull()
+  })
+})
+
+/**
+ * ★★ 입구 순서 — ADR-023 결정 4 (2026-08-21) ★★
+ *
+ * 사용자가 말한 것: *"**입구부터 설계가 잘못된 건물 같음.**"* 아무것도 안 넣어도
+ * 숫자가 뜨는 화면이 사이드바 첫 항목이었다.
+ *
+ * ★ 이 시험이 왜 필요한가 ★ 2026-08-21에 NAV를 뒤집었는데 **시험이 하나도 안 물었다.**
+ * `palette`·`shell`·`period-picker`가 이 배열을 **순회만** 하기 때문이다. 즉 다음
+ * 사람이 실수로 되돌려도 게이트가 아무 말을 안 한다 — 선언만 있고 집행이 없었다.
+ */
+describe("입구 순서 (ADR-023 결정 4)", () => {
+  it("★ 넣는 자리가 먼저다 — 사이드바 앞 셋이 가져오기 · 기록 · 대시보드다 ★", () => {
+    expect(NAV.slice(0, 3)).toEqual(["import", "sync", "dash"])
+  })
+
+  it("나머지는 상대 순서를 그대로 뒀다 — 손을 적게 대야 무엇이 바뀌었는지 보인다", () => {
+    // 옛 배열에서 import·sync만 빼면 남는 순서. 이것과 같아야 한다.
+    expect(NAV.slice(2)).toEqual([
+      "dash", "settlement", "products", "diag", "costs", "orders", "connect",
+      "linking", "fieldmap", "myfields", "design", "settings",
+    ])
+  })
+
+  it("키를 새로 만들지 않았다 — 「묶음」은 화면이 아니라 sync의 스코프바다 (확인 ④)", () => {
+    expect(NAV).toHaveLength(14)
+    expect(NAV).not.toContain("collection")
+  })
+})
+
+/**
+ * ★★ 켜면 어디로 떨어지나 — 결정 4의 나머지 절반 ★★
+ *
+ * NAV 순서만 바꾸면 사이드바는 뒤집히는데 **켤 때는 여전히 출력이 뜬다.**
+ * 그래서 첫 조회가 도착하는 순간 «어디에 내려놓을지»를 한 번 정한다.
+ */
+describe("첫 조회가 내려놓는 자리 (landingView)", () => {
+  it("★ 빈 앱은 「가져오기」로 연다 — 넣을 것이 없는데 숫자부터 보이지 않는다 ★", () => {
+    expect(landingView(INITIAL_SHELL.view, true)).toBe("import")
+  })
+
+  it("★ 데이터가 있으면 안 건드린다 — 매일 쓰는 사람을 매번 입구로 떨어뜨리지 않는다 ★", () => {
+    expect(landingView(INITIAL_SHELL.view, false)).toBe("dash")
+  })
+
+  it("사용자가 이미 어디론가 갔으면 안 뺏는다 — 조회 중에 눌렀을 수 있다", () => {
+    for (const v of NAV) {
+      if (v === INITIAL_SHELL.view) continue
+      expect(landingView(v, true), `${v}에 있는 사용자를 끌어냈다`).toBe(v)
+    }
   })
 })

@@ -99,6 +99,38 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
         {" "}
         <div className="fb-scroll" style={{ flex: "1", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "6px 7px 3px", font: "var(--fw-semi) 11px var(--font-sans)", color: "var(--fg-4)" }}>
+            연동
+          </div>
+          {" "}
+          <div className={`nav-item ${vals.nav.import}`} onClick={vals.go.import}>
+            <Lic name="file-up" size={15} />
+            {" "}
+            <span>
+              가져오기
+            </span>
+          </div>
+          {" "}
+          <div className={`nav-item ${vals.nav.sync}`} onClick={vals.go.sync}>
+            <Lic name="history" size={15} />
+            {" "}
+            <span>
+              가져오기 기록
+            </span>
+          </div>
+          {" "}
+          <div className={`nav-item ${vals.nav.connect}`} onClick={vals.go.connect}>
+            <Lic name="plug" size={15} />
+            {" "}
+            <span>
+              채널
+            </span>
+            {" "}
+            <span className="count">
+              {vals.connBadge}
+            </span>
+          </div>
+          {" "}
+          <div style={{ padding: "12px 7px 3px", font: "var(--fw-semi) 11px var(--font-sans)", color: "var(--fg-4)" }}>
             현황
           </div>
           {" "}
@@ -159,38 +191,6 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
             {" "}
             <span>
               주문
-            </span>
-          </div>
-          {" "}
-          <div style={{ padding: "12px 7px 3px", font: "var(--fw-semi) 11px var(--font-sans)", color: "var(--fg-4)" }}>
-            연동
-          </div>
-          {" "}
-          <div className={`nav-item ${vals.nav.connect}`} onClick={vals.go.connect}>
-            <Lic name="plug" size={15} />
-            {" "}
-            <span>
-              채널
-            </span>
-            {" "}
-            <span className="count">
-              {vals.connBadge}
-            </span>
-          </div>
-          {" "}
-          <div className={`nav-item ${vals.nav.import}`} onClick={vals.go.import}>
-            <Lic name="file-up" size={15} />
-            {" "}
-            <span>
-              가져오기
-            </span>
-          </div>
-          {" "}
-          <div className={`nav-item ${vals.nav.sync}`} onClick={vals.go.sync}>
-            <Lic name="history" size={15} />
-            {" "}
-            <span>
-              가져오기 기록
             </span>
           </div>
           {" "}
