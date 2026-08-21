@@ -337,8 +337,22 @@ run("기준 데이터 가져오기 — 원가", () => {
     expect(second.skipped).toBe(first.inserted)
     expect(second.createdSkus, "SKU가 또 만들어졌다").toBe(0)
 
-    const c = await db.prepare(`SELECT COUNT(*) n FROM cost_history`).get()
+    // ★ 종류를 가려 센다 (ADR-029) ★ 같은 파일이 `COGS`와 `LOGISTICS`를 함께 넣으므로
+    // 전체를 세면 「원가가 두 배로 들어갔다」로 읽힌다. 멱등을 재는 자리는 **주 종류**다.
+    const c = await db.prepare(`SELECT COUNT(*) n FROM cost_history WHERE kind = 'COGS'`).get()
     expect(Number(c?.["n"])).toBe(first.inserted)
+
+    /**
+     * ★ 곁가지도 멱등이다 — 두 번 넣어도 배송비가 불어나지 않는다 (ADR-029) ★
+     * UNIQUE가 `(library, sku, kind, effective_from)`라 종류가 달라도 각자 한 번씩만
+     * 앉는다. 이 줄이 없으면 「원가는 멱등인데 배송비만 두 배」를 아무도 안 잡는다.
+     */
+    const firstLog = first.extras.find((e) => e.kind === "LOGISTICS")?.added ?? 0
+    expect(firstLog, "배송비가 한 건도 안 들어갔다 — 곁가지 열을 못 읽었다").toBeGreaterThan(0)
+    expect(second.extras.find((e) => e.kind === "LOGISTICS")?.added ?? 0, "두 번째 실행이 또 넣었다").toBe(0)
+
+    const l1 = await db.prepare(`SELECT COUNT(*) n FROM cost_history WHERE kind = 'LOGISTICS'`).get()
+    expect(Number(l1?.["n"]), "배송비가 재가져오기로 불어났다").toBe(firstLog)
   })
 
   it("적용일이 다르면 **새 이력**이다 — 원가는 바뀌고 과거는 남는다 (ADR-005)", async () => {
@@ -346,7 +360,7 @@ run("기준 데이터 가져오기 — 원가", () => {
     const b = await importCost("2026-06-01")
     expect(b.inserted, "다른 적용일인데 건너뛰었다").toBe(a.inserted)
 
-    const c = await db.prepare(`SELECT COUNT(*) n FROM cost_history`).get()
+    const c = await db.prepare(`SELECT COUNT(*) n FROM cost_history WHERE kind = 'COGS'`).get()
     expect(Number(c?.["n"])).toBe(a.inserted * 2)
   })
 
@@ -361,8 +375,21 @@ run("기준 데이터 가져오기 — 원가", () => {
     expect(after.pnl.revenue, "매출이 흔들렸다 — 원가는 매출을 건드리면 안 된다").toBe(
       before.pnl.revenue,
     )
-    // 기여이익은 원가만큼 정확히 내려간다
-    expect(before.pnl.productContribution - after.pnl.productContribution).toBe(after.pnl.cogs)
+    /**
+     * ★ 기여이익은 «원가 + 출고 배송비»만큼 내려간다 (ADR-029) ★
+     *
+     * 2026-08-21까지 이 줄은 `toBe(after.pnl.cogs)`였다. 같은 원가표가 `배송비` 열도
+     * 들고 오고(→ `LOGISTICS`), 그것이 3층의 «배송» 줄에 합산되면서 낙폭이 커졌다.
+     * **그게 이 변경의 전부다** — 파일에 있는데 앱이 버리던 돈이 이제 손익에 든다.
+     *
+     * 항등식으로 못박는다: 두 항 말고 다른 것이 움직이면 이 줄이 붉어진다.
+     */
+    const shipDelta = after.pnl.shipping - before.pnl.shipping
+    expect(shipDelta, "원가표의 배송비가 손익에 안 들어갔다").toBeGreaterThan(0)
+    expect(after.shippingBasis.costTable, "출처가 원가표로 안 잡혔다").toBe(shipDelta)
+    expect(before.pnl.productContribution - after.pnl.productContribution).toBe(
+      after.pnl.cogs + shipDelta,
+    )
     expect(r.inserted).toBeGreaterThan(0)
   })
 

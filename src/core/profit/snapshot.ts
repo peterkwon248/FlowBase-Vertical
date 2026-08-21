@@ -26,12 +26,36 @@ import { computePnl, prorateFixed, type Period, type Pnl } from "./index.js"
  * 품목 행의 «그 판매일에 유효한 매입원가» — 규칙은 `costAtSql`이 갖고 있다.
  *
  * `'COGS'`를 리터럴로 넣는 것은 이 자리가 손익 3층의 «매입원가»이기 때문이다.
- * 포장비·물류비는 상품 층의 «운영비»라 다른 자리에서 더해진다 (`overhead` kind='OPS').
+ *
+ * ★ 여기 있던 한 줄이 **거짓이었다** (2026-08-21) ★
+ * 「포장비·물류비는 상품 층의 «운영비»라 **다른 자리에서 더해진다**(`overhead` kind='OPS')」
+ * 라고 적혀 있었는데, 실측하면 `cost_history`의 `LOGISTICS`·`PACKAGING`을 읽는 코드가
+ * **한 줄도 없었다.** `overhead`는 회사 단위 비용표(010)이고 `cost_history`와 다른 표다.
+ * 즉 「다른 자리에서 더해진다」는 **아무 데서도 안 더해진다**는 뜻이었다. ADR-029가
+ * `LOGISTICS`를 아래 `LOGISTICS_COST`로 실제로 잇는다. `PACKAGING`은 아직 아무도 안 읽는다.
  */
 const COST = costAtSql({
   libraryId: "oi.library_id",
   skuId: "ml.sku_id",
   kind: "'COGS'",
+  on: "o.ordered_at",
+})
+
+/**
+ * ★ 품목 행의 «그 판매일에 유효한 출고 배송비» (ADR-029) ★
+ *
+ * 원가표의 `배송비` 열이 `cost_history.kind='LOGISTICS'`로 들어온다. **`COGS`와 같은
+ * 이력 규칙**을 탄다(ADR-005) — 적용일이 다르면 새 이력이고 과거는 남는다. 그래서
+ * 조각을 새로 짜지 않고 `costAtSql`에 종류만 바꿔 넣는다.
+ *
+ * ★ 이것은 «마켓이 공제한 배송비»가 아니다 ★ 그쪽은 `fact_settlement.shipping_amount`
+ * 이고 둘은 **다른 사건**이다 — 하나는 마켓이 떼 간 돈, 하나는 내가 택배사에 낸 돈.
+ * 둘 다 나가는 돈이라 3층의 같은 «배송» 줄에 **합산**되고, 화면은 출처를 갈라 보인다.
+ */
+const LOGISTICS_COST = costAtSql({
+  libraryId: "oi.library_id",
+  skuId: "ml.sku_id",
+  kind: "'LOGISTICS'",
   on: "o.ordered_at",
 })
 
@@ -204,6 +228,19 @@ export interface PnlSnapshot {
    * 반드시 둘은 거짓이 되고, 오늘 화면이 하던 말(*"cost_history가 비어 있다"*)은
    * 사용자가 원가를 넣는 순간 **거짓말이 된다.** 그래서 근거를 들고 나간다.
    */
+  /**
+   * ★ «배송»이 어디서 왔나 — 출처를 가른다 (ADR-029 결정 2 · LOCK 6) ★
+   *
+   * 합쳐서 빼되 **합쳐서 말하지 않는다.** 「배송비 446,000원」만 뜨면 사용자는 그것이
+   * 정산에서 온 것인지 자기 원가표에서 온 것인지 모르고, 틀렸을 때 **어느 파일을
+   * 고쳐야 할지도 모른다.** 둘의 합은 `pnl.shipping`과 항상 같다.
+   */
+  readonly shippingBasis: {
+    /** 마켓이 정산에서 공제한 배송비 (`fact_settlement.shipping_amount`). */
+    readonly settlement: number
+    /** 원가표가 들고 온 출고비 (`cost_history.kind='LOGISTICS'` × 수량). */
+    readonly costTable: number
+  }
   readonly cogsBasis: {
     /**
      * 기간 안에 **실제로 팔린** 품목 행 수 (`quantity > 0`).
@@ -460,6 +497,7 @@ export async function loadPnlSnapshot(
   const cogsRow = await db
     .prepare(
       `SELECT COALESCE(SUM(oi.quantity * ${COST}),0) AS cogs,
+              COALESCE(SUM(oi.quantity * ${LOGISTICS_COST}),0) AS logistics,
               COALESCE(SUM(oi.discount_amount),0) AS discount,
               COUNT(*) AS items,
               COALESCE(SUM(CASE WHEN ml.sku_id IS NULL THEN 1 ELSE 0 END),0) AS no_link,
@@ -604,7 +642,13 @@ export async function loadPnlSnapshot(
     revenue,
     fee: num(joined, "fee"),
     vat: num(joined, "vat"),
-    shipping: num(joined, "ship"),
+    /**
+     * ★ 배송 = 마켓 공제 + 내 출고비 (ADR-029 결정 1) ★
+     * 3층 정의의 「할인·수수료·VAT·**배송**」 자리이고, **새 줄을 만들지 않았다.**
+     * 이중 계상이 아니다 — 두 값은 다른 사건이라 합이 맞다. 화면은 `shippingBasis`로
+     * 출처를 갈라 보인다 (LOCK 6 — 합쳐서 빼되 합쳐서 말하지 않는다).
+     */
+    shipping: num(joined, "ship") + num(cogsRow, "logistics"),
     claims,
     cogs: num(cogsRow, "cogs"),
     /**
@@ -662,6 +706,10 @@ export async function loadPnlSnapshot(
     },
     contributingConnections: num(conns, "n"),
     hasPriorPeriod: num(prior, "n") === 1,
+    shippingBasis: {
+      settlement: num(joined, "ship"),
+      costTable: num(cogsRow, "logistics"),
+    },
     cogsBasis: {
       items: num(cogsRow, "items"),
       itemsWithoutLink: num(cogsRow, "no_link"),

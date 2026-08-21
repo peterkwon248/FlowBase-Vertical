@@ -224,6 +224,24 @@ export interface MappingProfile {
     readonly modelColumn?: string
     /** `cost_history.kind`. 스키마가 CHECK로 네 종을 닫아 뒀다. */
     readonly kind: "COGS" | "PACKAGING" | "LOGISTICS" | "OTHER"
+    /**
+     * ★ 곁가지 금액 열 — 한 파일이 **두 종류 이상**을 들고 올 때 (ADR-029 결정 3) ★
+     *
+     * 원가표에 `배송비` 열이 있는데 받을 자리가 없었다(남은일 3.10). 018의 표 뷰어가
+     * 그 열을 화면에 띄우면서 «있는데 버린다»가 눈에 보이게 됐다.
+     *
+     * ★ `amounts: [...]`로 통일하지 않은 이유 ★ 더 대칭적이지만 **기존 프로파일 전부와
+     * 그것을 읽는 코드·시험이 함께 움직인다.** 얻는 것은 모양 하나다. 여기서 필요한 것은
+     * 「한 종류만」을 「한 종류 + 곁가지」로 여는 것뿐이라, 선택 항목으로 더한다 —
+     * 이 필드가 없는 프로파일은 한 글자도 안 고쳐도 그대로 돈다.
+     *
+     * ★ 열이 없거나 비어 있는 것이 **정상**이다 ★ 배송비 없는 원가표는 결핍이 아니다.
+     * 조용히 주 금액만 넣는다 (§22 — 없는 것을 결핍으로 부르지 않는다).
+     */
+    readonly extraAmounts?: readonly {
+      readonly column: string
+      readonly kind: "COGS" | "PACKAGING" | "LOGISTICS" | "OTHER"
+    }[]
     /** 사람이 알아볼 이름을 만들 때 쓴다 (SKU를 새로 만드는 경우). */
     readonly titleColumn?: string
   }
