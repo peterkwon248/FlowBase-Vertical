@@ -337,6 +337,9 @@ export async function runReferenceImport(
                   note: `${o.fileName} · ${profileVersion(o.profile)} · 지난 판단으로 연결`,
                   now: o.now,
                   enteredBy: "import",
+                  // 이 원가가 **어느 파일에서 왔나** (015). 대기실(`pending_cost`)은
+                  // 011부터 갖고 있던 것을 `cost_history`도 이제 갖는다.
+                  sourceHash,
                   ...(o.replace === true ? { replace: true } : {}),
                 })
                 if (br.inserted) inserted++
@@ -420,6 +423,8 @@ export async function runReferenceImport(
               // ★ 도구가 넣었다는 사실을 남긴다 ★ 001부터 있던 칸이고, 사람이 화면에서
               // 넣은 값과 구별돼야 나중에 «누가 이 값을 넣었나»를 되짚을 수 있다.
               enteredBy: "import",
+              // 이 원가가 **어느 파일에서 왔나** (015).
+              sourceHash,
               ...(o.replace === true ? { replace: true } : {}),
             })
             if (r.inserted) inserted++
@@ -454,6 +459,62 @@ export async function runReferenceImport(
     }
 
     if (stash.length > 0) await repo.stashPendingCosts(stash)
+
+    /**
+     * ★★ 통에 이 파일을 남긴다 (015 · ADR-023 결정 1) ★★
+     *
+     * **이 자리가 통째로 없었다.** `runImport`(Fact 경로)는 `recordFileSighting`을
+     * 부르는데 여기는 안 불렀고, 그래서 **원가 파일은 「가져오기 기록」에 한 줄도
+     * 안 나왔다** — 사용자가 13MB 단가표를 넣고 겪은 그것이다.
+     * 실측(2026-08-21 · `public/demo.sqlite`): `cost_history` 35행 · `pending_cost`
+     * 171행을 만든 파일이 `file_sighting`에는 **0행**이었다.
+     *
+     * 시트마다 한 줄이다 — 009의 키가 `(라이브러리, 지문, 시트)`이고, 19시트짜리
+     * 워크북에서 고른 하나만 남기면 나머지 18장을 또 잃는다(`data.ts`의 같은 판단).
+     * batch는 없다(`batchId: null`) — 기준 데이터는 batch를 만들지 않는다. 그것이
+     * 결함이 아니라 **이 표가 생긴 이유**다.
+     *
+     * 실패해도 가져오기는 계속된다. 장부를 못 남긴 것이 원가를 못 넣을 이유는 아니다.
+     */
+    for (const ps of perSheet) {
+      try {
+        const sightingId = await repo.recordFileSighting({
+          libraryId: o.libraryId,
+          sourceHash,
+          sourceName: o.fileName,
+          sourceBytes: o.bytes.length,
+          containerFormat: top.format,
+          sheetIndex: ps.sheetIndex,
+          sheetName: ps.sheetName,
+          // 기준 가져오기는 헤더 탐지 결과를 여기까지 들고 오지 않는다.
+          // **0으로 넘겨짚지 않는다** — `null`이 「모른다」다 (009의 규칙).
+          headerRowIndex: null,
+          profileId: o.profile.id,
+          batchId: null,
+          at: o.now,
+          columns: [],
+        })
+        /**
+         * 「무엇이 됐나」. **0인 종류는 안 넘긴다** — 「대기 0건」을 줄로 그리면
+         * 할 말이 없는데 말하는 것이 된다. 반대로 넘긴 종류의 0은 저장한다.
+         */
+        const outcomes = [
+          { kind: "cost", count: ps.inserted },
+          { kind: "cost_replaced", count: ps.replaced },
+          { kind: "cost_skipped", count: ps.skipped },
+          { kind: "pending_cost", count: ps.stashed },
+          { kind: "bridged", count: ps.bridged },
+          { kind: "sku_created", count: ps.createdSkus },
+          { kind: "bad_rows", count: ps.badRows },
+        ].filter((x) => x.count > 0)
+        // 아무것도 안 됐으면 그 사실 자체가 결과다 — 빈 목록으로 두면 화면이
+        // 「기록은 있는데 아무 말이 없는 줄」을 그린다 (LOCK 6).
+        if (outcomes.length === 0) outcomes.push({ kind: "nothing", count: 0 })
+        await repo.recordOutcomes(sightingId, outcomes, o.now)
+      } catch {
+        /* 장부를 못 남겨도 가져오기는 계속된다 — 원가는 이미 들어갔다 */
+      }
+    }
 
     const sum = (k: keyof Omit<ReferenceSheetResult, "sheetIndex" | "sheetName" | "failed">): number =>
       perSheet.reduce((t, s) => t + s[k], 0)

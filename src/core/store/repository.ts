@@ -851,6 +851,11 @@ export class Repository {
     now: string
     enteredBy?: "user" | "import"
     replace?: boolean
+    /**
+     * 어느 파일에서 왔나 (015 · ADR-023 결정 1). **`undefined`가 정상값이다** —
+     * 사람이 손으로 넣은 원가에는 파일이 없다. 그 구분은 `enteredBy`가 이미 한다.
+     */
+    sourceHash?: string | null
   }): Promise<{ inserted: boolean; replaced: boolean; previous: number | null }> {
     if (!Number.isInteger(c.amount)) throw new Error(`원가는 원 단위 정수여야 한다: ${c.amount}`)
     if (c.amount < 0) throw new Error(`원가는 0보다 작을 수 없다: ${c.amount}`)
@@ -875,18 +880,30 @@ export class Repository {
         }
         await this.db
           .prepare(
-            `UPDATE cost_history SET amount = ?, note = ?, entered_at = ?, entered_by = ?
+            // 덮어쓸 때도 출처를 갱신한다 — 지금 값을 넣은 파일이 답이다.
+            // **`undefined`면 기존 값을 지우지 않는다**(COALESCE) — 사람이 화면에서
+            // 금액만 고쳤다고 「어느 파일에서 왔는지」가 사라지면 계보가 끊긴다.
+            `UPDATE cost_history SET amount = ?, note = ?, entered_at = ?, entered_by = ?,
+                    source_hash = COALESCE(?, source_hash)
               WHERE id = ?`,
           )
-          .run(c.amount, c.note ?? null, c.now, c.enteredBy ?? "user", Number(prior["id"]))
+          .run(
+            c.amount,
+            c.note ?? null,
+            c.now,
+            c.enteredBy ?? "user",
+            c.sourceHash ?? null,
+            Number(prior["id"]),
+          )
         return { inserted: false, replaced: true, previous }
       }
 
       await this.db
         .prepare(
           `INSERT INTO cost_history
-             (library_id, sku_id, kind, amount, effective_from, note, entered_at, entered_by)
-           VALUES (?,?,?,?,?,?,?,?)`,
+             (library_id, sku_id, kind, amount, effective_from, note, entered_at, entered_by,
+              source_hash)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
         )
         .run(
           c.libraryId,
@@ -897,6 +914,7 @@ export class Repository {
           c.note ?? null,
           c.now,
           c.enteredBy ?? "user",
+          c.sourceHash ?? null,
         )
       return { inserted: true, replaced: false, previous: null }
     })
@@ -1625,6 +1643,47 @@ export class Repository {
    *
    * @returns `file_sighting.id` — 열이 매달린 자리
    */
+  /**
+   * ★ 이 파일이 **무엇이 됐나** (015 · ADR-023 결정 1) ★
+   *
+   * `file_sighting.batch_id`는 Fact 적재 하나만 잇는다. 원가 파일은 batch를 안 만들고
+   * `cost_history`·`pending_cost`·`sku`를 만드는데, 그 사실을 **저장할 자리가
+   * 없었다**(대기목록 8 — 「받을 값은 이미 있다」). 그래서 넣은 사람에게 13MB
+   * 단가표가 기록에 한 줄도 없는 것처럼 보였다.
+   *
+   * **0도 저장한다.** 「0건 들어갔다」와 「안 해 봤다」는 다르다 (§22 — 부재는 0이
+   * 아니고, 그 역도 참이다). 부르는 쪽이 셀 필요가 없다고 판단한 종류는 아예 안 넘긴다.
+   *
+   * ★★ 결과는 **마지막 실행의 것으로 갈아치운다** — 쌓지 않는다 ★★
+   *
+   * 처음엔 종류별 UPSERT였는데 시험이 잡았다: 같은 파일을 다시 넣으면 1회차의
+   * `cost 35`가 남은 채 2회차의 `cost_skipped 35`가 **더해져서**, 장부가
+   * 「원가 35건 넣음 · 35건 건너뜀」이라고 **두 실행을 섞어** 말했다.
+   *
+   * 「이 파일이 무엇이 됐나」는 **지금 상태**에 대한 질문이다. 2회차에서 전부
+   * 건너뛴 것이 사실이고, 1회차에 넣었다는 것은 `cost_history` 쪽이 이미 안다.
+   * 한 자리가 두 시점을 겹쳐 말하면 어느 쪽이 참인지 모르게 된다.
+   *
+   * (「몇 번 봤나」는 `file_sighting.seen_count`가 따로 센다 — 009.)
+   */
+  async recordOutcomes(
+    sightingId: number,
+    outcomes: readonly { readonly kind: string; readonly count: number }[],
+    at: string,
+  ): Promise<void> {
+    if (outcomes.length === 0) return
+    await this.db.transaction(async () => {
+      await this.db.prepare(`DELETE FROM sighting_outcome WHERE sighting_id = ?`).run(sightingId)
+      for (const o of outcomes) {
+        await this.db
+          .prepare(
+            `INSERT INTO sighting_outcome (sighting_id, kind, count, at) VALUES (?,?,?,?)`,
+          )
+          .run(sightingId, o.kind, o.count, at)
+      }
+    })
+  }
+
   async recordFileSighting(s: FileSightingRecord): Promise<number> {
     return this.db.transaction(async () => {
       await this.db

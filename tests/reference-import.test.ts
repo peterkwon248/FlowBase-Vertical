@@ -98,6 +98,104 @@ run("기준 데이터 가져오기 — 원가", () => {
     })
   }
 
+  /**
+   * ★★ 사용자가 겪은 그것 — 「13MB 단가표를 넣었는데 기록에 한 줄도 없었다」 ★★
+   *
+   * 015 이전: `runImport`(Fact)는 `recordFileSighting`을 부르는데 **기준 가져오기는
+   * 안 불렀다.** 실측(2026-08-21 · `public/demo.sqlite`)에서 `cost_history` 35행과
+   * `pending_cost` 171행을 만든 원가 파일이 `file_sighting`에는 **0행**이었다.
+   * 넣은 사람은 그것을 실패로 읽는다.
+   */
+  it("★★ 원가 파일이 통에 한 줄로 남는다 — batch가 없어도 (015 · ADR-023) ★★", async () => {
+    await importCost()
+
+    // ⚠ `beforeEach`가 ESM 주문 파일도 넣는다 — 그쪽은 batch가 붙은 목격을 남긴다.
+    // **둘 다 한 장부에 서는 것이 이 마이그레이션의 요점**이므로 먼저 그것을 본다.
+    const all = await db.prepare(`SELECT source_name FROM file_sighting`).all()
+    expect(all.length, "Fact 파일과 원가 파일이 같은 장부에 서야 한다").toBe(2)
+
+    const sights = await db
+      .prepare(`SELECT id, source_name, profile_id, batch_id FROM file_sighting WHERE source_name = ?`)
+      .all(BOOK.file)
+    expect(sights.length, "원가 파일이 통에 안 남았다 — 사용자가 겪은 그 자리다").toBe(1)
+    // 기준 데이터는 batch를 만들지 않는다. 그것이 결함이 아니라 **이 표가 생긴 이유**다.
+    expect(sights[0]!["batch_id"], "기준 가져오기에 batch가 붙으면 안 된다").toBeNull()
+    expect(String(sights[0]!["profile_id"])).toBe(COST.id)
+  })
+
+  it("★ 「무엇이 됐나」가 함께 남는다 — 수 하나로 뭉개지지 않는다 ★", async () => {
+    const r = await importCost()
+
+    const rows = await db
+      .prepare(
+        `SELECT o.kind, o.count FROM sighting_outcome o
+           JOIN file_sighting s ON s.id = o.sighting_id
+          ORDER BY o.kind`,
+      )
+      .all()
+    const got = new Map(rows.map((x) => [String(x["kind"]), Number(x["count"])]))
+
+    // 결과가 실제 반환값과 **같은 수**여야 한다 — 화면과 엔진이 다른 말을 하면
+    // 그 기록은 없느니만 못하다.
+    expect(got.get("cost"), "넣은 원가 수가 안 맞는다").toBe(r.inserted)
+    if (r.stashed > 0) expect(got.get("pending_cost")).toBe(r.stashed)
+    if (r.createdSkus > 0) expect(got.get("sku_created")).toBe(r.createdSkus)
+    // 0인 종류는 줄을 만들지 않는다 — 할 말이 없는데 말하지 않는다
+    for (const [, v] of got) expect(v).toBeGreaterThan(0)
+  })
+
+  /**
+   * ★ 이 시험이 설계를 한 번 바꿨다 ★
+   * 처음엔 종류별 UPSERT였다. 그러면 1회차의 `cost 35`가 남은 채 2회차의
+   * `cost_skipped 35`가 더해져서 장부가 **「35건 넣음 · 35건 건너뜀」**이라고
+   * 두 실행을 섞어 말했다. 「무엇이 됐나」는 **지금 상태**에 대한 질문이라
+   * `recordOutcomes`가 지우고 다시 넣는 것으로 바꿨다.
+   */
+  it("★ 재가져오기는 결과를 **갈아치운다** — 두 실행을 섞어 말하지 않는다 ★", async () => {
+    await importCost()
+    const first = await db
+      .prepare(`SELECT kind, count FROM sighting_outcome ORDER BY kind`)
+      .all()
+    expect(first.map((r) => String(r["kind"]))).toContain("cost")
+
+    // 같은 적용일로 다시 넣으면 전부 건너뛴다 (멱등).
+    await importCost()
+    const second = await db
+      .prepare(`SELECT kind, count FROM sighting_outcome ORDER BY kind`)
+      .all()
+    const kinds = second.map((r) => String(r["kind"]))
+    expect(kinds, "1회차의 «넣었다»가 남아 두 실행이 겹쳐 보인다").not.toContain("cost")
+    expect(kinds).toContain("cost_skipped")
+
+    // 목격 자체는 한 줄 그대로고 «몇 번 봤나»만 오른다 (009의 UPSERT)
+    const s = await db
+      .prepare(`SELECT COUNT(*) c, MAX(seen_count) n FROM file_sighting WHERE source_name = ?`)
+      .all(BOOK.file)
+    expect(Number(s[0]!["c"])).toBe(1)
+    expect(Number(s[0]!["n"]), "다시 본 횟수가 안 올랐다").toBeGreaterThan(1)
+  })
+
+  it("★ 원가 행이 어느 파일에서 왔는지 안다 (015) ★", async () => {
+    await importCost()
+    const rows = await db
+      .prepare(
+        `SELECT COUNT(*) c FROM cost_history
+          WHERE entered_by = 'import' AND source_hash IS NOT NULL`,
+      )
+      .all()
+    expect(Number(rows[0]!["c"]), "도구가 넣은 원가에 출처가 없다").toBeGreaterThan(0)
+
+    // 그 해시가 통의 그 줄과 이어진다 — 계보가 끊기지 않는다
+    const joined = await db
+      .prepare(
+        `SELECT COUNT(*) c FROM cost_history ch
+           JOIN file_sighting fs ON fs.source_hash = ch.source_hash
+          WHERE ch.entered_by = 'import'`,
+      )
+      .all()
+    expect(Number(joined[0]!["c"]), "원가와 통이 이어지지 않는다").toBeGreaterThan(0)
+  })
+
   it("★ 전 시트 탐색이 워크북 안의 원가표를 찾아낸다 — 19시트 중에서", async () => {
     const a = await analyzeImport(bytesOf(BOOK), BOOK.file, [COST])
     const hits = a.sheetMatches.filter((m) => m.profiles.length > 0)
