@@ -14,7 +14,7 @@
  */
 
 import type { Driver } from "../store/driver.js"
-import { coverage, type Coverage, type DocType } from "./index.js"
+import { coverage, DOC_TYPES, type Coverage, type DocType } from "./index.js"
 
 /** `batch.mapping_version` → 문서 성격. 팩 사전을 아는 쪽이 준다. */
 export type DocTypeResolver = (mappingVersion: string) => DocType | null
@@ -40,6 +40,14 @@ export interface ConnectionCoverage {
   readonly skuCount: number
   /** 마지막으로 커밋된 batch 시각. 한 번도 없으면 `null`. */
   readonly lastImportAt: string | null
+  /**
+   * 이 연결의 정산 판매금액합계 — `coverage`가 «잠긴 매출»의 크기를 재는 재료다.
+   *
+   * `coverage.entries[…].lockedValue`에서 되읽지 않고 따로 낸다. 되읽으면 «지금
+   * lockedValue를 내는 것이 매출 하나뿐»이라는 **오늘의 우연**에 기대게 되고,
+   * 두 번째가 생기는 날 범위 합계가 조용히 두 값을 더한다.
+   */
+  readonly settlementGross: number
   readonly coverage: Coverage
 }
 
@@ -67,12 +75,21 @@ export async function loadCoverage(
     lastRows.map((r) => [String(r["cid"] ?? ""), r["at"] == null ? null : String(r["at"])]),
   )
 
-  // 보유 판정은 **커밋된 batch**로 한다. 되돌린 batch는 데이터가 사라졌으므로
-  // 보유가 아니고, 열려 있는(open) batch는 아직 적재 중이라 세면 안 된다.
+  /**
+   * 보유 판정은 **`active_batch`**로 한다 (017).
+   *
+   * 되돌린 batch는 데이터가 사라졌으므로 보유가 아니고, 열려 있는(open) batch는
+   * 아직 적재 중이라 세면 안 된다 — 그 조건은 뷰 안에 있다.
+   *
+   * ★ 2026-08-21까지 여기가 `FROM batch`였고, 그래서 **한 함수가 두 기준을 썼다** ★
+   * 아래 `counts`는 `active_*` 뷰라 묶음을 지키는데 `held`만 안 지켰다. 「7월 결산」을
+   * 골라도 8월 광고 파일이 「광고비 열림」을 유지시켰고, 열린 지표가 0을 그렸다 —
+   * §22가 금지한 «부재를 0으로 바꾸기»가 반대 방향에서 일어난 자리다 (ADR-023 확인 ①).
+   */
   const batches = await db
     .prepare(
       `SELECT DISTINCT connection_id AS cid, mapping_version AS mv
-         FROM batch WHERE library_id = ? AND status = 'committed'`,
+         FROM active_batch WHERE library_id = ?`,
     )
     .all(libraryId)
 
@@ -105,10 +122,24 @@ export async function loadCoverage(
     .all(libraryId)
   const gross = new Map(grossRows.map((r) => [String(r["cid"] ?? ""), num(r, "g")]))
 
-  // ★ 원가는 «하나라도»가 아니라 «전부»여야 열린다 ★
-  // 절반만 입력된 원가로 기여이익을 그리면 **원가가 과소계상되어 이익이 부풀려진다.**
-  // 부재를 0으로 바꾸지 않는다는 규율(§22)이 여기서는 "덜 입력된 것은 아직 안 열린
-  // 것"이라는 뜻이 된다.
+  /**
+   * ★ 원가는 **«하나라도» 있으면 열린다** — 부족분은 말한다 ★
+   *
+   * 2026-08-21까지 여기는 `costed === skus`, 즉 **100%짜리 비율 절단점**이었다.
+   * [ADR-023](docs/ADR-023-통-묶음-자격-입구순서.md) 확인 ②가 그것을 뒤집었다
+   * (§22-3 ①에도 적었다 — 번복은 양쪽에 적는다):
+   *
+   *     옛   236/261 → 「매입원가 잠김」 · 「상품 기여이익 잠김」
+   *     새   236/261 → **열린다.** 그리고 「원가 미입력 25건 — 이익이 실제보다 큽니다」
+   *
+   * 옛 근거(「덜 넣은 원가로 그리면 이익이 부풀려진다」)는 **여전히 참이고**, 처방만
+   * 바뀌었다: 안 보여주는 대신 보여주고 그 자리에서 말한다. 손익 층(`pnlGaps`의
+   * `cogs-missing`)은 **이미 그렇게 하고 있었다** — 이 줄만 뒤처져 있어서 같은 사실에
+   * 두 화면이 다른 답을 냈다 (ADR-023 따름 조건 5가 금지한 모양).
+   *
+   * 잠기는 것은 이제 **«아예 없을 때»뿐**이다 — `costed === 0`. 그건 부족이 아니라
+   * 부재이고, §22-1이 처음부터 그렇게 적었다.
+   */
   const costRows = await db
     .prepare(
       `SELECT ml.connection_id AS cid,
@@ -128,7 +159,7 @@ export async function loadCoverage(
     const id = String(c["id"] ?? "")
     const set = held.get(id) ?? new Set<DocType>()
     const cost = costed.get(id)
-    if (cost !== undefined && cost.skus > 0 && cost.n === cost.skus) set.add("cost")
+    if (cost !== undefined && cost.n > 0) set.add("cost")
 
     const counts: Record<DocType, number> = {
       order: orderCount.get(id) ?? 0,
@@ -145,7 +176,13 @@ export async function loadCoverage(
       counts,
       skuCount: cost?.skus ?? 0,
       lastImportAt: lastAt.get(id) ?? null,
-      coverage: coverage([...set], { settlementGross: gross.get(id) ?? 0 }),
+      settlementGross: gross.get(id) ?? 0,
+      coverage: coverage([...set], {
+        settlementGross: gross.get(id) ?? 0,
+        // 분모를 아는 성격은 `cost` 하나다. 나머지는 «파일이 몇 개여야 하나»를
+        // 앱이 모르므로 여기 넣지 않는다 — 넣으면 모르는 것을 아는 척한다.
+        partial: cost === undefined ? {} : { cost: { have: cost.n, need: cost.skus } },
+      }),
     }
   })
 }
@@ -153,5 +190,89 @@ export async function loadCoverage(
 /** 화면이 «전부 열렸다»를 말할 수 있는지. 연결이 하나도 없으면 판정 자체가 없다. */
 export const anyLocked = (list: readonly ConnectionCoverage[]): boolean =>
   list.some((c) => c.coverage.hasLocked)
+
+/**
+ * ★★ 묶음 단위 판정 — 시각화의 «자격»은 여기서 난다 (ADR-023 결정 2 · 확인 ①) ★★
+ *
+ * 연결별 판정(§22-1)은 **채널 화면의 것**이다. 채널 카드는 「이 채널에 무엇이
+ * 들어와 있나」를 말하므로 그 단위가 맞다. 그런데 사용자가 말한 것은 다른 질문이다:
+ *
+ *   *"데이터 묶음을 만들기 전까지는 시각화가 되어선 안 됨."*
+ *
+ * 대시보드는 채널 하나가 아니라 **지금 고른 범위 전체**를 그린다. 그 범위가
+ * 「7월 결산」이면 11번가의 정산과 ESM의 주문이 **합쳐져** 기여이익을 만든다 —
+ * 어느 연결도 혼자서는 그 지표를 열지 못하는데 범위로는 열린다. 그래서 판정이
+ * 연결에 머물면 대시보드가 자기 자격을 물을 자리가 없다.
+ *
+ * ★ 새 판정 기계를 만들지 않는다 ★ 따름 조건 5 — 「묶음 자격 판정은 §22의
+ * `metric → requires` 한 곳에서만」. 그래서 여기서는 **연결별 결과를 합쳐 같은
+ * `coverage()`를 다시 부른다.** 두 단위가 다른 답을 낼 길이 구조적으로 없다.
+ */
+export interface ScopeCoverage {
+  /**
+   * 지금 활성인 묶음의 이름. **`null`이면 「전체」**다 — 013이 「전체는 행이 아니다」로
+   * 정한 그대로이고, 화면은 이 null을 「전체」로 읽는다.
+   */
+  readonly collectionName: string | null
+  /** 범위 안에 든 성격별 건수 — 연결별 `counts`의 합. */
+  readonly counts: Readonly<Record<DocType, number>>
+  /** 범위 안 SKU 수(원가의 분모). 연결에 붙은 SKU가 겹치면 겹친 만큼 겹쳐 센다. */
+  readonly skuCount: number
+  readonly coverage: Coverage
+}
+
+/**
+ * 연결별 판정을 범위 하나로 접는다. **조회하지 않는다** — 넘겨받은 것만 본다
+ * (core의 `coverage()`와 같은 규율).
+ *
+ * ★ 보유는 **합집합**이다 ★ 「11번가 정산 + ESM 주문」이 든 묶음은 `order`도
+ * `settlement`도 가진 것이다. 교집합으로 접으면 «모든 채널이 모든 서류를 내야
+ * 한다»가 되고, 그건 §22가 처음 문장에서 버린 **숙제 검사**다.
+ */
+export function scopeCoverage(
+  list: readonly ConnectionCoverage[],
+  collectionName: string | null,
+): ScopeCoverage {
+  const held = new Set<DocType>()
+  const counts: Record<DocType, number> = { order: 0, settlement: 0, ad: 0, cost: 0 }
+  let skus = 0
+  let gross = 0
+
+  for (const c of list) {
+    for (const d of c.coverage.held) held.add(d)
+    for (const d of DOC_TYPES) counts[d] += c.counts[d]
+    skus += c.skuCount
+    // 잠긴 매출의 크기도 범위 전체로 더한다 — 연결 하나의 금액을 범위 문장에 쓰면
+    // 정산 파일이 둘이 되는 날 남의 금액이 뜬다 (이 파일 머리의 경고와 같은 자리).
+    gross += c.settlementGross
+  }
+
+  return {
+    collectionName,
+    counts,
+    skuCount: skus,
+    coverage: coverage([...held], {
+      settlementGross: gross,
+      partial: { cost: { have: counts.cost, need: skus } },
+    }),
+  }
+}
+
+/**
+ * 지금 활성인 묶음의 이름. 없으면 `null` = 「전체」.
+ *
+ * `Repository.activeCollection`은 id만 낸다. 화면이 필요한 것은 **사람의 말**이고
+ * (U-5 — 저장 분류는 화면의 언어가 아니다), id를 화면까지 들고 가면 그 규율이 깨진다.
+ */
+export async function activeCollectionName(db: Driver, libraryId: string): Promise<string | null> {
+  const r = await db
+    .prepare(
+      `SELECT c.name AS name FROM collection_active ca
+         JOIN collection c ON c.id = ca.collection_id
+        WHERE ca.library_id = ?`,
+    )
+    .get(libraryId)
+  return r === undefined ? null : String(r["name"] ?? "")
+}
 
 export type { Coverage }

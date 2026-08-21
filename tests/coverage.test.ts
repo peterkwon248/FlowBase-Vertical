@@ -136,7 +136,14 @@ const fake = (
   counts: { order: 0, settlement: 0, ad: 0, cost: 0, ...counts },
   skuCount,
   lastImportAt: "2026-08-14T00:00:00",
-  coverage: coverage(held, { settlementGross: gross }),
+  settlementGross: gross,
+  // `loadCoverage`와 **같은 모양으로** 만든다 — 분모를 아는 것은 원가뿐이다.
+  // 여기서 `partial`을 빼면 이 헬퍼가 실제보다 관대해져서, 화면이 부족분을
+  // 안 말해도 시험이 통과한다.
+  coverage: coverage(held, {
+    settlementGross: gross,
+    partial: { cost: { have: counts.cost ?? 0, need: skuCount } },
+  }),
 })
 
 describe("§22-3 3절 문장", () => {
@@ -250,9 +257,44 @@ describe("§22-3 3절 문장", () => {
     expect(strip[3]!.via).toBe("미입력")
   })
 
-  it("반쯤 채워진 원가는 «없음»과 다르게 보인다", () => {
-    const strip = coverageStrip(fake(["order"], { order: 1, cost: 3 }, 0, 10), dict)
-    expect(strip[3]!.via, "3/10처럼 진행을 그대로 보인다").toBe("3/10")
+  /**
+   * ★ 2026-08-21 — 「반쯤」의 뜻이 바뀌었다 (ADR-023 확인 ②) ★
+   * 옛 판에서 3/10은 **미보유**였다(100% 절단점). 지금은 **보유 + 부분**이다.
+   * 스트립이 그리는 그림(`3/10` 노란 점)은 그대로지만, 근거가 `counts.cost > 0`이
+   * 아니라 `partial`로 바뀌었다 — 보유만 보면 반쪽이 초록이 된다.
+   */
+  it("반쯤 채워진 원가는 «없음»과도 «전부»와도 다르게 보인다", () => {
+    const half = coverageStrip(fake(["order", "cost"], { order: 1, cost: 3 }, 0, 10), dict)
+    expect(half[3]!.via, "3/10처럼 진행을 그대로 보인다").toBe("3/10")
+
+    const full = coverageStrip(fake(["order", "cost"], { order: 1, cost: 10 }, 0, 10), dict)
+    expect(full[3]!.via, "10/10은 «수동»이다 — 완전한 것을 결핍처럼 그리지 않는다").toBe("수동")
+
+    const none = coverageStrip(fake(["order"], { order: 1, cost: 0 }, 0, 10), dict)
+    expect(none[3]!.via, "0은 부재다").toBe("미입력")
+  })
+
+  /**
+   * ★★ 확인 ②의 「재는 법」 그대로 ★★
+   * 「원가가 236/261인 묶음에서 상품별 손익이 **열리고**, 그 화면이 부족분을
+   * 그 자리에서 말한다」. 열리기만 하고 말하지 않으면 조용한 실패다 (LOCK 6).
+   */
+  it("★ 원가가 236/261이면 열리고, 화면이 25건을 그 자리에서 말한다 ★", () => {
+    const cc = fake(["order", "settlement", "cost"], { order: 9, settlement: 9, cost: 236 }, 0, 261)
+    expect(cc.coverage.entries.find((e) => e.metric === "contribution")!.open).toBe(true)
+
+    const note = coverageNote(cc, dict)
+    expect(note).toContain("원가 미입력 25건")
+    // 방향을 틀리게 말하지 않는다 — 매입원가는 «덜», 기여이익은 «크게»
+    expect(note).toContain("매입원가가 그만큼 덜 잡혀")
+    expect(note).toContain("상품 기여이익이 실제보다 큽니다")
+    // 이미 열린 문에 «넣으면 열립니다»를 붙이지 않는다
+    expect(note).not.toContain("열립니다")
+  })
+
+  it("잠긴 것도 빈 것도 없으면 여전히 침묵한다 — 할 말이 없으면 안 한다", () => {
+    const cc = fake(["order", "settlement", "cost", "ad"], { order: 9, settlement: 9, cost: 10 }, 0, 10)
+    expect(coverageNote(cc, dict)).toBe("")
   })
 })
 
@@ -404,7 +446,18 @@ run("§22 실파일 — 반쪽씩 들어온 두 채널", () => {
     }
   })
 
-  it("원가는 «하나라도»가 아니라 «전부»여야 열린다 — 반쪽 원가는 이익을 부풀린다", async () => {
+  /**
+   * ★★ 이 시험은 2026-08-21에 **뒤집혔다** ★★
+   *
+   * 옛 판: 「원가는 «전부»여야 열린다」 — 1/2면 `cost` 미보유, 기여이익 잠김.
+   * [ADR-023](docs/ADR-023-통-묶음-자격-입구순서.md) 확인 ②가 그것을 뒤집었다
+   * (§22-3 ①에도 적었다). **열되 부족분을 말한다.**
+   *
+   * 옛 근거는 살아 있다 — 반쪽 원가는 이익을 부풀린다. 그래서 열리기만 하고 마는
+   * 것이 아니라 **`partial`이 반드시 차 있어야** 한다. 아래 두 단언이 한 쌍이다:
+   * 「열렸다」만 재고 「말한다」를 안 재면, 조용히 부풀린 이익을 통과시킨다.
+   */
+  it("원가가 반쪽이면 **열리고 부족분을 말한다** — 절단점을 두지 않는다 (ADR-023 확인 ②)", async () => {
     const db = openNodeDriver(":memory:")
     try {
       await migrate(db)
@@ -461,11 +514,24 @@ run("§22 실파일 — 반쪽씩 들어온 두 채널", () => {
 
       const list = await loadCoverage(db, LIB, krDocTypeResolver())
       const esm = list.find((c) => c.connectionId === "conn-esm")!
-      expect(esm.coverage.held, "원가가 덜 들어왔으면 아직 열린 게 아니다").not.toContain("cost")
-      expect(entry(esm.coverage, "cogs").open).toBe(false)
-      expect(esm.counts.cost, "그래도 «몇 개 넣었는지»는 센다").toBe(1)
+      expect(esm.coverage.held, "하나라도 있으면 보유다 — 부재만 잠근다").toContain("cost")
+      expect(entry(esm.coverage, "cogs").open, "★ 1/2는 열린다 (옛 판은 잠갔다) ★").toBe(true)
+      expect(esm.counts.cost, "«몇 개 넣었는지»는 그대로 센다").toBe(1)
 
-      // 나머지 하나까지 채우면 열린다 — 부재가 «해소되는» 쪽도 못박아 둔다
+      // ★ 열린 것만으로는 안 된다 — 부족분을 **말해야** 한다 ★
+      const short = entry(esm.coverage, "cogs").partial
+      expect(short, "열었으면 비어 있는 만큼을 말해야 한다").toHaveLength(1)
+      expect(short[0]).toMatchObject({ docType: "cost", have: 1, need: 2, short: 1 })
+      expect(esm.coverage.hasPartial).toBe(true)
+
+      // ★ 잠긴 지표에는 부분을 달지 않는다 ★ 이 픽스처의 ESM은 정산이 없어서
+      // 기여이익이 **잠겨 있다**. 잠긴 문에 대고 «원가가 1/2 찼다»를 덧붙이면
+      // 화면이 두 말을 한다 — 「넣으세요」와 「지금 값이 큽니다」가 같이 뜬다.
+      const contrib = entry(esm.coverage, "contribution")
+      expect(contrib.open, "정산이 없으니 기여이익은 잠겨 있다").toBe(false)
+      expect(contrib.partial, "잠긴 지표는 부분을 말하지 않는다").toHaveLength(0)
+
+      // 나머지 하나까지 채우면 **부족분이 사라진다** — 완전한 것을 결핍처럼 그리지 않는다
       await db
         .prepare(
           `INSERT INTO cost_history (library_id, sku_id, kind, amount, effective_from, entered_at, entered_by)
@@ -476,8 +542,10 @@ run("§22 실파일 — 반쪽씩 들어온 두 채널", () => {
       const after = (await loadCoverage(db, LIB, krDocTypeResolver())).find(
         (c) => c.connectionId === "conn-esm",
       )!
-      expect(after.coverage.held, "전부 채우면 열린다").toContain("cost")
+      expect(after.coverage.held, "전부 채워도 열린 것은 그대로다").toContain("cost")
       expect(entry(after.coverage, "cogs").open).toBe(true)
+      expect(entry(after.coverage, "cogs").partial, "2/2는 부분이 아니다").toHaveLength(0)
+      expect(after.coverage.hasPartial).toBe(false)
     } finally {
       await db.close()
     }

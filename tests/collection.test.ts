@@ -29,6 +29,8 @@ import { openNodeDriver } from "../src/core/store/driver-node.js"
 import { migrate } from "../src/core/store/migrate-node.js"
 import { listingIdFor, Repository } from "../src/core/store/repository.js"
 import { loadPnlSnapshot } from "../src/core/profit/snapshot.js"
+import { coverage, type DocType } from "../src/core/coverage/index.js"
+import { loadCoverage, scopeCoverage } from "../src/core/coverage/load.js"
 
 const LIB = "lib-1"
 const NOW = "2026-08-20T00:00:00"
@@ -477,5 +479,181 @@ describe("조용히 지나가지 않는다 (LOCK 6)", () => {
     } finally {
       await db.close()
     }
+  })
+})
+
+/**
+ * ★★ 묶음이 «자격»을 갖는다 — 017 · [ADR-023](docs/ADR-023-통-묶음-자격-입구순서.md) 결정 2 ★★
+ *
+ * 013은 fact 뷰 다섯에 범위를 넣었다. 그런데 **커버리지의 보유 판정만 빠져 있었다** —
+ * `loadCoverage`가 `FROM batch`를 직접 읽어서, 한 함수 안에서 두 기준이 돌았다:
+ *
+ *     counts   active_* 뷰   → 범위를 지킨다        0건이 된다
+ *     held     FROM batch    → 범위를 **무시**한다   그대로 「열림」
+ *
+ * 그 조합의 증상이 정확히 §22가 금지한 것이다 — **열린 지표가 0을 그린다.**
+ * 「없어서 0」과 「있는데 범위 밖이라 0」이 화면에서 같은 그림이 된다.
+ */
+describe("묶음이 커버리지의 판정 단위다 (017 · ADR-023 확인 ①)", () => {
+  /** 성격이 다른 배치를 따로 만든다 — `held`는 `mapping_version`에서 나오기 때문이다. */
+  async function addBatchAs(db: Db, id: string, mv: string): Promise<void> {
+    await db
+      .prepare(
+        `INSERT INTO batch (id, library_id, connection_id, source_name, source_bytes, container_format,
+                            mapping_version, started_at, committed_at, status, row_count)
+         VALUES (?,?,'conn-x',?,0,'xlsx',?,?,?,'committed',1)`,
+      )
+      .run(id, LIB, `${id}.xlsx`, mv, NOW, NOW)
+  }
+
+  const resolver = (mv: string): DocType | null =>
+    mv.startsWith("x/order") ? "order" : mv.startsWith("x/settle") ? "settlement" : null
+
+  const heldOf = async (db: Db): Promise<readonly DocType[]> =>
+    (await loadCoverage(db, LIB, resolver)).find((c) => c.connectionId === "conn-x")!.coverage.held
+
+  it("★ 범위 밖 파일은 «보유»가 아니다 — 열린 지표가 0을 그리지 않는다 ★", async () => {
+    const db = openNodeDriver(":memory:")
+    try {
+      const repo = await seed(db)
+      await addBatchAs(db, "b-order", "x/order/line@1")
+      await addBatchAs(db, "b-settle", "x/settle@1")
+
+      expect(await heldOf(db), "선택 없음 = 전부 (013 ①)").toEqual(["order", "settlement"])
+
+      // 「7월 결산」에는 주문 파일만 담는다
+      await repo.createCollection({
+        id: "col-7",
+        libraryId: LIB,
+        name: "7월 결산",
+        batchIds: ["b-order"],
+        now: NOW,
+      })
+      await repo.setActiveCollection(LIB, "col-7", NOW)
+
+      expect(await heldOf(db), "★ 범위 밖의 정산은 보유가 아니다 ★").toEqual(["order"])
+
+      // 「전체」로 돌아오면 그대로 복구된다 — 되돌리기가 아니라 **보기**다 (ADR-021)
+      await repo.setActiveCollection(LIB, null, NOW)
+      expect(await heldOf(db), "빼기는 계산에서만 뺀다").toEqual(["order", "settlement"])
+    } finally {
+      await db.close()
+    }
+  })
+
+  it("되돌린 배치는 담겨 있어도 보유가 아니다 — 「담겼다」와 「살아 있다」는 다르다", async () => {
+    const db = openNodeDriver(":memory:")
+    try {
+      const repo = await seed(db)
+      await addBatchAs(db, "b-order", "x/order/line@1")
+      await addBatchAs(db, "b-settle", "x/settle@1")
+      await repo.createCollection({
+        id: "col-7",
+        libraryId: LIB,
+        name: "7월 결산",
+        batchIds: ["b-order", "b-settle"],
+        now: NOW,
+      })
+      await repo.setActiveCollection(LIB, "col-7", NOW)
+      expect(await heldOf(db)).toEqual(["order", "settlement"])
+
+      // 013이 정한 대로 되돌린 배치도 묶음에 **남는다**. 그래도 데이터는 없다.
+      await db.prepare(`UPDATE batch SET status = 'undone' WHERE id = 'b-settle'`).run()
+      expect(await heldOf(db), "묶음에는 남아 있어도 보유는 아니다").toEqual(["order"])
+    } finally {
+      await db.close()
+    }
+  })
+
+  /**
+   * ★ 어느 연결도 혼자서는 못 여는 지표가 **범위로는 열린다** ★
+   *
+   * 이게 「판정 단위를 연결에서 묶음으로 올린다」가 실제로 뜻하는 것이다. 대시보드는
+   * 채널 하나가 아니라 지금 고른 범위 전체를 그리므로, 연결별 판정만으로는 자기
+   * 자격을 물을 자리가 없다.
+   */
+  it("★ 범위는 연결들의 **합집합**이다 — 교집합으로 접으면 숙제 검사가 된다 ★", () => {
+    const conn = (held: DocType[], counts: Partial<Record<DocType, number>>, skus = 0) => ({
+      connectionId: `c-${held.join("-")}`,
+      channel: "채널",
+      marketplaceKey: "x",
+      state: "CONNECTED",
+      counts: { order: 0, settlement: 0, ad: 0, cost: 0, ...counts },
+      skuCount: skus,
+      lastImportAt: null,
+      settlementGross: 0,
+      coverage: coverage(held, { settlementGross: 0 }),
+    })
+
+    // 11번가는 정산만, ESM은 주문만 — 어느 쪽도 혼자서는 기여이익을 못 연다
+    const a = conn(["settlement"], { settlement: 128 })
+    const b = conn(["order", "cost"], { order: 155, cost: 35 }, 35)
+    expect(a.coverage.entries.find((e) => e.metric === "contribution")!.open).toBe(false)
+    expect(b.coverage.entries.find((e) => e.metric === "contribution")!.open).toBe(false)
+
+    const scope = scopeCoverage([a, b], "7월 결산")
+    expect(scope.collectionName).toBe("7월 결산")
+    expect(scope.counts).toEqual({ order: 155, settlement: 128, ad: 0, cost: 35 })
+    expect(
+      scope.coverage.entries.find((e) => e.metric === "contribution")!.open,
+      "★ 합쳐야 열리는 것이 있다 — 그래서 판정이 범위로 올라간다 ★",
+    ).toBe(true)
+    expect(scope.coverage.hasPartial, "35/35는 부분이 아니다").toBe(false)
+  })
+
+  it("범위의 원가도 절단점이 없다 — 236/261이면 **열리고 25를 말한다**", () => {
+    const conn = {
+      connectionId: "c1",
+      channel: "채널",
+      marketplaceKey: "x",
+      state: "CONNECTED",
+      counts: { order: 1, settlement: 1, ad: 0, cost: 236 },
+      skuCount: 261,
+      lastImportAt: null,
+      settlementGross: 0,
+      coverage: coverage(["order", "settlement", "cost"], {
+        settlementGross: 0,
+        partial: { cost: { have: 236, need: 261 } },
+      }),
+    }
+    const scope = scopeCoverage([conn], null)
+    expect(scope.collectionName, "묶음이 없으면 「전체」다 — 013 «전체는 행이 아니다»").toBeNull()
+
+    const contrib = scope.coverage.entries.find((e) => e.metric === "contribution")!
+    expect(contrib.open, "★ 열린다 (옛 §22-3 ①은 잠갔다) ★").toBe(true)
+    expect(contrib.partial[0]).toMatchObject({ docType: "cost", have: 236, need: 261, short: 25 })
+  })
+
+  /**
+   * ★★ 절단점 금지를 **기계가 지킨다** ★★
+   *
+   * ADR-023 확인 ②가 이름까지 대며 금지한 것이 `if (ratio < 0.9) return locked`다.
+   * 「지금 그런 줄이 없다」는 오늘의 사실일 뿐이라 내일 다시 생긴다. 비율을 촘촘히
+   * 훑어 **전부 열려 있는지** 보면, 어떤 절단점이 들어와도 이 줄이 붉어진다.
+   */
+  it("★ 어떤 비율에서도 열린다 — 1/1000부터 999/1000까지 (확인 ②) ★", () => {
+    for (const have of [1, 2, 9, 100, 234, 500, 899, 900, 998, 999]) {
+      const c = coverage(["order", "settlement", "cost"], {
+        settlementGross: 0,
+        partial: { cost: { have, need: 1000 } },
+      })
+      const e = c.entries.find((x) => x.metric === "contribution")!
+      expect(e.open, `원가 ${have}/1000에서 잠겼다 — 절단점이 생겼다`).toBe(true)
+      expect(e.partial[0]?.short, `${have}/1000의 부족분이 안 맞는다`).toBe(1000 - have)
+    }
+  })
+
+  it("★ 잠기는 것은 «아예 없을 때»뿐이다 — 부족과 부재는 다르다 ★", () => {
+    const none = coverage(["order", "settlement"], { settlementGross: 0 })
+    expect(none.entries.find((e) => e.metric === "cogs")!.open, "원가가 0이면 잠긴다").toBe(false)
+    expect(none.entries.find((e) => e.metric === "cogs")!.partial, "부재는 부분이 아니다").toEqual([])
+
+    // 붙은 SKU가 0이면 «덜 넣었다»가 아니다 — 넣을 자리가 아직 없는 것이고
+    // 그 처방은 상품 연결이다 (`cogs-unlinked`가 그쪽을 말한다)
+    const noSku = coverage(["order", "settlement", "cost"], {
+      settlementGross: 0,
+      partial: { cost: { have: 0, need: 0 } },
+    })
+    expect(noSku.entries.find((e) => e.metric === "cogs")!.partial).toEqual([])
   })
 })
