@@ -15,6 +15,7 @@
 import type { OrderItems, OrderRow } from "@core/order/rows.js"
 import type { Period } from "@core/profit/index.js"
 import type { TemplateVals } from "./generated/vals.js"
+import { orderKey, type DetailTarget } from "./detail.js"
 import { won } from "./format.js"
 
 const DIM = "var(--fg-4)"
@@ -70,6 +71,11 @@ export function orderVals(
   vals: TemplateVals,
   rows: readonly OrderRow[],
   period: Period,
+  /**
+   * 행을 누르면 §21-2 L2 근거 패널이 연다 (조사 1.7). 안 넘기면 눌러도 아무 일이
+   * 없다 — 어포던스는 동결 마크업에 박혀 있어 여기서 지울 수 없다.
+   */
+  openDetail: (t: DetailTarget) => void = () => {},
 ): void {
   vals.ordersEmpty = rows.length === 0
   vals.orderScope = orderScopeLine(rows, period)
@@ -146,7 +152,7 @@ export function orderVals(
       claimColor: r.claimType === null ? DIM : WARN,
       // 출처 — 우리는 파일 가져오기뿐이다 (LOCK 10).
       src: "파일",
-      click: () => {},
+      click: () => openDetail({ kind: "order", key: orderKey(r) }),
       link: () => {},
     }
   })

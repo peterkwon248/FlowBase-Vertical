@@ -29,6 +29,7 @@
 import type { ProductSkuRow, ProductView } from "@core/product/rows.js"
 import { COST_PROBLEM_TEXT, parseCostDraft } from "@core/cost/index.js"
 import type { TemplateVals } from "./generated/vals.js"
+import { skuKey, type DetailTarget } from "./detail.js"
 import { won } from "./format.js"
 
 const DIM = "var(--fg-4)"
@@ -48,9 +49,22 @@ export interface ProductActions {
   readonly setDraft: (skuId: string, patch: Partial<CostDraftState>) => void
   /** 저장. 같은 날짜가 이미 있으면 **묻고 나서** 덮는 것은 App이 한다. */
   readonly save: (row: ProductSkuRow) => void
+  /**
+   * 행을 누르면 §21-2 L2 근거 패널이 연다 (조사 1.7).
+   *
+   * ⚠ 아래 `click`에 「상세 패널은 아직 없다. **어포던스를 그리지 않는다** (§21-1)」고
+   * 적혀 있었는데 **거짓이었다** — 어포던스(`cursor:pointer`)는 동결 마크업에
+   * 하드코딩돼 있어 배선 쪽에서 「안 그리기」를 고를 수 없었다. 그래서 이었다.
+   */
+  readonly openDetail: (t: DetailTarget) => void
 }
 
-const NOOP: ProductActions = { pickTab: () => {}, setDraft: () => {}, save: () => {} }
+const NOOP: ProductActions = {
+  pickTab: () => {},
+  setDraft: () => {},
+  save: () => {},
+  openDetail: () => {},
+}
 
 /**
  * 초안의 기본값 — **금액은 비우고 날짜는 오늘.**
@@ -202,8 +216,8 @@ export function productVals(
       qty: r.soldQty === null ? "—" : won(r.soldQty),
       net: r.status === "DRAFT" ? "손익 제외" : "—",
       netColor: DIM,
-      // 상세 패널은 아직 없다. 어포던스를 그리지 않는다 (§21-1)
-      click: () => {},
+      // 눌러서 이 SKU의 원가·연결 근거를 편다 (§21-2 L2)
+      click: () => act.openDetail({ kind: "sku", key: skuKey(r) }),
     }
   })
 }

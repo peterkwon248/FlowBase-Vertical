@@ -34,6 +34,7 @@ import {
 import { SETTLEMENT_DAILY, type Repository, type FactTable } from "@core/store/repository.js"
 import { ADJUSTED_FIELD } from "@core/settlement/rows.js"
 import { orderVals } from "./order.js"
+import { detailVals, type DetailTarget } from "./detail.js"
 import { linkingVals, type LinkTab, type LinkingActions } from "./linking.js"
 import { channelVals } from "./channel.js"
 import {
@@ -186,6 +187,14 @@ export function App(): React.JSX.Element {
   const [excluded, setExcluded] = useState<LoadResult["excluded"]>({ files: 0, rows: 0, reasons: [] })
   const [excludedAck, setExcludedAck] = useState<number | null>(null)
   /** 일별 차트에서 호버 중인 칸. -1이면 안 떠 있다 — 화면 상태라 DB에 가지 않는다. */
+  /**
+   * ★ §21-2 L2 근거 패널이 지금 가리키는 행 (조사 1.7) ★
+   *
+   * **행의 값이 아니라 주소만 든다** — 값은 매 렌더에 `detailVals`가 화면과 같은
+   * 배열에서 다시 찾는다. 복사해 두면 가져오기·되돌리기 뒤에 패널과 표가 다른
+   * 숫자를 말한다 (`detail.ts` 머리 주석).
+   */
+  const [detail, setDetail] = useState<DetailTarget | null>(null)
   const [trendIdx, setTrendIdx] = useState(-1)
   /**
    * ★ 보고 있는 달 (MVP 1, 2026-08-16) ★
@@ -711,6 +720,7 @@ export function App(): React.JSX.Element {
     pickTab: setProdTab,
     setDraft: putDraft,
     save: (row) => saveCost(row, drafts.get(row.skuId) ?? emptyDraft(today()), false),
+    openDetail: setDetail,
   }
 
   // ── 비용 — 고정비 (마이그레이션 010) ─────────────────────────────
@@ -1296,7 +1306,14 @@ export function App(): React.JSX.Element {
     },
   }
 
-  const go = useCallback((view: NavKey) => setState((s) => ({ ...s, view })), [])
+  /**
+   * 화면을 옮기면 근거 패널을 **닫는다.** `<aside>`는 어느 화면에서나 같은 자리에
+   * 서므로(목업 레이아웃), 안 닫으면 주문 화면에서 연 패널이 정산 화면 옆에 남는다.
+   */
+  const go = useCallback((view: NavKey) => {
+    setDetail(null)
+    setState((s) => ({ ...s, view }))
+  }, [])
   const toggleNav = useCallback(
     () => setState((s) => ({ ...s, navCollapsed: !s.navCollapsed })),
     [],
@@ -1649,6 +1666,8 @@ export function App(): React.JSX.Element {
       },
       // 배너의 [양식 확인] — 제외가 많으면 양식 해석을 봐야 하므로 그 화면으로 보낸다.
       goFieldmap: () => go("fieldmap"),
+      openDetail: setDetail,
+      detail,
     })
     // 데이터가 들어왔으니 첫 실행 안내는 지나간다.
     vals.firstRun = false
@@ -1656,8 +1675,8 @@ export function App(): React.JSX.Element {
   }
   // 정산은 손익과 **다른 조회**라 따로 배선한다. 둘 다 같은 순간의 같은 DB를
   // 읽으므로(loadDevSnapshot이 연결을 한 번만 연다) 화면끼리 어긋나지 않는다.
-  if (setRows.length > 0) settlementVals(vals, setRows, per, adjDraft, adjActions)
-  if (ordRows.length > 0) orderVals(vals, ordRows, per)
+  if (setRows.length > 0) settlementVals(vals, setRows, per, adjDraft, adjActions, setDetail)
+  if (ordRows.length > 0) orderVals(vals, ordRows, per, setDetail)
   // 연결은 **0장도 사실**이다. 다른 화면과 달리 길이로 거르지 않는 이유는, 리스팅이
   // 하나도 없으면 "연결할 것이 없습니다"가 떠야 하기 때문이다 — 목업의 빈 상태가
   // 그 자리에 이미 있다.
@@ -1760,6 +1779,24 @@ export function App(): React.JSX.Element {
   // 비용 화면은 **손익이 있어야** 그린다 — 3층 표가 `pnl`을 통째로 읽고, 고정비의
   // 「이 기간 몫」도 안분된 값이라 스냅샷 없이는 숫자를 만들 수 없다.
   if (costs && snap) costsVals(vals, costs, snap.pnl, costsDraft, costsActions)
+  /**
+   * ★ §21-2 L2 근거 패널 — **맨 마지막에 붙인다** ★
+   * 화면별 배선이 전부 끝난 뒤라야 표가 그리는 것과 **같은 배열**을 넘길 수 있다.
+   * 대상이 이 기간에 없으면 `detailVals`가 아무것도 안 붙이고 `<aside>`는 안 뜬다.
+   */
+  detailVals(
+    vals,
+    detail,
+    {
+      period: per,
+      products: profitRows,
+      channels: channelRows,
+      orders: ordRows,
+      settlements: setRows,
+      skus: products?.rows ?? [],
+    },
+    { close: () => setDetail(null), go },
+  )
   // 확인 다이얼로그는 화면이 아니라 앱 상태다 — 어느 화면에서 띄웠든 같은 모달이다.
   vals.confirm = confirm
   vals.closeConfirm = () => setConfirm(null)

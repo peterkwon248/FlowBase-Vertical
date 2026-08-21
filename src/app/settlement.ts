@@ -16,6 +16,7 @@ import type { SettlementRow } from "@core/settlement/rows.js"
 import { adjustmentKey } from "@core/settlement/rows.js"
 import type { Period } from "@core/profit/index.js"
 import type { TemplateVals } from "./generated/vals.js"
+import { settlementDetailKey, type DetailTarget } from "./detail.js"
 import { signed, won } from "./format.js"
 
 const DIM = "var(--fg-4)"
@@ -128,6 +129,12 @@ export function settlementVals(
   _period: Period,
   draft: AdjDraft = emptyAdjDraft(),
   act: AdjActions = noAdjActions,
+  /**
+   * 행을 누르면 §21-2 L2 근거 패널이 연다 (조사 1.7) — 정산 항등식의 항 분해다.
+   * `AdjActions`에 넣지 않는 이유는 그 묶음이 **조정 쓰기 경로**(ADR-020)이기
+   * 때문이다. 읽기 전용 패널을 그 안에 두면 다음 사람이 둘을 한 덩이로 읽는다.
+   */
+  openDetail: (t: DetailTarget) => void = () => {},
 ): void {
   vals.setEmpty = rows.length === 0
   vals.setSummary = settlementSummary(rows)
@@ -255,7 +262,7 @@ export function settlementVals(
       // 그때까지 **어포던스를 그리지 않는다** (§21-1).
       canAck: false,
       ackWhy: "",
-      click: () => {},
+      click: () => openDetail({ kind: "settlement", key: settlementDetailKey(r) }),
       goMap: () => {},
       ack: () => {},
     }

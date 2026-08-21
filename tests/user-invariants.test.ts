@@ -378,10 +378,14 @@ describe("U-6. 숫자는 근거를 말한다", () => {
 
   it("표 행에서 근거로 내려가는 자리를 센다 — 늘어나기만 한다", () => {
     /**
-     * 오늘 `click: () => {}`인 표가 다섯이다(대시보드 상품별·채널별·주문·정산·상품).
+     * 한때 `click: () => {}`인 표가 다섯이었다(대시보드 상품별·채널별·주문·정산·상품).
      * 이 수는 **줄어들기만 한다** — 하나를 이으면 상한도 함께 내린다.
+     *
+     * ★ 2026-08-21에 **0이 됐다** ★ 다섯이 전부 `src/app/detail.ts`의 L2 근거
+     * 패널로 내려간다. 이제 이 상한은 «갚을 빚»이 아니라 **되돌아가지 못하게 하는
+     * 못**이다 — 새 표가 어포던스만 그리고 갈 곳을 안 주면 여기서 붉어진다.
      */
-    const DEAD_ROW_CLICK_MAX = 5
+    const DEAD_ROW_CLICK_MAX = 0
     const dead = [...WIRED.matchAll(/click:\s*\(\)\s*=>\s*\{\s*\}/g)].length
     expect(dead, `근거로 못 내려가는 표 ${dead}곳 (상한 ${DEAD_ROW_CLICK_MAX})`)
       .toBeLessThanOrEqual(DEAD_ROW_CLICK_MAX)

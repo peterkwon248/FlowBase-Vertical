@@ -38,6 +38,7 @@ import { krLinkingMatcher } from "../src/packs/kr-marketplace/linking-matcher.js
 import type { Period } from "../src/core/profit/index.js"
 import { orderVals } from "../src/app/order.js"
 import { settlementVals } from "../src/app/settlement.js"
+import { detailVals, settlementDetailKey } from "../src/app/detail.js"
 import { linkingVals } from "../src/app/linking.js"
 import { Template } from "../src/app/generated/Template.js"
 import { emptyVals } from "../src/app/generated/vals.js"
@@ -149,13 +150,49 @@ run("내부 키가 화면에 새지 않는다 (헌장 C-4)", () => {
       {
         key: "settlement",
         channel: "11번가",
+        detail: false,
         wire: (v: never) => settlementVals(v, settlement, PERIOD),
       },
-      { key: "orders", channel: "ESM", wire: (v: never) => orderVals(v, orders, PERIOD) },
+      {
+        key: "orders",
+        channel: "ESM",
+        detail: false,
+        wire: (v: never) => orderVals(v, orders, PERIOD),
+      },
       {
         key: "linking",
         channel: "11번가",
+        detail: false,
         wire: (v: never) => linkingVals(v, linking, "todo", new Set()),
+      },
+      /**
+       * ★ §21-2 L2 근거 패널 (2026-08-21) ★
+       * 새 표면이라 여기 한 줄을 더한다 — 이 파일 머리 주석이 요구하는 그대로다.
+       * 패널은 정산 화면 옆에 서므로 화면 키는 `settlement`이고, `<aside>`는
+       * `connection_id`를 **주소로만** 들고 사람에게는 채널 이름을 보인다.
+       */
+      {
+        key: "settlement",
+        channel: "11번가",
+        detail: true,
+        wire: (v: never) => {
+          settlementVals(v, settlement, PERIOD)
+          const first = settlement[0]
+          if (first === undefined) return
+          detailVals(
+            v,
+            { kind: "settlement", key: settlementDetailKey(first) },
+            {
+              period: PERIOD,
+              products: [],
+              channels: [],
+              orders,
+              settlements: settlement,
+              skus: [],
+            },
+            { close: () => {}, go: () => {} },
+          )
+        },
       },
     ] as const
 
@@ -167,6 +204,13 @@ run("내부 키가 화면에 새지 않는다 (헌장 C-4)", () => {
       ;(vals.v as Record<string, boolean>)[view.key] = true
 
       const html = renderToString(createElement(Template, { vals }))
+      // 배선이 조용히 no-op이 되면 이 검사도 조용히 아무것도 안 본다 — 그래서
+      // «이 view가 실제로 무엇을 그렸나»를 먼저 못박는다 (LOCK 6의 시험판).
+      if (view.detail === true) {
+        expect(html, "근거 패널이 안 떴다 — 이 view의 누출 검사는 헛돈다").toContain(
+          "detail-side",
+        )
+      }
       for (const [leak, what] of LEAKS) {
         expect(
           html.includes(leak),

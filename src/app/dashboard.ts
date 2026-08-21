@@ -22,6 +22,7 @@ import type { ConnectionCoverage } from "@core/coverage/load.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
 import type { TemplateVals } from "./generated/vals.js"
 import { compact, pct, signed, won } from "./format.js"
+import { channelKey, productKey, type DetailTarget } from "./detail.js"
 import { EXCLUSION_LABEL } from "./import.js"
 
 /** 목업 L4201~4208의 팔레트. 색은 표기이므로 그대로 옮긴다. */
@@ -156,9 +157,22 @@ export function dashboardVals(
     ackExcluded?: () => void
     /** 배너의 [양식 확인] — 「필드 매핑」 화면으로 간다. */
     goFieldmap?: () => void
+    /**
+     * ★ 표 행 → §21-2 L2 근거 패널 (조사 1.7) ★
+     * 두 표가 `cursor:pointer`를 그려 놓고 `click: () => {}`이었다. 어포던스는
+     * 동결 마크업에 박혀 있어 「안 그리기」로는 못 닫는다 — 이어야 닫힌다.
+     */
+    openDetail?: (t: DetailTarget) => void
+    /** 지금 열려 있는 패널의 주소. 그 행에만 배경을 준다(선택 표시). */
+    detail?: DetailTarget | null
   } = { products: [], channels: [] },
 ): void {
   const p = snap.pnl
+  // 근거 패널이 안 붙은 호출(시험·부분 배선)에서는 행이 눌려도 아무 일도 안 한다.
+  // 그래도 어포던스는 동결 마크업에 있으므로, 이 기본값은 **App이 안 넘겼을 때만**
+  // 도는 자리다 — 실제 앱은 항상 넘긴다.
+  const openDetail = rows.openDetail ?? ((): void => {})
+  const open = rows.detail ?? null
   const mix = costMix(snap)
   const mixTotal = mix.reduce((s, m) => s + m.v, 0)
   const den = p.revenue > 0 ? p.revenue : mixTotal
@@ -299,8 +313,8 @@ export function dashboardVals(
       indent: "0px",
       nameFont: "var(--fw-medium) 12px",
       nameColor: linked ? "var(--fg-2)" : "var(--fg-4)",
-      bg: "transparent",
-      click: () => {},
+      bg: open?.kind === "product" && open.key === productKey(r) ? "var(--bg-elevated)" : "transparent",
+      click: () => openDetail({ kind: "product", key: productKey(r) }),
       qty: `${r.qty.toLocaleString()}개`,
       rev: `${won(r.revenue)}원`,
       disc: r.discount === 0 ? "—" : `${won(r.discount)}원`,
@@ -358,8 +372,8 @@ export function dashboardVals(
       color: CH_COLORS[i % CH_COLORS.length],
       barW: `${((c.revenue / chDen) * 100).toFixed(1)}%`,
       barBg: "var(--bg-elevated-2)",
-      rowBg: "transparent",
-      click: () => {},
+      rowBg: open?.kind === "channel" && open.key === channelKey(c) ? "var(--bg-elevated)" : "transparent",
+      click: () => openDetail({ kind: "channel", key: channelKey(c) }),
     }
   })
 

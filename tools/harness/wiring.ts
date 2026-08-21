@@ -117,8 +117,16 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
      * ⌘K 상자(`Template.tsx:88`)가 그걸 쓴다. **팔레트는 통째로 배선됐다.**
      * 선언을 절반만 걷으면 나머지 절반이 그대로 썩는다 — 그 자리를 이제 기계가 문다.
      */
+    /**
+     * ★ 근거 패널(`detail` · `hasDetail` · `closeDetail`)을 여기서 뺐다 (2026-08-21) ★
+     *
+     * 셋이 이 컷에 **잘못 들어 있었다** — 「설정 화면이라 배포 단계 일」이라 적혀
+     * 있었는데 §21-2 L2 근거 패널은 설정 화면도 아니고 배포 단계 일도 아니다
+     * (조사 3.3-오분류). 그 오분류가 «안 만들기로 한 것»으로 열 달을 서 있었다.
+     * 이제 다섯 표가 전부 이 패널로 내려간다 (`src/app/detail.ts`).
+     */
     name: "미구현 화면 — 설정·라이선스",
-    fields: /^(lic[A-Z]|setLicKey|ss[A-Z]|creds|genRows|adjRows|askReset|setSections|confirmType|setConfirmType|modal|modalOpen|closeModal|detail|hasDetail|closeDetail|closeQuadFull)/,
+    fields: /^(lic[A-Z]|setLicKey|ss[A-Z]|creds|genRows|adjRows|askReset|setSections|confirmType|setConfirmType|modal|modalOpen|closeModal|closeQuadFull)/,
     why: "컷 목록 — 설정 화면. 배포 단계 일이다 (커맨드 팔레트는 2026-08-20에 배선됐다)",
   },
   {
