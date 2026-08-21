@@ -21,6 +21,9 @@ import { FACT_TABLES } from "@core/store/repository.js"
 const NOOP = { toggle: () => {}, pickTable: () => {}, pickPage: () => {} }
 
 const open = (o: Partial<OpenBatch> = {}): OpenBatch => ({
+  kind: "batch",
+  sourceName: "",
+  sightingId: null,
   batchId: "batch-1",
   table: "fact_settlement",
   page: 0,
@@ -212,5 +215,75 @@ describe("적재된 행 — 화면", () => {
   it("불러오는 중에는 표를 그리지 않는다 — 옛 행을 새 것처럼 보이면 안 된다", () => {
     const v = render(open({ busy: true }))
     expect(v.rowsBusy).toBe(true)
+  })
+
+  /**
+   * ★★ 018 — 같은 패널이 **원본 표**도 연다 (ADR-028 결정 4) ★★
+   *
+   * 016·017이 파싱된 표를 담았고, 이 갈래가 그것을 꺼내 그린다. 위 시험
+   * (「제목이 «원본 파일»이라고 말하지 않는다」)이 여전히 통과하는 것이 요점이다 —
+   * **두 갈래가 서로 다른 것을 보여준다는 사실이 제목에서 갈린다.**
+   */
+  describe("원본 표 갈래 (018)", () => {
+    const sheet = (o: Partial<OpenBatch> = {}): OpenBatch =>
+      open({
+        kind: "sheet",
+        sourceName: "2026-01 통합 매출 대시보드.xlsx",
+        sightingId: 7,
+        table: "sheet",
+        tables: {},
+        columns: ["상품번호", "원가", ""],
+        rows: [["A-1", 1200, null]],
+        total: 253,
+        ...o,
+      })
+
+    it("★ 제목이 **어느 파일의 원본 표**인지 말한다 ★", () => {
+      const v = render(sheet())
+      expect(v.rowsTitle).toBe("2026-01 통합 매출 대시보드.xlsx — 원본 표")
+    })
+
+    it("★★ 열 이름이 **파일이 쓴 글자 그대로**다 — 번역하면 원본이 아니다 ★★", () => {
+      const v = render(sheet())
+      const cols = v.rowsCols as { label: string }[]
+      expect(cols[0]!.label).toBe("상품번호")
+      expect(cols[1]!.label).toBe("원가")
+      // 머리글이 빈 열은 파일에 실제로 그런 열이 있다는 뜻이다 — 숨기지 않는다
+      expect(cols[2]!.label).toBe("(이름 없는 열)")
+    })
+
+    it("★ 숫자에 천단위 쉼표를 넣지 않는다 — 파일과 다른 글자가 보이면 원본이 아니다 ★", () => {
+      const v = render(sheet())
+      const cells = (v.rowsBody[0] as { cells: { text: string; num: boolean }[] }).cells
+      expect(cells[1]!.text).toBe("1200")
+      expect(cells[1]!.text).not.toContain(",")
+      // 오른쪽 정렬은 한다 — 표기를 바꾸지 않는 것과 자리를 맞추는 것은 다르다
+      expect(cells[1]!.num).toBe(true)
+    })
+
+    it("빈 칸은 «—»이고 흐리게 — Fact 쪽과 같은 규율이다", () => {
+      const v = render(sheet())
+      const cells = (v.rowsBody[0] as { cells: { text: string; dim: boolean }[] }).cells
+      expect(cells[2]!.text).toBe("—")
+      expect(cells[2]!.dim).toBe(true)
+    })
+
+    it("★ 탭이 없다 — 갈래가 없는 자리에 탭 하나를 그리면 «더 있는데 안 보여준다»가 된다 ★", () => {
+      expect(render(sheet()).rowsTabs).toEqual([])
+      // 대비: Fact 쪽은 탭이 선다
+      expect((render(open()).rowsTabs as unknown[]).length).toBeGreaterThan(0)
+    })
+
+    it("★ 담기지 않은 파일은 그 사실을 말한다 — «행이 없다»로 뭉개지 않는다 (LOCK 6) ★", () => {
+      const v = render(sheet({ rows: [], total: 0 }))
+      expect(v.rowsNote).toBe("이 파일의 원본 표가 담기지 않았습니다")
+      expect(v.rowsNote).not.toBe("이 표에 들어간 행이 없습니다")
+    })
+
+    it("페이지 나누기는 Fact와 같은 규율이다 — 253행이면 6쪽", () => {
+      const v = render(sheet())
+      expect(v.rowsNote).toContain("253")
+      expect((v.rowsPages as unknown[]).length).toBeGreaterThan(0)
+    })
   })
 })

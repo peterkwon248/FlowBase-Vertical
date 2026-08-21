@@ -262,6 +262,9 @@ if (rowsHit && rowsPage) {
   batchRowVals(
     vals,
     {
+      kind: "batch",
+      sourceName: rowsHit.sourceName,
+      sightingId: rowsHit.sightingId,
       batchId: rowsHit.id,
       table: rowsTable,
       page: 0,

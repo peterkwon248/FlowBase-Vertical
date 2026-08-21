@@ -38,6 +38,7 @@ const file = (id: string, name: string, blocked = false): HistoryRow => ({
   kind: "fact",
   outcomes: {},
   seenCount: 1,
+  sightingId: 1,
 })
 
 const ROWS = [file("b1", "7월 매출.xlsx"), file("b2", "8월 매출.xlsx"), file("b3", "광고.xlsx")]

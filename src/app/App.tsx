@@ -74,7 +74,7 @@ import { runImport } from "@core/import/run.js"
 import { runReferenceImport } from "@core/import/run-reference.js"
 import { profileVersion } from "@core/import/mapping/index.js"
 import { deriveProfile } from "@core/import/mapping/derive.js"
-import { DEV_LIBRARY, EXCLUDED_NOTICE, findPriorImports, loadAllProfiles, loadBatchRows, loadDevSnapshot, nowStamp, readDigest, recordSighting, thisMonth, today, writeThenReload, type LoadResult } from "./data.js"
+import { DEV_LIBRARY, EXCLUDED_NOTICE, findPriorImports, loadAllProfiles, loadBatchRows, loadDevSnapshot, loadSheetPage, nowStamp, readDigest, recordSighting, thisMonth, today, writeThenReload, type LoadResult } from "./data.js"
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import { monthPeriod, type Month, type MonthRow } from "@core/profit/months.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
@@ -1398,6 +1398,9 @@ export function App(): React.JSX.Element {
   const fetchRows = useCallback(
     (batchId: string, table: string, page: number, tables: Readonly<Record<string, number>>) => {
       setOpenBatch((o) => ({
+        kind: "batch",
+        sourceName: "",
+        sightingId: null,
         batchId,
         table,
         page,
@@ -1427,6 +1430,45 @@ export function App(): React.JSX.Element {
     [],
   )
 
+  /**
+   * ★ 원본 표 한 페이지 (018 · ADR-028 결정 4) ★
+   *
+   * `fetchRows`와 같은 규율이다 — 열었을 때만 읽고(LOCK 5), 늦게 온 답은 버린다.
+   * 다른 것은 읽는 대상뿐이다: 그쪽은 앱이 해석한 Fact 행, 이쪽은 파일의 표.
+   */
+  const fetchSheet = useCallback(
+    (key: string, sightingId: number, sourceName: string, page: number) => {
+      setOpenBatch((o) => ({
+        kind: "sheet",
+        sourceName,
+        sightingId,
+        batchId: key,
+        table: "sheet",
+        page,
+        tables: {},
+        columns: o?.batchId === key ? o.columns : [],
+        rows: o?.batchId === key ? o.rows : [],
+        total: o?.batchId === key ? o.total : 0,
+        busy: true,
+      }))
+      void loadSheetPage(sightingId, ROWS_PER_PAGE, page * ROWS_PER_PAGE)
+        .then((p) =>
+          setOpenBatch((o) =>
+            o && o.kind === "sheet" && o.batchId === key
+              ? { ...o, columns: p.columns, rows: p.rows, total: p.total, busy: false }
+              : o,
+          ),
+        )
+        .catch((e: unknown) => {
+          setOpenBatch(null)
+          setConfirm(
+            sayConfirm("원본 표를 읽지 못했습니다", String(e), () => setConfirm(null)),
+          )
+        })
+    },
+    [],
+  )
+
   const rowsActions: RowsActions = {
     toggle: (batchId, tables) => {
       const first = Object.entries(tables).find(([, n]) => n > 0)?.[0]
@@ -1437,8 +1479,14 @@ export function App(): React.JSX.Element {
       if (!openBatch) return
       fetchRows(openBatch.batchId, table, 0, openBatch.tables)
     },
+    // 원본 표는 탭이 없고 페이지만 있다 — 어느 쪽을 넘기는지 갈라야 한다.
     pickPage: (page) => {
       if (!openBatch) return
+      if (openBatch.kind === "sheet") {
+        if (openBatch.sightingId === null) return
+        fetchSheet(openBatch.batchId, openBatch.sightingId, openBatch.sourceName, page)
+        return
+      }
       fetchRows(openBatch.batchId, openBatch.table, page, openBatch.tables)
     },
   }
@@ -1541,12 +1589,27 @@ export function App(): React.JSX.Element {
     [scope, scopeEdit, justImported, acquire, release, sayBusy, take],
   )
 
+  /**
+   * ★ 장부의 줄을 눌렀다 — **무엇이 열리나는 행이 정한다** (018) ★
+   *
+   * `fact`  이 batch가 넣은 Fact 행 (11번)
+   * 나머지  파일에 있던 **원본 표** (016·017이 담았다 · ADR-028 결정 4)
+   *
+   * 015까지 기준 데이터 행은 `cursor: pointer`를 달고도 아무 일이 없었다 —
+   * §21-1 U-3 위반이자 남은일 1.6의 항목이었고, 여기가 그 자리를 채운다.
+   */
   const openRows = useCallback(
     (row: HistoryRow) => {
-      // 같은 batch를 다시 누르면 접는다 — 여는 것과 닫는 것이 같은 제스처다.
+      // 같은 줄을 다시 누르면 접는다 — 여는 것과 닫는 것이 같은 제스처다.
       setOpenBatch((o) => (o?.batchId === row.id ? null : o))
       if (openBatch?.batchId === row.id) return
-      rowsActions.toggle(row.id, row.ownedByTable)
+      if (row.kind === "fact") {
+        rowsActions.toggle(row.id, row.ownedByTable)
+        return
+      }
+      // 목격이 없으면 담긴 표도 없다 — 실측 0건이지만 타입이 그 가능성을 든다.
+      if (row.sightingId === null) return
+      fetchSheet(row.id, row.sightingId, row.sourceName, 0)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [openBatch?.batchId],

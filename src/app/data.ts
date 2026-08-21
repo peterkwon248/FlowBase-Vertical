@@ -709,6 +709,52 @@ export async function loadBatchRows(
   }
 }
 
+/**
+ * ★ 원본 표 한 페이지 (018 · ADR-027 · ADR-028 결정 4) ★
+ *
+ * `loadBatchRows`와 나란한 자리다. 그쪽은 **앱이 해석한 Fact 행**을 주고
+ * 이쪽은 **파일에 있던 그대로의 표**를 준다 — 016·017이 담아 둔 것이다.
+ *
+ * 열 이름은 `file_column`의 머리글이고 **파일이 쓴 글자 그대로**다. 내부 코드값이
+ * 아니므로 헌장 C-4의 「코드값을 화면에 내보내지 않는다」에 걸리지 않는다 —
+ * 오히려 번역하면 «원본»이 아니게 된다.
+ *
+ * 페이지 단위로만 읽는다 (LOCK 5). `sheetPage`가 겹치는 블록만 `WHERE`로 잘라 온다.
+ */
+export interface SheetRowPage {
+  readonly columns: readonly string[]
+  readonly rows: readonly (readonly (string | number | null)[])[]
+  readonly total: number
+}
+
+export async function loadSheetPage(
+  sightingId: number,
+  limit: number,
+  offset: number,
+): Promise<SheetRowPage> {
+  try {
+    const db = await open()
+    try {
+      await catchUp(db)
+      const repo = new Repository(db)
+      const cols = await repo.fileColumns(sightingId)
+      const page = await repo.sheetPage(sightingId, offset, limit)
+      return {
+        columns: cols.map((c) => String(c["header"] ?? "")),
+        // 담긴 셀은 `string | number | boolean | null`인데 화면 계약은 boolean을
+        // 모른다. **버리지 않고 글자로 내린다** — 「TRUE」가 든 칸이 사라지면
+        // 그것이 조용한 실패다 (LOCK 6).
+        rows: page.rows.map((r) => r.map((v) => (typeof v === "boolean" ? String(v) : v))),
+        total: page.total,
+      }
+    } finally {
+      await db.close()
+    }
+  } catch {
+    throw new Error("원본 표를 읽지 못했습니다")
+  }
+}
+
 /** 대시보드 제외 배너의 확인 키 (012). 화면이 정하는 안정된 문자열이다. */
 export const EXCLUDED_NOTICE = "dash.excluded"
 

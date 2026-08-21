@@ -97,6 +97,16 @@ export interface HistoryRow {
   readonly outcomes: Readonly<Record<string, number>>
   /** 몇 번 봤나 (009). 재가져오기가 몇 번이었는지를 이 수가 말한다. */
   readonly seenCount: number
+  /**
+   * ★ 통의 줄 번호 — **원본 표를 여는 열쇠다** (018 · ADR-028 결정 4) ★
+   *
+   * `null`이면 목격 없는 배치다(아래 「줍는다」 절). 그런 행은 담긴 표가 없으므로
+   * 눌러도 원본 표가 열리지 않는다 — 실측 0건이지만 타입이 그 가능성을 든다.
+   *
+   * 내부 키를 화면에 내보내는 것이 아니다(헌장 C-4) — 화면은 이걸 **읽지 않고
+   * 되돌려 준다.** `id`의 `intake:` 접두를 파싱해 되찾는 것보다 이쪽이 정직하다.
+   */
+  readonly sightingId: number | null
 }
 
 export async function loadHistoryRows(
@@ -116,6 +126,7 @@ export async function loadHistoryRows(
     kind: HistoryRow["kind"]
     outcomes: Readonly<Record<string, number>>
     seenCount: number
+    sightingId: number | null
   }): HistoryRow => {
     // 상태 판정 — `assertUndoable`의 세 조건 중 화면이 보여줄 둘.
     // (세 번째인 «배치가 존재하나»는 목록에 있다는 것 자체가 답이다)
@@ -176,7 +187,14 @@ export async function loadHistoryRows(
     const b = s.batchId === null ? null : (batchById.get(s.batchId) ?? null)
     if (b !== null) {
       claimed.add(b.id)
-      out.push(fromBatch(b, { kind: "fact", outcomes: s.outcomes, seenCount: s.seenCount }))
+      out.push(
+        fromBatch(b, {
+          kind: "fact",
+          outcomes: s.outcomes,
+          seenCount: s.seenCount,
+          sightingId: s.id,
+        }),
+      )
       continue
     }
     // 배치가 없는 파일. **결과가 있으면 기준 데이터, 없으면 「봤을 뿐」이다.**
@@ -209,6 +227,7 @@ export async function loadHistoryRows(
       kind: kinds.length > 0 ? "reference" : "seen",
       outcomes: s.outcomes,
       seenCount: s.seenCount,
+      sightingId: s.id,
     })
   }
 
@@ -221,7 +240,7 @@ export async function loadHistoryRows(
    */
   for (const b of raw) {
     if (claimed.has(b.id)) continue
-    out.push(fromBatch(b, { kind: "fact", outcomes: {}, seenCount: 1 }))
+    out.push(fromBatch(b, { kind: "fact", outcomes: {}, seenCount: 1, sightingId: null }))
   }
 
   // 최근 순. 통과 배치가 섞이므로 여기서 한 번 정렬한다.

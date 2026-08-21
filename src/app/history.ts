@@ -175,6 +175,8 @@ const OUTCOME_LABEL: Readonly<Record<string, string>> = {
   bridged: "지난 판단으로 붙음",
   sku_created: "SKU 신규",
   bad_rows: "읽지 못한 행",
+  // 016·017의 표 보관이 실패한 파일 — 원가는 들어갔고 표만 못 연다 (LOCK 6).
+  sheet_store_failed: "표 보관 실패",
 }
 
 export function outcomeLabel(outcomes: Readonly<Record<string, number>>): string {
@@ -280,11 +282,22 @@ export function historyVals(
     return {
       at: stamp(r.at),
       /**
-       * ★ 기준 데이터에는 **연결이 없다** (015) ★
-       * 빈 칸으로 두면 「채널을 못 읽었다」로 읽힌다. 없는 것과 못 읽은 것을
-       * 가른다 — 원가 파일은 애초에 마켓에서 온 것이 아니다 (§22).
+       * ★ 「출처」 칸 — **이 행이 어디서 왔나** (ADR-028 · §21-8) ★
+       *
+       * 015에서는 머리글이 「연결」이었고 기준 데이터에 상수 「채널 없음」을 넣었다.
+       * 없는 것과 못 읽은 것을 가른다는 판단은 맞았지만, **그 구분을 바로 옆
+       * 「유형」 칸이 이미 한다**(«기준 데이터»). 같은 말을 두 칸이 하는 동안
+       * 정작 필요한 것 — **어느 파일인가** — 은 화면 어디에도 없었다.
+       * 원가 파일을 두 개 넣으면 두 줄이 구별되지 않았다.
+       *
+       * Fact는 연결에서 오고 기준 데이터·훑기만은 **파일에서** 온다. 한 칸에 두
+       * 종류가 들어가는 것이 어긋남이 아닌 이유는 옆 칸이 어느 쪽인지를 먼저
+       * 말하기 때문이다 (ADR-028 결정 2).
+       *
+       * 긴 이름을 자르지 않는다 — `.db-table-wrap`이 `overflow-x: auto`라
+       * 표가 가로로 밀린다. 말줄임이 없으니 LOCK 6의 「읽을 수 없다고 말하기」도 없다.
        */
-      conn: r.channel === "" ? (r.kind === "fact" ? "—" : "채널 없음") : r.channel,
+      conn: r.kind === "fact" ? (r.channel === "" ? "—" : r.channel) : r.sourceName,
       /**
        * ★ 「유형」 칸이 드디어 유형을 말한다 (015) ★
        *
@@ -323,12 +336,20 @@ export function historyVals(
         act.askUndo(r)
       },
       /**
-       * 눌러서 이 batch가 넣은 행을 편다 (§21 «history-rows»).
-       * **batch가 없으면 펼 행이 없다** — 원본 표 보관(깊은 층)이 서면 그때
-       * 이 자리가 「파일을 표로 다시 연다」가 된다 (ADR-023 · 016).
+       * ★ 눌러서 편다 — **행이 무엇이냐에 따라 다른 것이 열린다** (018) ★
+       *
+       * `fact`      이 batch가 넣은 행 (11번)
+       * 나머지      **파일에 있던 원본 표** (016·017이 담았다)
+       *
+       * 015까지는 여기가 `if (r.kind !== "fact") return`이었다 — 기준 데이터 행은
+       * `cursor: pointer`를 달고도 아무 일이 없었고, 그것이 §21-1 U-3 위반이자
+       * 남은일 1.6의 항목이었다. 이 줄이 그 자리를 채운다.
+       *
+       * 목격이 없으면(실측 0건이지만 타입이 든다) 열 것이 없다 — 그때는 어포던스도
+       * 없어야 맞지만, 그 판정을 화면 배선에서 하려면 행마다 커서를 갈라야 한다.
+       * **지금은 아무 일도 안 하는 대신 그 경우가 실재하면 여기 사유를 적는다.**
        */
       click: () => {
-        if (r.kind !== "fact") return
         act.openRows(r)
       },
     }
@@ -338,8 +359,22 @@ export function historyVals(
   // 상태 점 색이다. 이름이 비슷하다고 건드리면 엉뚱한 것을 덮는다.
 }
 
-/** 화면이 여는 batch 하나. 닫혀 있으면 `null`이다. */
+/** 화면이 여는 패널 하나. 닫혀 있으면 `null`이다. */
 export interface OpenBatch {
+  /**
+   * ★ 같은 패널이 **두 가지**를 연다 (018 · ADR-028 결정 4) ★
+   *
+   * `batch`  앱이 **해석한** Fact 행 — 11번이 세운 것. 표별 탭이 있다
+   * `sheet`  파일에 있던 **그대로의 표** — 016·017이 담아 둔 것. 탭이 없다
+   *
+   * 새 패널을 만들지 않는다(ADR-023 확인 ④). 둘은 «넣은 결과»와 «원본»이라
+   * 서로 다른 것을 보여 주지만, 여는 자리와 페이지 규율(LOCK 5)이 같다.
+   */
+  readonly kind: "batch" | "sheet"
+  /** `sheet`일 때 제목이 쓰는 파일 이름. `batch`에서는 안 쓴다. */
+  readonly sourceName: string
+  /** `sheet`일 때 읽을 통의 줄. `batch`에서는 `null`이다. */
+  readonly sightingId: number | null
   readonly batchId: string
   readonly table: string
   /** 몇 번째 페이지인가 (0-기준). */
@@ -372,10 +407,17 @@ export const ROWS_PER_PAGE = 50
  * 이 파일의 `syncRows.click` 주석이 그 사실을 이미 적어 뒀다:
  * *「상세 패널은 아직 없다. 어포던스를 그리지 않는다」*.
  *
- * ★ 원본 파일이 아니다 ★ 적재 후에 남는 것은 앱이 **해석한** Fact 행이다.
- * 원본은 어디에도 저장되지 않는다(`batch.source_bytes`는 크기다). 「내 파일을
- * 다시 본다」로 읽히면 안 되므로 제목이 «넣은 결과»라고 말한다 — 원본 그대로는
- * 적재 **전**의 격자(`import-grid`)가 담당한다.
+ * ★ 이제 **둘 다 연다** (018 · ADR-028 결정 4) ★
+ * 2026-08-21까지 이 자리에 「원본은 어디에도 저장되지 않는다」고 적혀 있었고
+ * 그때는 참이었다. **016·017이 그것을 뒤집었다** — 파싱된 표가 `sheet_block`에
+ * gzip으로 담긴다(ADR-027). 그래서 패널이 갈래를 갖는다:
+ *
+ * `batch`  앱이 **해석한** Fact 행. 제목이 «넣은 결과»라고 말한다
+ * `sheet`  파일에 있던 **그대로의 표**. 제목이 «원본 표»라고 말한다
+ *
+ * ⚠ `sheet`도 원본 **바이트**가 아니다 — 파서가 정규화한 값이다(ADR-023 확인 ③:
+ * 「원본 바이트는 안 둔다 — 구매자 실명이 든 원본을 앱이 계속 들고 있게 된다」).
+ * 적재 **전**의 격자(`import-grid`)와 같은 깊이이고, 다른 점은 **나중에도 열린다**는 것뿐이다.
  *
  * ★ 편집 어포던스 0 ★ Fact 행이다. LOCK 9가 인라인 편집 UI를 금지하고, §21-1이
  * «못 누르는 칸을 그려놓고 막는 것이 아니라 아예 안 그린다»고 못박았다.
@@ -400,38 +442,56 @@ export function batchRowVals(
   }
 
   vals.rowsBusy = open.busy
-  vals.rowsTitle = `${TABLE_LABEL[open.table] ?? open.table} — 넣은 결과`
+  const sheet = open.kind === "sheet"
+  vals.rowsTitle = sheet
+    ? `${open.sourceName} — 원본 표`
+    : `${TABLE_LABEL[open.table] ?? open.table} — 넣은 결과`
 
-  // 이 batch가 실제로 채운 표만 탭이 된다. 0행짜리 탭을 그리면 눌러도 빈 표다.
-  vals.rowsTabs = Object.entries(open.tables)
-    .filter(([, n]) => n > 0)
-    .map(([t, n]) => ({
-      label: `${TABLE_LABEL[t] ?? t} ${won(n)}`,
-      on: t === open.table ? "active" : "",
-      pick: () => act.pickTable(t),
-    }))
+  /**
+   * 이 batch가 실제로 채운 표만 탭이 된다. 0행짜리 탭을 그리면 눌러도 빈 표다.
+   * **원본 표에는 탭이 없다** — 한 시트가 한 표이고, 갈래가 없는 자리에 탭을
+   * 하나만 그리면 «더 있는데 안 보여준다»로 읽힌다 (§21-1 · U-3).
+   */
+  vals.rowsTabs = sheet
+    ? []
+    : Object.entries(open.tables)
+        .filter(([, n]) => n > 0)
+        .map(([t, n]) => ({
+          label: `${TABLE_LABEL[t] ?? t} ${won(n)}`,
+          on: t === open.table ? "active" : "",
+          pick: () => act.pickTable(t),
+        }))
 
   vals.rowsCols = open.columns.map((c) => ({
-    // 라벨이 없으면 **컬럼명을 흘리지 않고** 그 사실을 말한다 — 코드값이 화면에
-    // 나가는 것은 헌장 C-4 위반이고, 조용히 숨기는 것은 LOCK 6 위반이다.
-    label: FIELD_LABEL[c] ?? "(이름 없는 열)",
-    num: NUMERIC_FIELD.has(c),
+    // ★ 원본 표의 열 이름은 **파일이 쓴 글자 그대로다** ★ 번역하면 «원본»이
+    // 아니게 된다 — 헌장 C-4가 막는 것은 내부 코드값이지 파일의 머리글이 아니다.
+    // 머리글이 빈 열은 파일에 실제로 그런 열이 있다는 뜻이라 그 사실을 말한다.
+    //
+    // Fact 쪽은 반대다: 라벨이 없으면 **컬럼명을 흘리지 않고** 그 사실을 말한다 —
+    // 코드값이 화면에 나가는 것은 C-4 위반이고, 조용히 숨기는 것은 LOCK 6 위반이다.
+    label: sheet ? (c.trim() === "" ? "(이름 없는 열)" : c) : (FIELD_LABEL[c] ?? "(이름 없는 열)"),
+    num: sheet ? false : NUMERIC_FIELD.has(c),
   }))
 
   vals.rowsBody = open.rows.map((r, i) => ({
-    // 왼쪽 번호는 **이 batch 안에서 몇 번째**다. 파일의 행 번호가 아니다 —
-    // 적재는 합계·빈 행을 이미 걸렀으므로 둘은 같지 않고, 파일 좌표는 저장되지 않는다.
+    // 왼쪽 번호는 **이 패널 안에서 몇 번째**다. 파일의 행 번호가 아니다 —
+    // 적재도 담기도 합계·빈 행을 이미 걸렀으므로 둘은 같지 않고, 파일 좌표는
+    // 저장되지 않는다 (ADR-027은 «파싱된 표»를 담지 파일 좌표를 담지 않는다).
     no: won(open.page * ROWS_PER_PAGE + i + 1),
     cells: r.map((v, c) => ({
       text:
         v === null
           ? "—"
-          : NUMERIC_FIELD.has(open.columns[c] ?? "")
-            ? won(Number(v))
-            : KEY_FIELD.has(open.columns[c] ?? "")
-              ? showKey(String(v))
-              : (VALUE_LABEL[open.columns[c] ?? ""]?.[String(v)] ?? String(v)),
-      num: NUMERIC_FIELD.has(open.columns[c] ?? ""),
+          : sheet
+            ? // ★ 원본은 **바꾸지 않고 그대로 낸다** ★ 천단위 쉼표도 넣지 않는다 —
+              // 파일과 다른 글자가 보이면 그건 원본이 아니다 (LOCK 3의 정신).
+              String(v)
+            : NUMERIC_FIELD.has(open.columns[c] ?? "")
+              ? won(Number(v))
+              : KEY_FIELD.has(open.columns[c] ?? "")
+                ? showKey(String(v))
+                : (VALUE_LABEL[open.columns[c] ?? ""]?.[String(v)] ?? String(v)),
+      num: sheet ? typeof v === "number" : NUMERIC_FIELD.has(open.columns[c] ?? ""),
       dim: v === null,
     })),
   }))
@@ -441,7 +501,11 @@ export function batchRowVals(
   const to = Math.min(open.total, (open.page + 1) * ROWS_PER_PAGE)
   vals.rowsNote =
     open.total === 0
-      ? "이 표에 들어간 행이 없습니다"
+      ? sheet
+        // 담기 전에 넣은 파일이거나 담기가 실패한 파일이다. 「없다」로 끝내지 않고
+        // 왜 비었는지의 실마리를 준다 — 사유 자체는 장부의 결과 칸이 말한다 (LOCK 6).
+        ? "이 파일의 원본 표가 담기지 않았습니다"
+        : "이 표에 들어간 행이 없습니다"
       : `${won(open.total)}행 중 ${won(from)}–${won(to)}`
 
   /**

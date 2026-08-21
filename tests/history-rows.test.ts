@@ -180,6 +180,7 @@ describe("화면 문구", () => {
     kind: "fact",
     outcomes: {},
     seenCount: 1,
+    sightingId: 1,
     ...over,
   })
 
@@ -231,6 +232,75 @@ describe("화면 문구", () => {
     expect((vals.syncRows as { dur: string }[])[0]!.dur).toBe("—")
   })
 
+  /**
+   * ★★ 「출처」 칸 — 어느 파일인지가 화면에 선다 (ADR-028 · §21-8) ★★
+   *
+   * 015는 이 칸의 머리글이 「연결」이라 기준 데이터에 상수 「채널 없음」을 넣었다.
+   * 그런데 그 구분은 바로 옆 「유형」 칸이 이미 하고 있었고, 정작 **어느 파일인지는
+   * 화면 어디에도 없었다** — 원가 파일을 둘 넣으면 두 줄이 구별되지 않았다.
+   */
+  describe("출처 칸 (ADR-028)", () => {
+    const ref = (over: Partial<HistoryRow> = {}): HistoryRow =>
+      row({ kind: "reference", channel: "", outcomes: { cost: 35 }, undo: "blocked", ...over })
+
+    it("★★ 기준 데이터의 출처는 **파일 이름**이다 ★★", () => {
+      const vals = emptyVals()
+      historyVals(vals, [ref({ sourceName: "2026-01 통합 매출 대시보드.xlsx" })])
+      const s0 = (vals.syncRows as { conn: string; type: string }[])[0]!
+      expect(s0.conn).toBe("2026-01 통합 매출 대시보드.xlsx")
+      // 「채널 없음」이 사라져도 숨긴 것이 아니다 — 옆 칸이 더 정확하게 말한다
+      expect(s0.type).toBe("기준 데이터")
+      expect(JSON.stringify(vals.syncRows)).not.toContain("채널 없음")
+    })
+
+    it("★★ 원가 파일 둘을 넣으면 두 줄이 **다른 이름**으로 뜬다 ★★", () => {
+      const vals = emptyVals()
+      historyVals(vals, [
+        ref({ id: "intake:1", sourceName: "1월 단가표.xlsx" }),
+        ref({ id: "intake:2", sourceName: "2월 단가표.xlsx" }),
+      ])
+      const conns = (vals.syncRows as { conn: string }[]).map((r) => r.conn)
+      expect(conns).toEqual(["1월 단가표.xlsx", "2월 단가표.xlsx"])
+      expect(new Set(conns).size, "두 줄이 구별되지 않는다 — 이게 3.11이었다").toBe(2)
+    })
+
+    it("Fact 행의 출처는 **연결 이름**이다 — 지금 그대로다", () => {
+      const vals = emptyVals()
+      historyVals(vals, [row()])
+      expect((vals.syncRows as { conn: string }[])[0]!.conn).toBe("11번가")
+    })
+
+    it("훑기만 한 파일도 이름으로 선다 — 「안 넣었다」와 「기록이 없다」는 다르다", () => {
+      const vals = emptyVals()
+      historyVals(vals, [ref({ kind: "seen", outcomes: {}, sourceName: "낯선 파일.xlsx" })])
+      const s0 = (vals.syncRows as { conn: string; type: string }[])[0]!
+      expect(s0.conn).toBe("낯선 파일.xlsx")
+      expect(s0.type).toBe("훑기만")
+    })
+
+    it("연결 이름이 빈 Fact 행은 «—»다 — 파일 이름을 대신 끼워 넣지 않는다", () => {
+      const vals = emptyVals()
+      historyVals(vals, [row({ channel: "" })])
+      expect((vals.syncRows as { conn: string }[])[0]!.conn).toBe("—")
+    })
+  })
+
+  /**
+   * ★ 018 — 장부의 줄이 **전부** 눌린다 (ADR-028 결정 4) ★
+   * 015까지 기준 데이터 행은 `cursor: pointer`를 달고도 아무 일이 없었다 (1.6 · U-3).
+   */
+  it("★ 기준 데이터 행도 눌리면 열린다 — 어포던스만 그리고 막지 않는다 ★", () => {
+    const vals = emptyVals()
+    const opened: string[] = []
+    historyVals(
+      vals,
+      [row({ kind: "reference", channel: "", outcomes: { cost: 35 }, sourceName: "원가.xlsx" })],
+      { askUndo: () => {}, openRows: (r) => opened.push(r.sourceName) },
+    )
+    ;(vals.syncRows as { click: () => void }[])[0]!.click()
+    expect(opened, "눌러도 아무 일이 없다 — 015의 U-3 위반 자리다").toEqual(["원가.xlsx"])
+  })
+
   it("잠긴 행에는 되돌리기 버튼을 그리지 않는다 (§21-1)", () => {
     const vals = emptyVals()
     historyVals(vals, [row({ undo: "blocked", blockedBy: { sourceName: "8월.xls", at: null } })])
@@ -255,7 +325,7 @@ describe("배치가 어떻게 끝났나 — 완료 · 되돌림 · 취소 · 미
     at: "2026-08-16T01:00:00", batchStatus: "committed", fetched: 128, created: 128,
     updated: 0, failed: 0, ownedByTable: {}, undo: "can", outcome: "done",
     undoneAt: null, blockedBy: null,
-    kind: "fact", outcomes: {}, seenCount: 1,
+    kind: "fact", outcomes: {}, seenCount: 1, sightingId: 1,
     ...over,
   })
 

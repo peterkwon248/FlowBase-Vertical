@@ -4881,7 +4881,7 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                           </th>
                           <th>
                             <span className="db-th">
-                              연결
+                              출처
                             </span>
                           </th>
                           <th>
