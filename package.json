@@ -12,6 +12,7 @@
     "convert:gate": "tsx tools/convert/gate.ts",
     "state": "tsx tools/harness/state.ts",
   "gates:selftest": "tsx tools/harness/selftest.ts",
+  "facts": "tsx tools/harness/facts.ts",
     "harness": "tsx tools/harness/build-manifest.ts",
     "perf": "tsx tools/harness/perf-gate.ts",
     "e2e": "tsx tools/harness/e2e-gate.ts",

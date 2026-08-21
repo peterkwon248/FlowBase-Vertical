@@ -131,6 +131,17 @@ const CASES: readonly Case[] = [
     verify: `npx vitest run tests/costs-screen.test.ts -t "KPI는 표와"`,
   },
   {
+    id: "doc-facts-stale",
+    guards:
+      "문서의 **저장소 사실**이 실측과 갈린다. 손으로 적은 숫자는 «고칠 이유가 생길 " +
+      "때까지 아무도 안 본다» — 실제로 「배선 249 / 컷 220」이 실측 255 / 214와 " +
+      "갈린 채 떠 있었다 (2026-08-21)",
+    file: "tools/harness/facts.ts",
+    find: "`배선 ${w.allWired.length} · 컷 ${cut} · 남은 일 ${w.allTodo.length}`",
+    replace: "`배선 ${w.allWired.length + 1} · 컷 ${cut} · 남은 일 ${w.allTodo.length}`",
+    verify: `npx vitest run tests/doc-facts.test.ts -t "실측과 같다"`,
+  },
+  {
     id: "db-parent-dir",
     guards:
       "설치본의 첫 열기 — 앱 데이터 폴더가 **없는 채로** 시작한다. " +
