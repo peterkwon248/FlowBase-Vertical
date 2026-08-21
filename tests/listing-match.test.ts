@@ -75,8 +75,78 @@ describe("유사도", () => {
   })
 })
 
+/**
+ * ★ ADR-026 — 구성 표기는 이름 유사도를 이긴다 ★
+ *
+ * 「1+1 X」와 「X」는 **원가가 다른 다른 상품**인데 토큰이 완전히 같아져
+ * 유사도 1.000으로 붙었고, 각자 `clear`(미리 선택)를 받았다. 결함 51.
+ */
+describe("ADR-026 구성 표기 — «1+1»과 단품은 다른 상품이다", () => {
+  const T = (t: string) => normalizeTitle(t, "product")
+
+  it("★ 기호가 지워지기 전에 구성을 건진다 — 그 순서가 결함 그 자체였다 ★", () => {
+    expect(T("1+1 한일의료기 3D 에어매쉬 쿨패드").composition).toBe("1+1")
+    expect(T("한일의료기 3D 에어매쉬 쿨패드").composition).toBeNull()
+    // 공백이 끼어도 같은 구성이다
+    expect(T("파인큐브 전동면도기 1 + 1, 블랙").composition).toBe("1+1")
+    expect(T("2+1 무선충전기").composition).toBe("2+1")
+  })
+
+  it("★ 「3in1」은 구성이 아니라 **기능명**이다 — 31건을 오인하면 정상 매칭이 무너진다 ★", () => {
+    expect(T("머레이 폴더블 스탠딩 3in1 무선충전기 Z10").composition).toBeNull()
+    expect(T("머레이 2IN1 보조배터리 핸디 선풍기").composition).toBeNull()
+    // 그리고 애초에 문제가 없다 — 토큰으로 살아남는다
+    expect(T("머레이 3in1 무선충전기").tokens).toContain("3in1")
+  })
+
+  it("「5개 세트」도 구성으로 안 잡는다 — 「5개」가 토큰으로 살아남는다", () => {
+    expect(T("Murray LED 촛불 무드등 5개 세트").composition).toBeNull()
+    expect(T("Murray LED 촛불 무드등 5개 세트").tokens).toContain("5개")
+  })
+
+  it("★★ 1+1과 단품이 더는 100%가 아니다 ★★", () => {
+    const bundle = T("1+1 한일의료기 3D 에어매쉬 쿨패드 정품 공급처")
+    const single = T("한일의료기 3D 에어매쉬 쿨패드 정품 공급처")
+    const sim = similarity(bundle, single)
+    expect(sim.score, "토큰이 같아 1.000이던 자리다").toBeLessThan(1)
+    expect(sim.compositionMismatch).toBe(true)
+  })
+
+  it("한쪽만 구성을 선언해도 «다름»이다 — 「안 적혔다」가 「단품이다」는 아니지만, 명시가 정보다", () => {
+    expect(similarity(T("1+1 X 무선충전기"), T("X 무선충전기")).compositionMismatch).toBe(true)
+    expect(similarity(T("1+1 X 무선충전기"), T("1+1 X 무선충전기")).compositionMismatch).toBe(false)
+    expect(similarity(T("X 무선충전기"), T("X 무선충전기")).compositionMismatch).toBe(false)
+    // 다른 구성끼리도 다름이다
+    expect(similarity(T("1+1 X 무선충전기"), T("2+1 X 무선충전기")).compositionMismatch).toBe(true)
+  })
+
+  it("★ 구성이 다르면 점수가 아무리 높아도 미리 안 고른다 — 그러나 **지우지도 않는다** ★", () => {
+    const s = suggest([
+      { key: "A", score: 0.95, shared: ["한일의료기", "에어매쉬", "3d"], compositionMismatch: true },
+      { key: "B", score: 0.20, shared: ["3d", "쿨패드"], compositionMismatch: false },
+    ])
+    expect(s.kind, "미리 고르면 원가가 다른 둘이 한 SKU가 된다").toBe("contested")
+    expect(s.candidates.map((c) => c.key), "후보에서 지우면 사람이 그 사실을 못 본다").toContain(
+      "A",
+    )
+  })
+
+  it("구성이 같으면 관문이 안 걸린다 — 정상 매칭 불변", () => {
+    const s = suggest([
+      { key: "A", score: 0.95, shared: ["한일의료기", "에어매쉬", "3d"], compositionMismatch: false },
+      { key: "B", score: 0.20, shared: ["3d"], compositionMismatch: false },
+    ])
+    expect(s.kind).toBe("clear")
+  })
+})
+
 describe("제안 등급 — 확정은 언제나 사람이다", () => {
-  const C = (key: string, score: number, shared: string[]): Candidate => ({ key, score, shared })
+  const C = (
+    key: string,
+    score: number,
+    shared: string[],
+    compositionMismatch = false,
+  ): Candidate => ({ key, score, shared, compositionMismatch })
 
   it("뚜렷하면 후보 하나를 미리 선택해 준다", () => {
     const s = suggest([C("A", 0.89, ["한일의료기", "에어매쉬", "3d"]), C("B", 0.18, ["3d"])])

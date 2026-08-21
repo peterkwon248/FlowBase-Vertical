@@ -71,6 +71,17 @@ export interface ViewCandidate {
   readonly code: string
   readonly score: number
   readonly shared: readonly string[]
+  /**
+   * ★ 이 후보를 «미리 고를 수 없게» 만든 사유 (ADR-026). 없으면 `null`. ★
+   *
+   * **core는 이 값이 무슨 뜻인지 모른다** — 팩이 판정하고 화면이 문장을 짓는다.
+   * `BridgeCandidate.via`(`"model" | "name"`)가 이미 같은 모양이다 (LOCK 4).
+   *
+   * `"composition"` — 구성 표기가 갈린다(「1+1」 ↔ 단품). 등급이 `contested`로
+   * 내려간 이유이고, **말하지 않으면 사용자는 똑같아 보이는 두 카드 앞에서
+   * 동전을 던진다** (LOCK 6).
+   */
+  readonly caution: "composition" | null
 }
 
 export type SuggestionKind = "clear" | "contested" | "none"

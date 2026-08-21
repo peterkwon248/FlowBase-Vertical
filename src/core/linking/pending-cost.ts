@@ -30,6 +30,11 @@ export interface BridgeViewCandidate {
   readonly shared: readonly string[]
   /** `model` = 코드 일치(확률이 아니라 사실) · `name` = 이름 유사도. */
   readonly via: "model" | "name"
+  /**
+   * 미리 고를 수 없게 만든 사유 (ADR-026). 없으면 `null`.
+   * `ViewCandidate.caution`과 같은 어휘를 쓴다 — core는 뜻을 모른 채 나른다.
+   */
+  readonly caution: "composition" | null
 }
 
 /**

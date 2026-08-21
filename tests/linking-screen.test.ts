@@ -180,7 +180,7 @@ run("상품 연결 — 엔진 분류가 화면에 1:1로 온다 (완료 기준 a
    * 사람이 누를 버튼이 카드마다 하나이므로 화면의 단위는 카드가 맞다.
    * ─────────────────────────────────────────────────────────────
    */
-  it("등록 후 등급이 화면 표시와 같다 — clear 4 · contested 13 · none 17", async () => {
+  it("등록 후 등급이 화면 표시와 같다 — clear 3 · contested 14 · none 17", async () => {
     const v0 = await loadLinkingView(db, LIB, M)
     const clusters = v0.todo.filter((c) => c.listings.every((l) => l.grain === "option"))
     expect(clusters.length, "11번가 옵션 군집").toBe(27)
@@ -194,7 +194,21 @@ run("상품 연결 — 엔진 분류가 화면에 1:1로 온다 (완료 기준 a
 
     const tally = { clear: 0, contested: 0, none: 0 }
     for (const c of v.todo) tally[c.suggestionKind]++
-    expect(tally).toEqual({ clear: 4, contested: 13, none: 17 })
+    /**
+     * ★ clear 4 → **3** (2026-08-21 · ADR-026) ★
+     * 「1+1 …」 카드가 구성 불일치로 `contested`로 내려갔다. 전에는 단품 SKU에
+     * **미리 골라져** 있었고, 확인만 누르면 원가가 다른 둘이 한 SKU가 됐다.
+     * `none`이 그대로인 것이 중요하다 — 후보를 **지우지 않았다**는 뜻이다.
+     */
+    expect(tally).toEqual({ clear: 3, contested: 14, none: 17 })
+
+    // 내려간 그 카드는 **왜인지 들고 있어야 한다** (LOCK 6). 사유 없는 강등은
+    // 사용자에게 «똑같아 보이는 두 카드»만 남긴다.
+    const held = v.todo.filter((c) => c.candidates.some((x) => x.caution !== null))
+    expect(held.length, "구성 불일치로 잡힌 카드가 없다 — 관문이 안 돌았다").toBeGreaterThan(0)
+    for (const c of held) {
+      expect(c.suggestionKind, "사유가 붙었는데 미리 골라져 있다").not.toBe("clear")
+    }
 
     const html = render(v)
     // 후보를 가진 카드 = clear + contested. 화면의 «추천 SKU» 블록 수와 같아야 한다
@@ -227,8 +241,25 @@ run("상품 연결 — 엔진 분류가 화면에 1:1로 온다 (완료 기준 a
     const clear = v.todo.find((c) => c.suggestionKind === "clear")!
     const cont = v.todo.find((c) => c.suggestionKind === "contested")!
     expect(clear.candidates).toHaveLength(1)
-    // contested는 **미리 고르지 않는다** — 애매한 것을 골라주면 확정이 통과의례가 된다
-    expect(cont.candidates.length).toBeGreaterThan(1)
+    /**
+     * ★ 「contested = 후보 복수」가 더는 참이 아니다 (2026-08-21 · ADR-026) ★
+     *
+     * 구성 불일치로 강등된 카드는 **후보가 하나면서** 미리 골라지면 안 된다.
+     * 등급의 뜻은 「경합이 있다」가 아니라 **「우리가 대신 고르지 않는다」**이다.
+     * 혼자인 `contested`는 반드시 **사유를 들고 있어야** 한다 — 안 그러면 사용자는
+     * 왜 안 골라졌는지 모른 채 하나뿐인 후보를 본다 (LOCK 6).
+     */
+    if (cont.candidates.length === 1) {
+      expect(
+        cont.candidates[0]?.caution,
+        "혼자인 contested인데 사유가 없다 — 왜 강등됐는지 말할 수 없다",
+      ).not.toBeNull()
+    }
+    // 「여럿이면 여럿을 보여준다」는 성질은 여전히 어딘가에서 참이어야 한다
+    expect(
+      v.todo.some((c) => c.suggestionKind === "contested" && c.candidates.length > 1),
+      "경합 카드가 하나도 없다 — 시험이 성립하지 않는다",
+    ).toBe(true)
 
     const html = render(v)
     expect(html, "clear 후보가 초록이 아니다").toContain("var(--pnl-pos)")

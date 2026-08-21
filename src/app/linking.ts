@@ -161,6 +161,16 @@ function confColor(kind: LinkingCard["suggestionKind"]): string {
 const PRIMARY = "v-btn v-btn--primary"
 const SECONDARY = "v-btn"
 
+/**
+ * 후보를 미리 고를 수 없게 만든 사유 한 줄 (ADR-026).
+ *
+ * **코드값을 화면에 내보내지 않는다** (U-5) — `"composition"`은 우리 어휘고
+ * 사용자가 읽을 것은 «묶음과 단품은 원가가 다르다»는 사실이다.
+ */
+function cautionLine(caution: ViewCandidate["caution"]): string {
+  return caution === "composition" ? "⚠ 구성이 다릅니다 (묶음 ↔ 단품) · " : ""
+}
+
 function candRow(card: LinkingCard, c: ViewCandidate, act: LinkingActions) {
   return {
     conf: `${Math.round(c.score * 100)}%`,
@@ -172,7 +182,13 @@ function candRow(card: LinkingCard, c: ViewCandidate, act: LinkingActions) {
      * 제안 점수는 derived 값이고 §21-1이 derived에 근거 진입로를 **의무**로 건다.
      * 공간이 부족하면 SKU 코드 열을 줄이지 이 줄을 접지 않는다.
      */
-    shared: c.shared.length > 0 ? `겹침: ${c.shared.join(", ")}` : "겹침 없음",
+    /**
+     * ★ 왜 미리 안 골랐는지를 **먼저** 말한다 (ADR-026 결정 3 · LOCK 6) ★
+     * 「1+1 X」와 「X」는 겹침이 똑같아서, 사유를 안 쓰면 사용자는 **글자 하나 다르지
+     * 않은 두 카드** 앞에서 동전을 던진다. 등급만 내리는 것은 결함을 고친 게 아니라
+     * 옮긴 것이다. 문장은 여기서 짓는다 — core는 `"composition"`이라는 코드만 날랐다.
+     */
+    shared: cautionLine(c.caution) + (c.shared.length > 0 ? `겹침: ${c.shared.join(", ")}` : "겹침 없음"),
     // clear의 후보는 하나뿐이고 그것이 «미리 선택된» 것이다. contested는 여럿이라
     // 어느 것도 primary가 아니다 — 고르는 일을 사람에게 남긴다.
     pickClass: card.suggestionKind === "clear" ? PRIMARY : SECONDARY,
@@ -315,6 +331,9 @@ export function linkingVals(
 
 /** 후보의 근거 한 줄 — %가 아니라 문장이 우선이다 (§20 규칙 2). */
 function candWhy(c: PendingCostCard["candidates"][number]): string {
+  // 구성 불일치는 **모델 일치보다 먼저** 말한다 — 모델이 맞아도 수량이 다르면
+  // 다른 상품이고(ADR-026), 「모델 일치」만 보이면 사용자는 그걸 믿는다.
+  if (c.caution === "composition") return "⚠ 구성이 다릅니다 (묶음 ↔ 단품) — 원가가 다릅니다"
   if (c.via === "model") {
     // 코드 일치는 확률이 아니라 사실이다 — %를 말하지 않는다.
     return `모델 일치 「${c.shared.join(" ")}」`

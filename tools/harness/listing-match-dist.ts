@@ -57,16 +57,24 @@ console.log(`  군집 크기: ${sizes.join(" ")}`)
 const clusterNorm = [...clusters.keys()].map((k) => ({ key: k, n: normalizeTitle(k, "product") }))
 
 const buckets = { clear: 0, contested: 0, none: 0 }
+/** ADR-026 — 구성 불일치로 `clear`에서 내려온 건수. 0이면 관문이 안 돈 것이다. */
+let compositionHeld = 0
 const detail: string[] = []
 for (const p of productSide) {
   const pn = normalizeTitle(p.title, p.grain)
   const candidates: Candidate[] = clusterNorm.map((c) => {
     const s = similarity(pn, c.n)
-    return { key: c.key, score: s.score, shared: s.shared }
+    return {
+      key: c.key,
+      score: s.score,
+      shared: s.shared,
+      compositionMismatch: s.compositionMismatch,
+    }
   })
   const s = suggest(candidates)
   buckets[s.kind]++
   const top = s.candidates[0]
+  if (top?.compositionMismatch === true) compositionHeld++
   detail.push(
     `  ${s.kind.padEnd(10)} ${(top?.score ?? 0).toFixed(2)}  ` +
       `${(top?.shared ?? []).slice(0, 3).join(",").padEnd(24)} ${p.title.slice(0, 36)}`,
@@ -77,6 +85,7 @@ console.log(`\n상품 단위 리스팅 ${productSide.length}개의 제안 등급
 console.log(`  clear      ${buckets.clear}   후보 1개 미리 선택 — 사람은 확인만`)
 console.log(`  contested  ${buckets.contested}   후보 복수 나열 + 선택 강제`)
 console.log(`  none       ${buckets.none}   후보 없음 — [새 SKU로 등록]이 기본`)
+console.log(`  ★ 구성 불일치로 미리 선택을 막은 것 ${compositionHeld}건 (ADR-026)`)
 console.log(``)
 for (const d of detail.sort()) console.log(d)
 

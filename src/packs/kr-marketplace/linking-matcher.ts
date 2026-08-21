@@ -29,14 +29,29 @@ export const krLinkingMatcher: LinkingMatcher = {
 
     const scored = skus.map((s) => {
       const sim = similarity(card, normalizeTitle(s.name, "product"))
-      return { key: s.id, score: sim.score, shared: sim.shared }
+      return {
+        key: s.id,
+        score: sim.score,
+        shared: sim.shared,
+        compositionMismatch: sim.compositionMismatch,
+      }
     })
 
     const r = suggest(scored)
     const candidates: ViewCandidate[] = r.candidates.flatMap((c) => {
       const s = byId.get(c.key)
       if (!s) return []
-      return [{ skuId: s.id, name: s.name, code: s.code, score: c.score, shared: c.shared }]
+      return [
+        {
+          skuId: s.id,
+          name: s.name,
+          code: s.code,
+          score: c.score,
+          shared: c.shared,
+          // 판정은 팩이 하고 문장은 화면이 짓는다 (ADR-026 결정 3 · LOCK 4).
+          caution: c.compositionMismatch ? ("composition" as const) : null,
+        },
+      ]
     })
     return { kind: r.kind, candidates }
   },

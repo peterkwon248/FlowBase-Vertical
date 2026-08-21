@@ -35,12 +35,39 @@ const NOISE = new Set([
   "세트", "개입", "증정", "사은품", "공식", "공급처", "본사", "정식",
 ])
 
+/**
+ * ★ 구성 표기 — `N+M` 꼴만 잡는다 (ADR-026) ★
+ *
+ * 「1+1」은 기호가 공백으로 바뀌고(`1 1`) 홑자가 걸러져 **증발한다.** 그래서 묶음과
+ * 단품의 토큰 집합이 완전히 같아지고, 두 상품이 유사도 1.000으로 붙는다.
+ *
+ * **왜 `N+M`만인가** — 카탈로그 실측(2026-08-21 · 제목 177개)이 그 하나만 가리켰다:
+ *   `N+M` 3건 → 증발한다. 이것이 결함이다
+ *   `Nin1` 31건 → **구성이 아니라 기능명**(3-in-1 충전기)이고 토큰으로 살아남는다
+ *   `N개 세트` 2건 → `5개`가 토큰으로 살아남는다
+ *   `N개입`·`N세트`·`묶음` 0건 → **없는 것에 규칙을 만들지 않는다**
+ * 「구성 표기 일반」으로 넓히면 `3in1` 31건이 구성으로 오인돼 정상 매칭이 무너진다.
+ */
+const COMPOSITION_RE = /(\d+)\s*\+\s*(\d+)/
+
+/** `1 + 1` · `1+1` → `"1+1"`. 없으면 `null`. */
+function extractComposition(product: string): string | null {
+  const m = COMPOSITION_RE.exec(product)
+  return m ? `${m[1]}+${m[2]}` : null
+}
+
 export interface NormalizedTitle {
   readonly raw: string
   /** 옵션부를 뗀 **상품부**. 유사도는 이것만 본다. */
   readonly product: string
   /** 비교 단위. 길이 1 토큰과 잡음어는 뺐다. */
   readonly tokens: readonly string[]
+  /**
+   * 선언된 구성 (`"1+1"`). 없으면 `null` — **단품이라는 뜻이 아니라 «안 적혔다»이다.**
+   * 그래도 `1+1` ↔ `null`은 «다름»으로 본다 (ADR-026 결정 2): 한쪽이 묶음을 명시했으면
+   * 그 명시가 정보다.
+   */
+  readonly composition: string | null
 }
 
 /**
@@ -57,6 +84,10 @@ export function normalizeTitle(title: string, grain: "product" | "option"): Norm
   // 그 구성의 역이므로 첫 조각이 상품부다.
   const product = grain === "option" ? (title.split(TITLE_JOIN)[0] ?? title) : title
 
+  // ★ 기호를 지우기 **전에** 구성을 건진다 ★ 아래 replace가 `+`를 공백으로 바꾸므로
+  // 순서가 뒤집히면 영영 못 찾는다. 이 두 줄의 순서가 결함 51 그 자체였다.
+  const composition = extractComposition(product)
+
   const tokens = product
     .toLowerCase()
     // 한글·영문·숫자만 남긴다. 괄호·슬래시·+ 같은 기호는 제목마다 제멋대로다.
@@ -64,7 +95,11 @@ export function normalizeTitle(title: string, grain: "product" | "option"): Norm
     .split(/\s+/)
     .filter((t) => t.length > 1 && !NOISE.has(t))
 
-  return { raw: title, product, tokens: [...new Set(tokens)] }
+  // 구성을 **토큰으로도** 넣는다 (ADR-026 결정 2). 등급만 내리고 점수를 100%로 두면
+  // 화면의 두 표시가 서로를 부정한다 — 「일치도 100%인데 왜 못 고르지」가 된다.
+  if (composition !== null) tokens.push(composition)
+
+  return { raw: title, product, tokens: [...new Set(tokens)], composition }
 }
 
 export interface MatchScore {
@@ -72,6 +107,11 @@ export interface MatchScore {
   readonly score: number
   /** 왜 그렇게 봤는지. 화면이 "근거 한 줄"로 쓴다. */
   readonly shared: readonly string[]
+  /**
+   * 구성 표기가 갈리나 (ADR-026). **점수와 다른 축이다** — 이름이 100%여도 참일 수 있고,
+   * 참이면 `suggest`가 `clear`로 올리지 않는다.
+   */
+  readonly compositionMismatch: boolean
 }
 
 /**
@@ -81,12 +121,16 @@ export interface MatchScore {
  * 11번가가 짧은 일이 흔하다) Jaccard는 합집합이 커져 과하게 깎인다.
  */
 export function similarity(a: NormalizedTitle, b: NormalizedTitle): MatchScore {
-  if (a.tokens.length === 0 || b.tokens.length === 0) return { score: 0, shared: [] }
+  const compositionMismatch = a.composition !== b.composition
+  if (a.tokens.length === 0 || b.tokens.length === 0) {
+    return { score: 0, shared: [], compositionMismatch }
+  }
   const setB = new Set(b.tokens)
   const shared = a.tokens.filter((t) => setB.has(t))
   return {
     score: (2 * shared.length) / (a.tokens.length + b.tokens.length),
     shared,
+    compositionMismatch,
   }
 }
 
@@ -141,13 +185,28 @@ export interface Candidate {
   readonly key: string
   readonly score: number
   readonly shared: readonly string[]
+  /**
+   * 구성 표기가 갈리나 (ADR-026). `similarity()`가 낸 값을 그대로 나른다.
+   *
+   * **선택 필드로 두지 않았다.** 기본값 `false`를 주면 새 호출부가 이 질문을
+   * 건너뛴 채 컴파일되고, 그러면 이 관문이 조용히 꺼진 경로가 생긴다.
+   */
+  readonly compositionMismatch: boolean
 }
 
 export interface Suggestion {
   /**
    * `clear`      후보 1개를 **미리 선택된 상태로** 제시 — 사람은 확인만
-   * `contested`  후보 복수를 나열하고 **선택을 강제** — 미리 고르지 않는다
+   * `contested`  **미리 고르지 않는다.** 사람이 고른다
    * `none`       후보 없음 — `[새 SKU로 등록]`이 기본
+   *
+   * ⚠ **`contested`는 후보가 하나여도 된다** (2026-08-21 · ADR-026). 전에는 「복수를
+   * 나열」이 곧 정의였는데, 구성 불일치로 강등된 카드는 후보가 하나뿐이면서
+   * 미리 골라지면 안 된다. 등급의 뜻은 「경합이 있다」가 아니라 **「우리가 대신
+   * 고르지 않는다」**이다.
+   *
+   * 새 등급을 만들지 않은 것은 LOCK 6이다 — 「새 실패 상태를 발명하지 말고 기존
+   * 체계에 편입한다」. 대신 **왜 강등됐는지**를 후보가 들고 간다(`caution`).
    */
   readonly kind: SuggestionKind
   readonly candidates: readonly Candidate[]
@@ -166,8 +225,15 @@ export function suggest(candidates: readonly Candidate[]): Suggestion {
     return { kind: "none", candidates: [] }
   }
 
+  /**
+   * ★ 구성 불일치는 이름 유사도를 이긴다 (ADR-026) ★
+   *
+   * 「1+1 X」와 「X」는 이름이 같아도 **원가가 다른 다른 상품**이다. 미리 골라 주면
+   * 사람은 확인만 누르고, 누르면 되돌릴 수 없다. **후보에서 지우지는 않는다** —
+   * 같은 SKU로 쓸지는 사람이 정한다. 우리가 안 하는 것은 «대신 고르기»뿐이다.
+   */
   const margin = top.score - (sorted[1]?.score ?? 0)
-  if (top.score >= CLEAR_SCORE && margin >= CLEAR_MARGIN) {
+  if (top.score >= CLEAR_SCORE && margin >= CLEAR_MARGIN && !top.compositionMismatch) {
     return { kind: "clear", candidates: [top] }
   }
 
@@ -234,6 +300,10 @@ export interface BridgeCandidate {
    * 코드 일치는 확률이 아니라 사실이다). `name`이면 겹친 토큰이 근거다.
    */
   readonly via: "model" | "name"
+  /** 구성 표기가 갈리나 (ADR-026). 모델이 맞아도 이것이 이긴다 — 아래 1층 참조. */
+  readonly compositionMismatch: boolean
+  /** 화면이 사유 문장을 짓는 자리. `compositionMismatch`의 화면용 이름이다. */
+  readonly caution: "composition" | null
 }
 
 export interface BridgeSuggestion {
@@ -327,6 +397,8 @@ function suggestOne(
       score: s.score,
       shared: s.shared,
       via: "name",
+      compositionMismatch: s.compositionMismatch,
+      caution: s.compositionMismatch ? ("composition" as const) : null,
     }
   })
 
@@ -341,13 +413,28 @@ function suggestOne(
         if (hit !== undefined) hits.push({ ...c, via: "model", shared: hit })
       })
       hits.sort((x, y) => y.score - x.score)
-      if (hits.length === 1) return { kind: "clear", candidates: hits }
-      if (hits.length > 1) return { kind: "contested", candidates: hits.slice(0, 4) }
+      /**
+       * ★ 모델이 맞아도 **구성이 이긴다** (ADR-026) ★
+       * 모델 코드는 «무슨 물건인가»를 가리키지 «몇 개 묶음인가»를 가리키지 않는다.
+       * `1+1 COOL-10`과 `COOL-10`은 같은 물건 다른 수량이고 원가가 다르다.
+       * 여기를 안 걸면 연결 화면만 고치고 원가 다리에 같은 구멍이 남는다.
+       */
+      if (hits.length === 1 && !hits[0]!.compositionMismatch) {
+        return { kind: "clear", candidates: hits }
+      }
+      if (hits.length >= 1) return { kind: "contested", candidates: hits.slice(0, 4) }
     }
   }
 
   // ── 2층: 이름 유사도 — 기존 절단점 그대로 ────────────────────
-  const s = suggest(scored.map((c) => ({ key: c.key, score: c.score, shared: c.shared })))
+  const s = suggest(
+    scored.map((c) => ({
+      key: c.key,
+      score: c.score,
+      shared: c.shared,
+      compositionMismatch: c.compositionMismatch,
+    })),
+  )
   const byKey = new Map(scored.map((c) => [c.key, c]))
   return { kind: s.kind, candidates: s.candidates.map((c) => byKey.get(c.key)!) }
 }
