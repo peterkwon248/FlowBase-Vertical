@@ -23,6 +23,10 @@ import { Repository } from "../src/core/store/repository.js"
 import { runImport } from "../src/core/import/run.js"
 import { runReferenceImport } from "../src/core/import/run-reference.js"
 import { analyzeImport } from "../src/core/import/analyze.js"
+import { sniff } from "../src/core/import/recognition/sniff.js"
+import { parserFor } from "../src/core/import/parsers/index.js"
+import { streamSheet } from "../src/core/import/pipeline.js"
+import type { SheetCell } from "../src/core/store/sheet-block.js"
 import { loadPnlSnapshot } from "../src/core/profit/snapshot.js"
 import type { MappingProfile } from "../src/core/import/mapping/index.js"
 import { FIXTURES, fixturePath, CLEAN_DIR } from "./fixtures.js"
@@ -96,6 +100,38 @@ run("기준 데이터 가져오기 — 원가", () => {
       now: NOW,
       ...(replace ? { replace: true } : {}),
     })
+  }
+
+  /**
+   * 같은 시트를 **파서로 직접** 읽어 앞의 n행을 준다 — 보관된 표의 대조 기준.
+   * `runReferenceImport`와 같은 경로(sniff → parser → streamSheet)를 지나야
+   * 「원본」이 같은 뜻이 된다. 여기서 파서를 달리 부르면 두 벌의 해석이 생긴다.
+   */
+  async function firstRowsOf(sheetIndex: number, n: number): Promise<SheetCell[][]> {
+    const bytes = bytesOf(BOOK)
+    const top = sniff(bytes, BOOK.file).candidates[0]!
+    const src = await parserFor(top.format).open(bytes, {
+      chunkSize: 1_000,
+      ...(top.encoding === undefined ? {} : { encoding: top.encoding }),
+      ...(top.delimiter === undefined ? {} : { delimiter: top.delimiter }),
+    })
+    try {
+      const { chunks } = streamSheet(src, sheetIndex, {
+        chunkSize: 1_000,
+        ...(COST.blockRead === undefined ? {} : { blockRead: COST.blockRead }),
+      })
+      const out: SheetCell[][] = []
+      for await (const chunk of chunks) {
+        for (let i = 0; i < chunk.rowCount && out.length < n; i++) {
+          const off = i * chunk.width
+          out.push(Array.from(chunk.values.slice(off, off + chunk.width)) as SheetCell[])
+        }
+        if (out.length >= n) break
+      }
+      return out
+    } finally {
+      src.close()
+    }
   }
 
   /**
@@ -194,6 +230,63 @@ run("기준 데이터 가져오기 — 원가", () => {
       )
       .all()
     expect(Number(joined[0]!["c"]), "원가와 통이 이어지지 않는다").toBeGreaterThan(0)
+  })
+
+  /**
+   * ★★ 017 — **기준 경로에도 표를 담는다** ★★
+   *
+   * 016이 파싱된 표 보관(`sheet_block`)을 세웠는데 `runImport`(Fact 경로)에만
+   * 붙였다. 그래서 원가 파일은 **장부에는 서는데 표로는 못 열었다** — 하필
+   * 사용자가 문제 삼은 그 파일이다. 「한 줄 남았다」와 「열어 볼 수 있다」는
+   * 다른 사실이고, 이 시험이 둘째를 잰다.
+   *
+   * 원본과 대조하는 방법이 요점이다 — 보관된 첫 행을 **파서를 다시 돌린 결과**와
+   * 맞춘다. 「블록이 생겼다」만 재면 빈 블록도 통과하고, 그러면 이 층의 존재
+   * 이유(「원본 표를 다시 본다」)가 안 지켜진 채로 초록이 뜬다.
+   */
+  it("★★ 원가 파일도 표로 담긴다 — 꺼낸 첫 행이 원본과 같다 (017 · ADR-027) ★★", async () => {
+    await importCost()
+
+    const sights = await db
+      .prepare(`SELECT id, sheet_index FROM file_sighting WHERE source_name = ?`)
+      .all(BOOK.file)
+    expect(sights.length).toBe(1)
+    const sightingId = Number(sights[0]!["id"])
+    const sheetIndex = Number(sights[0]!["sheet_index"])
+
+    const total = await repo.sheetRowCount(sightingId)
+    expect(total, "원가 파일이 0블록이다 — 장부에는 섰는데 표로 못 연다").toBeGreaterThan(0)
+
+    const page = await repo.sheetPage(sightingId, 0, 1)
+    expect(page.total).toBe(total)
+    expect(page.rows.length).toBe(1)
+
+    // 파서를 다시 돌려 같은 시트의 첫 행을 얻는다 — 「원본」의 정의는 이것이다.
+    const origin = await firstRowsOf(sheetIndex, 1)
+    expect(page.rows[0], "담긴 표가 원본과 다르다 — 다시 본 표가 다르면 없느니만 못하다")
+      .toEqual(origin[0])
+  })
+
+  /**
+   * ★ 「2번 봤다」 함정 ★ Fact 경로는 열 목록과 batch id가 루프 뒤에야 손에
+   * 들어와서 `recordFileSighting`을 두 번 부르고 `countAsSeen: false`로 막는다.
+   * 기준 경로는 두 번째 호출이 쓸 것이 없어 아예 안 부른다 — **그 사실을 여기서
+   * 못박는다.** 다시 부르는 날 이 줄이 붉어진다.
+   */
+  it("★ 파일 하나를 넣으면 「1번 봤다」다 — 담기가 목격을 늘리지 않는다 ★", async () => {
+    await importCost()
+    const r = await db
+      .prepare(`SELECT seen_count FROM file_sighting WHERE source_name = ?`)
+      .all(BOOK.file)
+    expect(Number(r[0]!["seen_count"]), "한 번 넣었는데 두 번 봤다고 센다").toBe(1)
+  })
+
+  it("재가져오기가 블록을 쌓지 않는다 — 표는 갈아치워진다", async () => {
+    await importCost()
+    const first = await db.prepare(`SELECT COUNT(*) c FROM sheet_block`).all()
+    await importCost()
+    const second = await db.prepare(`SELECT COUNT(*) c FROM sheet_block`).all()
+    expect(Number(second[0]!["c"]), "블록이 불어났다").toBe(Number(first[0]!["c"]))
   })
 
   it("★ 전 시트 탐색이 워크북 안의 원가표를 찾아낸다 — 19시트 중에서", async () => {

@@ -47,6 +47,8 @@ import { parserFor } from "./parsers/index.js"
 import { streamSheet } from "./pipeline.js"
 import { profileVersion, type MappingProfile } from "./mapping/index.js"
 import { normalizeValue } from "./normalization/value.js"
+import { blockAccumulator, type SheetCell } from "../store/sheet-block.js"
+import { describeColumns, SAMPLE_ROWS } from "./columns.js"
 import type { ExcludedRow } from "./types.js"
 import type { Repository } from "../store/repository.js"
 
@@ -213,6 +215,52 @@ export async function runReferenceImport(
     }
     const perSheet: ReferenceSheetResult[] = []
     const excludedAll: ExcludedRow[] = []
+    /**
+     * 시트별 「장부에 어떻게 섰나」 — 루프 뒤의 결과 기록이 이걸 읽는다.
+     * `sightingId`가 null이면 장부를 못 남긴 것이고, **그때도 원가는 들어간다.**
+     */
+    const stored = new Map<number, { sightingId: number | null; storeFailed: string | null }>()
+    /**
+     * ★★ 통에 이 파일을 남긴다 (015 · ADR-023 결정 1) ★★
+     *
+     * **이 자리가 통째로 없었다.** `runImport`(Fact 경로)는 `recordFileSighting`을
+     * 부르는데 여기는 안 불렀고, 그래서 **원가 파일은 「가져오기 기록」에 한 줄도
+     * 안 나왔다** — 사용자가 13MB 단가표를 넣고 겪은 그것이다.
+     *
+     * 시트마다 한 줄이다 — 009의 키가 `(라이브러리, 지문, 시트)`이고, 19시트짜리
+     * 워크북에서 고른 하나만 남기면 나머지 18장을 또 잃는다(`data.ts`의 같은 판단).
+     * batch는 없다(`batchId: null`) — 기준 데이터는 batch를 만들지 않는다. 그것이
+     * 결함이 아니라 **이 표가 생긴 이유**다.
+     *
+     * ★ 017에서 **루프 앞으로 당겼다** ★ 원래는 전 시트가 끝난 뒤에 불렀는데,
+     * 016의 블록 보관이 `sighting_id`를 **행을 흘려보내는 동안** 요구한다. 전 행을
+     * 모아 뒀다가 나중에 담으면 그것이 곧 「전체 메모리 적재」다 (LOCK 5) —
+     * 13MB 단가표가 그 대상이다.
+     *
+     * 실패해도 가져오기는 계속된다. 장부를 못 남긴 것이 원가를 못 넣을 이유는 아니다.
+     */
+    const openSighting = async (sheetIndex: number, sheetName: string): Promise<number | null> => {
+      try {
+        return await repo.recordFileSighting({
+          libraryId: o.libraryId,
+          sourceHash,
+          sourceName: o.fileName,
+          sourceBytes: o.bytes.length,
+          containerFormat: top.format,
+          sheetIndex,
+          sheetName,
+          // 기준 가져오기는 헤더 탐지 결과를 여기까지 들고 오지 않는다.
+          // **0으로 넘겨짚지 않는다** — `null`이 「모른다」다 (009의 규칙).
+          headerRowIndex: null,
+          profileId: o.profile.id,
+          batchId: null,
+          at: o.now,
+          columns: [],
+        })
+      } catch {
+        return null
+      }
+    }
 
     for (const sheetIndex of o.sheetIndexes) {
       const sheet = src.sheets[sheetIndex]
@@ -230,6 +278,11 @@ export async function runReferenceImport(
       let failed: string | null = null
 
       if (!sheet) {
+        // 없는 시트도 장부에는 남긴다 — 015가 그렇게 했다. 담을 표는 없다.
+        stored.set(sheetIndex, {
+          sightingId: await openSighting(sheetIndex, `시트 ${sheetIndex + 1}`),
+          storeFailed: null,
+        })
         perSheet.push({
           sheetIndex,
           sheetName: `시트 ${sheetIndex + 1}`,
@@ -239,6 +292,31 @@ export async function runReferenceImport(
         })
         continue
       }
+
+      /**
+       * ★ 통의 깊은 층 — 파싱된 표를 **흘려보내며** 담는다 (016 · ADR-027) ★
+       *
+       * ★ `run.ts`와 달리 **두 번째 호출이 없다** ★ Fact 경로는 열 목록과 batch id가
+       * 루프 뒤에야 손에 들어와서 `recordFileSighting`을 한 번 더 부르고,
+       * `countAsSeen: false`로 「파일 하나를 넣었는데 2번 봤다」를 막는다.
+       * 기준 경로는 셋 다(열 목록 · batch · 헤더 행) 처음부터 끝까지 없다 —
+       * 두 번째 호출이 **쓸 것이 없으므로 부르지 않고, 그래서 그 함정도 없다.**
+       */
+      const sightingId = await openSighting(sheetIndex, sheet.name)
+      let storeFailed: string | null = null
+      /**
+       * 장부에 실을 **열 목록**의 재료 (018). 시트 루프 안에서 채우고 루프 뒤에
+       * 한 번 쓴다 — `getSummary()`는 try 블록 안에서만 손에 잡힌다.
+       */
+      let headersOf: string[] = []
+      let headerRowOf: number | null = null
+      const samplesOf: (readonly unknown[])[] = []
+      const sheetAcc =
+        sightingId === null
+          ? null
+          : blockAccumulator(async (b) => {
+              await repo.putSheetBlock(sightingId, b)
+            })
 
       try {
         /**
@@ -263,8 +341,38 @@ export async function runReferenceImport(
         let skCols: number[] = []
 
         for await (const chunk of chunks) {
+          /**
+           * ★ 담기는 **열 찾기보다 앞이다** ★ 아래에서 열을 못 찾으면 이 시트는
+           * 실패로 끝나는데, 사용자가 표를 가장 보고 싶은 순간이 바로 그때다
+           * (「무슨 열이 있길래 못 찾았나」). 뒤에 두면 실패한 시트만 못 연다.
+           *
+           * 담기가 실패해도 **적재는 계속된다** — 표를 다시 못 보는 것과 원가가
+           * 안 들어가는 것은 무게가 다르다. 다만 **실패했다는 사실은 말한다**
+           * (LOCK 6) — 아래 `sheet_store_failed`가 그 자리다.
+           */
+          if (sheetAcc !== null && storeFailed === null) {
+            try {
+              const rows: (readonly SheetCell[])[] = []
+              for (let i = 0; i < chunk.rowCount; i++) {
+                const off = i * chunk.width
+                rows.push(chunk.values.slice(off, off + chunk.width) as readonly SheetCell[])
+              }
+              await sheetAcc.push(rows)
+            } catch (e) {
+              storeFailed = e instanceof Error ? e.message : String(e)
+            }
+          }
+
+          // 첫 청크에서만 채운다. `raws`는 원본 표현이라 화면이 파일과 같은 값을 보인다.
+          for (let i = 0; samplesOf.length < SAMPLE_ROWS && i < chunk.rowCount; i++) {
+            const off = i * chunk.width
+            samplesOf.push(chunk.raws.slice(off, off + chunk.width))
+          }
+
           if (headers.length === 0) {
             headers = [...getSummary().header.columns]
+            headersOf = headers
+            headerRowOf = getSummary().header.rowIndex
             const at = (name: string | undefined): number =>
               name === undefined ? -1 : headers.findIndex((h) => h.trim() === name.trim())
             keyCol = at(rule.listingKeyColumn)
@@ -449,6 +557,58 @@ export async function runReferenceImport(
         failed = already > 0 ? `${msg} — ${already}건은 이미 반영된 뒤 중단 (재실행은 멱등)` : msg
       }
 
+      /**
+       * ★ 담기는 적재의 성패와 **무관하게** 마무리한다 ★ 시트가 중간에 죽어도
+       * 거기까지 읽은 표는 이미 유효한 블록이다. 안 흘리면 마지막 2,000행 미만이
+       * 통째로 사라지고, 화면은 「표가 중간에 끊긴 파일」을 그린다.
+       */
+      if (sheetAcc !== null && storeFailed === null) {
+        try {
+          await sheetAcc.flush()
+        } catch (e) {
+          storeFailed = e instanceof Error ? e.message : String(e)
+        }
+      }
+      /**
+       * ★★ 017이 「두 번째 호출은 쓸 것이 없다」고 적었는데 **018에서 뒤집혔다** ★★
+       *
+       * 그때는 참이었다 — 열 목록 · batch · 헤더 행 셋 다 없어서 다시 부를 이유가
+       * 없었다. **표 뷰어(018)가 열 이름을 요구하면서 하나가 생겼다:** 담긴 표는
+       * 데이터 행뿐이고 머리글은 `getSummary()`에만 있다. 안 실으면 화면이
+       * 「1열 · 2열 …」을 그린다 — 그건 「원본 표를 다시 본다」가 아니다.
+       *
+       * 실측(2026-08-21 · 데모 DB): Fact 3파일은 `file_column` 59·15·93행인데
+       * **기준 데이터만 0행**이었다.
+       *
+       * ★ 그래서 인계가 경고한 함정이 **이제 실재한다** ★ `countAsSeen: false`가
+       * 없으면 파일 하나를 넣고 「2번 봤다」가 된다. 017이 세운 시험
+       * (「파일 하나를 넣으면 seen_count가 1이다」)이 그 자리를 지킨다 —
+       * 그 시험이 없었으면 이 커밋이 조용히 그것을 깨뜨렸다.
+       */
+      if (sightingId !== null && headersOf.length > 0) {
+        try {
+          await repo.recordFileSighting({
+            libraryId: o.libraryId,
+            sourceHash,
+            sourceName: o.fileName,
+            sourceBytes: o.bytes.length,
+            containerFormat: top.format,
+            sheetIndex,
+            sheetName: sheet.name,
+            headerRowIndex: headerRowOf,
+            profileId: o.profile.id,
+            batchId: null,
+            at: o.now,
+            columns: describeColumns(headersOf, samplesOf as never),
+            // 같은 목격 사건의 마무리다 — 새로 본 것이 아니다.
+            countAsSeen: false,
+          })
+        } catch {
+          /* 열 목록을 못 남겨도 원가는 이미 들어갔다 */
+        }
+      }
+      stored.set(sheetIndex, { sightingId, storeFailed })
+
       perSheet.push({
         sheetIndex,
         sheetName: sheet.name,
@@ -461,39 +621,23 @@ export async function runReferenceImport(
     if (stash.length > 0) await repo.stashPendingCosts(stash)
 
     /**
-     * ★★ 통에 이 파일을 남긴다 (015 · ADR-023 결정 1) ★★
+     * ★ 「무엇이 됐나」를 장부에 건다 (015 · ADR-023 결정 1) ★
      *
-     * **이 자리가 통째로 없었다.** `runImport`(Fact 경로)는 `recordFileSighting`을
-     * 부르는데 여기는 안 불렀고, 그래서 **원가 파일은 「가져오기 기록」에 한 줄도
-     * 안 나왔다** — 사용자가 13MB 단가표를 넣고 겪은 그것이다.
-     * 실측(2026-08-21 · `public/demo.sqlite`): `cost_history` 35행 · `pending_cost`
-     * 171행을 만든 파일이 `file_sighting`에는 **0행**이었다.
+     * 목격 자체는 **루프 안에서 이미 열렸다**(`openSighting`) — 017이 블록 보관
+     * 때문에 앞으로 당겼다. 여기 남은 일은 결과를 거는 것뿐이라 `recordFileSighting`을
+     * 다시 부르지 않는다. 한 번 더 부르면 같은 파일을 「2번 봤다」로 세거나,
+     * 그걸 막으려고 `countAsSeen: false`를 들고 다녀야 한다 — 쓸 것이 없는 호출에
+     * 함정만 붙는다.
      *
-     * 시트마다 한 줄이다 — 009의 키가 `(라이브러리, 지문, 시트)`이고, 19시트짜리
-     * 워크북에서 고른 하나만 남기면 나머지 18장을 또 잃는다(`data.ts`의 같은 판단).
-     * batch는 없다(`batchId: null`) — 기준 데이터는 batch를 만들지 않는다. 그것이
-     * 결함이 아니라 **이 표가 생긴 이유**다.
-     *
-     * 실패해도 가져오기는 계속된다. 장부를 못 남긴 것이 원가를 못 넣을 이유는 아니다.
+     * 결과를 거는 것이 늦은 데는 이유가 있다: `stashPendingCosts`가 바로 위에서
+     * 끝나야 「대기 N건」이 DB와 같은 수를 말한다.
      */
     for (const ps of perSheet) {
+      const st = stored.get(ps.sheetIndex)
+      // 장부를 못 남긴 시트다 — 결과를 걸 자리가 없다. 원가는 이미 들어갔다.
+      if (st === undefined || st.sightingId === null) continue
+      const sightingId = st.sightingId
       try {
-        const sightingId = await repo.recordFileSighting({
-          libraryId: o.libraryId,
-          sourceHash,
-          sourceName: o.fileName,
-          sourceBytes: o.bytes.length,
-          containerFormat: top.format,
-          sheetIndex: ps.sheetIndex,
-          sheetName: ps.sheetName,
-          // 기준 가져오기는 헤더 탐지 결과를 여기까지 들고 오지 않는다.
-          // **0으로 넘겨짚지 않는다** — `null`이 「모른다」다 (009의 규칙).
-          headerRowIndex: null,
-          profileId: o.profile.id,
-          batchId: null,
-          at: o.now,
-          columns: [],
-        })
         /**
          * 「무엇이 됐나」. **0인 종류는 안 넘긴다** — 「대기 0건」을 줄로 그리면
          * 할 말이 없는데 말하는 것이 된다. 반대로 넘긴 종류의 0은 저장한다.
@@ -506,6 +650,15 @@ export async function runReferenceImport(
           { kind: "bridged", count: ps.bridged },
           { kind: "sku_created", count: ps.createdSkus },
           { kind: "bad_rows", count: ps.badRows },
+          /**
+           * ★ 표를 못 담았다는 사실이 화면에 선다 (LOCK 6) ★
+           *
+           * `failed`가 아니다 — 「원가는 들어갔는데 이 파일만 **표로 다시 보기**가
+           * 안 된다」는 다른 문장이고, 시트 실패로 부르면 사용자는 원가가 안
+           * 들어간 줄 안다. 새 실패 상태를 발명하지 않고 015가 이미 그리는
+           * `sighting_outcome`에 편입한다.
+           */
+          { kind: "sheet_store_failed", count: st.storeFailed === null ? 0 : 1 },
         ].filter((x) => x.count > 0)
         // 아무것도 안 됐으면 그 사실 자체가 결과다 — 빈 목록으로 두면 화면이
         // 「기록은 있는데 아무 말이 없는 줄」을 그린다 (LOCK 6).
