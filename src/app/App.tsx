@@ -175,6 +175,8 @@ export function App(): React.JSX.Element {
    */
   const [fmDraft, setFmDraft] = useState<ReadonlyMap<string, string | null>>(new Map())
   const [coverage, setCoverage] = useState<readonly ConnectionCoverage[]>([])
+  /** 지금 활성인 묶음 이름. `null`이면 「전체」 (013). 대시보드의 범위 자격 줄이 쓴다. */
+  const [scopeName, setScopeName] = useState<string | null>(null)
   const [history, setHistory] = useState<readonly HistoryRow[]>([])
   const [products, setProducts] = useState<ProductView | null>(null)
   /** 비용 화면의 고정비·운영비와 「두지 않음」 선언 (마이그레이션 010). */
@@ -384,6 +386,7 @@ export function App(): React.JSX.Element {
     setPendingCost(r.pendingCost)
     setFieldmap(r.fieldmap)
     setCoverage(r.coverage)
+    setScopeName(r.scopeName)
     setHistory(r.history)
     setProducts(r.products)
     setCosts(r.costs)
@@ -1711,6 +1714,7 @@ export function App(): React.JSX.Element {
     dashboardVals(vals, snap, per, coverage, {
       products: profitRows,
       channels: channelRows,
+      scopeName,
       daily,
       trendIdx,
       onTrend: setTrendIdx,

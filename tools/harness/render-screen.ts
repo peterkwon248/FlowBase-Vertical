@@ -35,7 +35,7 @@ import { settlementVals, emptyAdjDraft } from "../../src/app/settlement.js"
 import { orderVals } from "../../src/app/order.js"
 import { linkingVals, type LinkTab } from "../../src/app/linking.js"
 import { channelVals } from "../../src/app/channel.js"
-import { loadCoverage } from "../../src/core/coverage/load.js"
+import { activeCollectionName, loadCoverage } from "../../src/core/coverage/load.js"
 import { historyVals, scopeVals, batchRowVals, ROWS_PER_PAGE } from "../../src/app/history.js"
 import { productVals } from "../../src/app/product.js"
 import { costsVals, emptyCostsDraft, type CostsView } from "../../src/app/costs.js"
@@ -140,6 +140,8 @@ const userVersions = new Set(userProfiles.map(profileVersion))
 for (const p of userProfiles) docTypeByVersion.set(profileVersion(p), p.docType)
 const fieldmap = await loadFieldmapView(new Repository(db), merged, "lib-1", userVersions)
 const coverage = await loadCoverage(db, "lib-1", resolveDocType)
+// 범위 자격 줄이 「전체」인지 묶음인지 — 안 넘기면 이 도구가 앱보다 낡는다.
+const scopeName = await activeCollectionName(db, "lib-1")
 const history = await loadHistoryRows(db, "lib-1", resolveDocType)
 // 원가 기준일은 **고정한다** — 오늘을 쓰면 같은 DB에서 날마다 다른 HTML이 나와
 // 렌더 대조가 성립하지 않는다. 초안도 비어 있다(상호작용은 이 층이 증명하지 못한다).
@@ -206,6 +208,7 @@ const vals = shellVals(shellStateFor(false), {
 dashboardVals(vals, snap, PERIOD, coverage, {
   products: profitRows,
   channels: channelRows,
+  scopeName,
   daily,
   // 호버는 상호작용이라 SSR에서는 늘 꺼져 있다 (툴팁은 사람이 실기기에서 본다).
   trendIdx: -1,

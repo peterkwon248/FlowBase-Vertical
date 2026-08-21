@@ -18,7 +18,7 @@
 import type { PnlSnapshot } from "@core/profit/snapshot.js"
 import type { Period } from "@core/profit/index.js"
 import { pnlGaps } from "@core/profit/gaps.js"
-import type { ConnectionCoverage } from "@core/coverage/load.js"
+import { scopeCoverage, type ConnectionCoverage, type ScopeCoverage } from "@core/coverage/load.js"
 import type { ChannelRow, DailySeries, ProfitRow } from "@core/profit/rows.js"
 import type { TemplateVals } from "./generated/vals.js"
 import { compact, pct, signed, won } from "./format.js"
@@ -137,6 +137,53 @@ function coverageGapRows(
   return rows
 }
 
+/**
+ * ★★ 범위 자격 한 줄 — 대시보드가 «자기가 무엇을 답할 수 있나»를 안다 ★★
+ *
+ * [ADR-023](docs/ADR-023-통-묶음-자격-입구순서.md) 결정 2의 소비처다. 사용자의 말:
+ * *"데이터 묶음을 만들기 전까지는 시각화가 되어선 안 됨."*
+ *
+ * ★ 연결별 줄과 **다른 것**을 말한다 ★ 아래 `coverageGapRows`는 「어느 채널을
+ * 고쳐야 하나」를 말하고, 이 줄은 「이 범위가 무엇을 못 그리나」를 말한다. 둘은
+ * 같은 답이 아니다 — 실측(데모 DB)이 그 차이를 그대로 보인다:
+ *
+ *     11번가 held=[settlement] · ESM held=[order,cost] · 자사몰 held=[order]
+ *       → 상품 기여이익이 **연결 셋 전부에서 잠긴다**
+ *       → 그런데 **범위로는 열린다** (합집합 = order·settlement·cost)
+ *
+ * 어느 채널도 혼자서는 못 여는 지표를 범위가 연다. 그래서 판정이 범위로 올라간다.
+ *
+ * ★ 「할 말이 없으면 안 한다」 ★ 범위에서 잠긴 것이 없으면 줄을 안 만든다 —
+ * 이 카드는 「담지 못한 것」이라 «전부 열림»은 이 자리의 말이 아니다.
+ *
+ * ★ 원가 부족분은 여기서 **안 말한다** ★ 바로 위 `pnlGaps`의 `cogs-missing`이 이미
+ * 말하고, **모집단이 다르다** — 이쪽은 연결에 붙은 SKU 261개, 저쪽은 이 기간에
+ * 실제로 팔린 품목이다. 나란히 놓으면 한 카드가 같은 일을 두 숫자로 말한다.
+ * 기간 손익이 얼마나 부풀었나는 저쪽이 더 정확한 모집단으로 답한다 (§22 「알려진 겹침」).
+ */
+export function scopeGapRow(
+  scope: ScopeCoverage,
+): { name: string; state: string; last: string; color: string; dot: string } | null {
+  // 광고는 문장에 등장하지 않는다 (§22-3 ②) — 광고를 안 하는 셀러에게 잔소리다.
+  const locked = scope.coverage.entries.filter((e) => !e.open && e.metric !== "ad-spend")
+  if (locked.length === 0) return null
+  const size = locked.reduce((a, e) => a + (e.lockedValue ?? 0), 0)
+
+  return {
+    name: scope.collectionName === null ? "전체 범위" : `묶음 「${scope.collectionName}」`,
+    state: `${locked.map((e) => e.label).join(" · ")} 잠김`,
+    /**
+     * 크기를 **알 때만** 말한다 — `lockedValue`가 `null`이면 «0»이 아니라 «모른다»이고
+     * 그때는 지표 이름만 낸다 (헌장 A-5 · §22-1). 무엇을 넣어야 하는지는 **채널
+     * 화면의 3절 문장**이 맡는다 — 여기서 «넣으면 열립니다»를 말하면 그 양식을 읽을
+     * 수 있는지도 모르고 약속하게 된다 (2026-08-14 실기기에서 실제로 그랬다).
+     */
+    last: size > 0 ? `${won(size)}원` : "",
+    color: WARN,
+    dot: WARN,
+  }
+}
+
 export function dashboardVals(
   vals: TemplateVals,
   snap: PnlSnapshot,
@@ -153,6 +200,11 @@ export function dashboardVals(
     excluded?: { files: number; rows: number; reasons: readonly { reason: string; count: number }[] }
     /** 「확인함」 당시의 제외 행 수 (012). `null`·`undefined`면 미확인이다. */
     excludedAck?: number | null
+    /**
+     * 지금 활성인 묶음의 이름. `null`·미전달이면 「전체」다 (013).
+     * 범위 자격 한 줄이 쓴다 — id가 아니라 사람의 말을 받는다 (U-5).
+     */
+    scopeName?: string | null
     /** 「확인하고 접기」. 지금 수를 저장한다. */
     ackExcluded?: () => void
     /** 배너의 [양식 확인] — 「필드 매핑」 화면으로 간다. */
@@ -562,6 +614,13 @@ export function dashboardVals(
     })),
     ...coverageGapRows(coverage),
   ]
+
+  /**
+   * 범위 자격은 **맨 앞**에 선다. 「이 대시보드가 무엇을 답할 수 있나」가
+   * 개별 구멍보다 먼저 읽혀야 하는 문장이기 때문이다 (ADR-023 결정 4의 방향).
+   */
+  const scopeRow = scopeGapRow(scopeCoverage(coverage, rows.scopeName ?? null))
+  if (scopeRow !== null) vals.freshness = [scopeRow, ...vals.freshness]
 
   // KPI 스트립 — 목업 L4057~4073. 6장 중 값이 있는 것만.
   //
