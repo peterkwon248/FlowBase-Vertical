@@ -96,7 +96,7 @@ import type { LinkingCard, LinkingView } from "@core/linking/view.js"
 import type { ConnectionCoverage } from "@core/coverage/load.js"
 import { openedBy } from "@core/coverage/index.js"
 import type { HistoryRow } from "@core/history/rows.js"
-import { shellStateFor, shellVals, type NavKey, type ShellState } from "./shell.js"
+import { landingView, shellStateFor, shellVals, type NavKey, type ShellState } from "./shell.js"
 
 /** 목업 L3908과 같은 기준. 사이드바가 서랍이 되는 폭이다. */
 const NARROW = "(max-width: 1023px)"
@@ -349,7 +349,33 @@ export function App(): React.JSX.Element {
      * 한 번 실패한 앱은 모달 뒤에서 영영 「불러오는 중」이라고 말한다. 실패는
      * «아직 모른다»가 아니라 **«물어봤고 못 받았다»**이고, 그 사실은 모달이 말한다.
      */
-    setState((s) => (s.loading ? { ...s, loading: false } : s))
+    setState((s) => {
+      if (!s.loading) return s
+      /**
+       * ★★ 첫 조회가 «어디에 내려놓을지»를 정한다 (ADR-023 결정 4 · 2026-08-21) ★★
+       *
+       * 넣은 파일이 하나도 없으면 **대시보드가 아니라 「가져오기」**로 연다.
+       * 사용자가 말한 *"입구부터 설계가 잘못된 건물"*의 나머지 절반이다 —
+       * NAV 순서만 바꾸면 사이드바는 뒤집히는데 켤 때는 여전히 출력이 뜬다.
+       *
+       * ★ 데이터가 있으면 안 건드린다 ★ 매일 쓰는 사람을 매번 가져오기로 떨어뜨리면
+       * 그건 입구를 고친 게 아니라 다른 자리를 망가뜨린 것이다 (2026-08-21 사용자 확인).
+       *
+       * ★ 이 setState 안에서 `loading`과 **함께** 정한다 ★ 두 번에 나눠 하면 앱이
+       * 대시보드를 한 번 그렸다가 가져오기로 갈아치운다 — `loading` 칸이 생긴 이유가
+       * 정확히 그 «화면이 점프하는 것처럼 보임»이었다(위 ShellState 주석). 로딩 중에는
+       * 「불러오는 중」만 떠 있으므로, 여기서 함께 바꾸면 사용자는 전환을 못 본다.
+       *
+       * ★ 읽기 실패는 «없다»가 아니다 ★ `failed()`가 `history: []`를 주므로 오류를
+       * 안 가르면 **읽다 실패한 앱이 「아직 아무것도 안 넣으셨네요」로 떨어진다.**
+       * 그건 §22가 금지한 «모름을 없음으로 바꾸기»다.
+       *
+       * ★ 사용자가 이미 어디론가 갔으면 안 뺏는다 ★ 조회 중에 사이드바를 눌렀을
+       * 수 있다. `view`가 아직 초기값일 때만 옮긴다.
+       */
+      const empty = r.error === null && r.history.length === 0
+      return { ...s, loading: false, view: landingView(s.view, empty) }
+    })
     if (r.error !== null) {
       console.warn("[data] 읽지 못했다:", r.error)
       /**

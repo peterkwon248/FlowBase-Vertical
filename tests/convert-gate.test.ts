@@ -41,6 +41,86 @@ const generated = readFileSync(GENERATED, "utf8")
  */
 const DEVIATIONS: { field: IrField; from: string[]; to: string[]; why: string }[] = [
   /**
+   * ★★ 입구 순서 — 사이드바 그룹 「연동」을 맨 위로 (ADR-023 결정 4 · 2026-08-21) ★★
+   *
+   * 사용자가 말한 것: *"**입구부터 설계가 잘못된 건물 같음.**"* 목업은 「현황」(대시보드)이
+   * 첫 그룹이라, 아무것도 안 넣은 사람이 앱을 켜면 **숫자부터 본다.**
+   *
+   * ★ 요소를 더하지도 빼지도 않았다 — **블록 이동**이다 ★ 목업의 그룹 셋(현황·연동·기준)과
+   * 그 구성원이 그대로다. 「연동」 그룹이 이미 «넣는 자리»(채널·가져오기·기록)였으므로
+   * 그 블록을 통째로 올리고, 그룹 안에서 `가져오기`를 첫 항목으로 뒀다. 그래서 이 이탈은
+   * `S21_REGIONS`(구간째 빼기)가 아니라 여기 `from`/`to`로 **한 자리도 안 흘리고** 적힌다.
+   *
+   * ★ `NAV` 배열은 이 순서를 안 정한다 ★ 2026-08-21에 `shell.ts`의 `NAV`를 먼저 뒤집었는데
+   * **사이드바가 안 움직였다** — 나열은 이 마크업이 하고, `NAV`가 정하는 것은 ⌘K 팔레트
+   * 순서와 순회용 키 목록이다. 둘 다 바꿔야 한 방향을 본다.
+   */
+  {
+    field: "texts",
+    from: ["현황", "대시보드", "정산", "상품", "진단", "비용", "주문", "연동", "채널", "가져오기", "가져오기 기록"],
+    to: ["연동", "가져오기", "가져오기 기록", "채널", "현황", "대시보드", "정산", "상품", "진단", "비용", "주문"],
+    why: "ADR-023 결정 4 — 넣는 자리가 먼저다. 그룹 「연동」 블록을 「현황」 위로 옮겼다",
+  },
+  {
+    field: "holes",
+    from: [
+      "nav.dash", "go.dash", "nav.settlement", "go.settlement", "pendingCount",
+      "nav.products", "go.products", "unmappedCount", "nav.diag", "go.diag", "diagBadge",
+      "nav.costs", "go.costs", "nav.orders", "go.orders",
+      "nav.connect", "go.connect", "connBadge", "nav.import", "go.import", "nav.sync", "go.sync",
+    ],
+    to: [
+      "nav.import", "go.import", "nav.sync", "go.sync",
+      "nav.connect", "go.connect", "connBadge",
+      "nav.dash", "go.dash", "nav.settlement", "go.settlement", "pendingCount",
+      "nav.products", "go.products", "unmappedCount", "nav.diag", "go.diag", "diagBadge",
+      "nav.costs", "go.costs", "nav.orders", "go.orders",
+    ],
+    why: "위 `texts` 이탈의 홀 쪽 그림자 — 같은 블록 이동이라 짝으로 선언한다",
+  },
+  {
+    field: "classes",
+    from: [
+      "nav-item {nav.dash}", "nav-item {nav.settlement}", "count",
+      "nav-item {nav.products}", "count", "nav-item {nav.diag}", "count",
+      "nav-item {nav.costs}", "nav-item {nav.orders}",
+      "nav-item {nav.connect}", "count", "nav-item {nav.import}", "nav-item {nav.sync}",
+    ],
+    to: [
+      "nav-item {nav.import}", "nav-item {nav.sync}", "nav-item {nav.connect}", "count",
+      "nav-item {nav.dash}", "nav-item {nav.settlement}", "count",
+      "nav-item {nav.products}", "count", "nav-item {nav.diag}", "count",
+      "nav-item {nav.costs}", "nav-item {nav.orders}",
+    ],
+    why: "같은 블록 이동의 클래스 쪽 그림자 — 배지(`count`)가 제 항목을 따라간다",
+  },
+  {
+    field: "attrs",
+    from: [
+      "class=nav-item {nav.dash}", "onClick={go.dash}", "name=layout-dashboard", "size=15",
+      "class=nav-item {nav.settlement}", "onClick={go.settlement}", "name=receipt", "size=15", "class=count",
+      "class=nav-item {nav.products}", "onClick={go.products}", "name=package", "size=15", "class=count",
+      "class=nav-item {nav.diag}", "onClick={go.diag}", "name=target", "size=15", "class=count",
+      "class=nav-item {nav.costs}", "onClick={go.costs}", "name=wallet", "size=15",
+      "class=nav-item {nav.orders}", "onClick={go.orders}", "name=shopping-cart", "size=15",
+      "class=nav-item {nav.connect}", "onClick={go.connect}", "name=plug", "size=15", "class=count",
+      "class=nav-item {nav.import}", "onClick={go.import}", "name=file-up", "size=15",
+      "class=nav-item {nav.sync}", "onClick={go.sync}", "name=history", "size=15",
+    ],
+    to: [
+      "class=nav-item {nav.import}", "onClick={go.import}", "name=file-up", "size=15",
+      "class=nav-item {nav.sync}", "onClick={go.sync}", "name=history", "size=15",
+      "class=nav-item {nav.connect}", "onClick={go.connect}", "name=plug", "size=15", "class=count",
+      "class=nav-item {nav.dash}", "onClick={go.dash}", "name=layout-dashboard", "size=15",
+      "class=nav-item {nav.settlement}", "onClick={go.settlement}", "name=receipt", "size=15", "class=count",
+      "class=nav-item {nav.products}", "onClick={go.products}", "name=package", "size=15", "class=count",
+      "class=nav-item {nav.diag}", "onClick={go.diag}", "name=target", "size=15", "class=count",
+      "class=nav-item {nav.costs}", "onClick={go.costs}", "name=wallet", "size=15",
+      "class=nav-item {nav.orders}", "onClick={go.orders}", "name=shopping-cart", "size=15",
+    ],
+    why: "같은 블록 이동의 속성 쪽 그림자 — 아이콘 이름까지 항목을 따라간다",
+  },
+  /**
    * ★ 같은 열 자리의 `holes` 쪽 그림자 ★
    * `onClick={vals.expSet.xlsx}`는 속성이면서 **홀**이기도 하다. 위 `attrs` 선언과
    * 짝을 이룬다 — 둘 중 하나만 적으면 게이트가 다른 쪽에서 붉어진다.

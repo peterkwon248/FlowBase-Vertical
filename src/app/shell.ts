@@ -18,10 +18,33 @@
 
 import { emptyVals, type TemplateVals } from "./generated/vals.js"
 
-/** 목업 L3666. 사이드바 순서이자 화면 키다. */
+/**
+ * 사이드바 순서이자 화면 키다.
+ *
+ * ★★ 2026-08-21 — 입구 순서를 뒤집었다 ([ADR-023](docs/ADR-023-통-묶음-자격-입구순서.md) 결정 4) ★★
+ *
+ * 목업 L3666은 `dash`가 첫 항목이었다. 사용자가 그것을 이렇게 말했다:
+ *
+ *   *"대시보드의 경우 지금 고정형임. … **입구부터 설계가 잘못된 건물 같음.**"*
+ *
+ * 아무것도 안 넣어도 숫자가 뜨는 화면이 입구에 있었다. 앞으로는 **넣는 자리가
+ * 먼저**다 — `import`(가져오기) → `sync`(가져오기 기록 = 통 · 묶음) → `dash`.
+ *
+ * ★ `③ 묶음`은 NAV 키가 아니다 ★ 결정 4의 그림은 「① 가져오기 → ② 통 → ③ 묶음 →
+ * ④ 대시보드」인데, **묶음은 화면이 아니라 `sync` 화면의 스코프바**다 (확인 ④ —
+ * 「새 화면을 안 판다」). 키를 새로 만들면 여섯 곳이 동시에 움직인다.
+ *
+ * ★ 나머지 11개는 상대 순서를 그대로 뒀다 ★ 「입력계 → 출력계」로 전면 재배치하는
+ * 안도 있었지만 버렸다 — 손을 적게 대야 **무엇이 바뀌었는지 눈에 보인다.**
+ * 결정 4가 적은 것도 딱 이 둘을 앞으로 빼는 것이다.
+ *
+ * 순서를 박는 시험은 없다(`palette`·`shell`·`period-picker`가 이 배열을 **순회만**
+ * 한다). 그래서 이 배열은 **선언이 곧 정본**이다 — 바꾸려면 ADR부터 본다.
+ */
 export const NAV = [
+  "import", "sync",
   "dash", "settlement", "products", "diag", "costs", "orders", "connect",
-  "import", "sync", "linking", "fieldmap", "myfields", "design", "settings",
+  "linking", "fieldmap", "myfields", "design", "settings",
 ] as const
 
 export type NavKey = (typeof NAV)[number]
@@ -123,6 +146,23 @@ export const INITIAL_SHELL: ShellState = {
  * 좁은 화면에서 사이드바는 겹쳐 뜨는 서랍이므로 **접힌 채로 시작해야** 한다.
  * 이 한 줄이 없으면 폰 폭에서 앱을 켜자마자 서랍이 본문을 덮은 채 뜬다.
  */
+/**
+ * ★ 첫 조회가 도착했을 때 **어디에 내려놓나** (ADR-023 결정 4 · 2026-08-21) ★
+ *
+ * 순수 함수로 뺀 이유는 하나다 — **이 판단에 시험을 걸 수 있어야 한다.** App 안의
+ * `setState` 콜백에 두면 React를 띄우지 않고는 못 재고, 그러면 「빈 앱이 가져오기로
+ * 열린다」가 아무 게이트도 없이 산다.
+ *
+ * @param view  지금 화면. 조회 중에 사용자가 이미 눌렀을 수 있다.
+ * @param empty 넣은 파일이 하나도 없나. **읽기 실패는 여기 `false`로 온다** —
+ *              «못 읽었다»는 «없다»가 아니다 (§22).
+ */
+export function landingView(view: NavKey, empty: boolean): NavKey {
+  // 사용자가 이미 어디론가 갔으면 안 뺏는다. 초기값일 때만 옮긴다.
+  if (view !== INITIAL_SHELL.view) return view
+  return empty ? "import" : view
+}
+
 export function shellStateFor(isNarrow: boolean): ShellState {
   return { ...INITIAL_SHELL, isNarrow, navCollapsed: isNarrow }
 }
