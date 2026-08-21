@@ -87,9 +87,43 @@ describe("ADR-024 — 설치본은 자기 데이터 폴더를 연다", () => {
   })
 
   it("★ 도구는 **개발 경로만** 쓴다 — 하네스가 사용자 DB를 열면 실험이 사고가 된다 ★", () => {
-    // ADR-024 따름 조건 2.
-    const bad = TOOL_FILES.filter((f) => /appDataDir/.test(f.src)).map((f) => f.file)
+    /*
+     * ADR-024 따름 조건 2.
+     *
+     * ★ `selftest.ts`는 예외다 — 그리고 그 예외를 공짜로 주지 않는다 (2026-08-21) ★
+     * 자가시험은 **자해 페이로드로** `appDataDir` 문자열을 담는다(`db-path-one-site`
+     * 케이스가 둘째 호출 자리를 심는다). 부르는 게 아니라 **글자로 들고 있는 것**이라
+     * 이 규칙의 취지 밖이다. 그런데 「예외」라고만 적으면 그 파일에서 진짜로 DB를
+     * 열어도 아무도 모른다. 그래서 **더 센 것으로 바꿔 문다**: 그 파일은 어떤
+     * 드라이버도 열지 않는다.
+     */
+    const EXEMPT = "tools/harness/selftest.ts"
+    const bad = TOOL_FILES.filter((f) => f.file !== EXEMPT && /appDataDir/.test(f.src)).map(
+      (f) => f.file,
+    )
     expect(bad, "하네스가 앱 데이터 폴더를 본다").toEqual([])
+
+    const self = TOOL_FILES.find((f) => f.file === EXEMPT)
+    expect(self, `${EXEMPT}가 없다 — 예외 선언이 낡았다`).toBeDefined()
+
+    /*
+     * ★ 코드 패턴으로 못 가른다 — **import로 판정한다** ★
+     *
+     * 처음엔 `/openTauriDriver|DatabaseSync|Connection::open/`로 걸었는데
+     * **자기 자신을 물었다.** 이 파일은 자해 페이로드로 `openTauriDriver(…)`를
+     * 통째로 들고 있고 설명문에 `Connection::open`도 적혀 있다. 내용이 «코드 조각»인
+     * 파일은 어떤 코드 패턴이든 만족시킨다 — `user-invariants` 2회차에서 정규식이
+     * 자기 설명 주석에 걸렸던 것과 같은 병이다.
+     *
+     * TS 파일이 DB를 열려면 **드라이버를 import해야** 한다. 문자열 페이로드로는
+     * 못 한다. 그래서 import 목록을 본다 — 더 정확하고 더 세다.
+     */
+    const imports = [...self!.src.matchAll(/^\s*import\s[^"']*["']([^"']+)["']/gm)].map((m) => m[1]!)
+    expect(imports.length, "import를 하나도 못 찾았다 — 시험이 낡았다").toBeGreaterThan(0)
+    expect(
+      imports.filter((i) => !i.startsWith("node:")),
+      "자가시험이 node 기본 모듈 밖을 들여온다 — DB를 열 길이 생겼다",
+    ).toEqual([])
   })
 
   it("`vite.config.ts`의 「dev에서만 쓴다」가 이제 **참이다**", () => {

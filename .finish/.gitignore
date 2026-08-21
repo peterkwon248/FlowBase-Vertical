@@ -7,3 +7,6 @@ loop-count
 # 로컬 스위치. 기기마다 다르고, 남의 기기에서 켜지면 안 된다
 paused
 shipping
+
+# 자가시험이 흠집을 넣기 전에 두는 원본. 정상 종료 시 비어 있다
+selftest-backup/
