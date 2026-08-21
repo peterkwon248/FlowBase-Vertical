@@ -176,6 +176,10 @@ describe("화면 문구", () => {
     outcome: "done",
     undoneAt: null,
     blockedBy: null,
+    // 015 — 이 시험들이 만드는 것은 **배치 줄**이다. 통이 척추가 돼도 그 모양은 남는다.
+    kind: "fact",
+    outcomes: {},
+    seenCount: 1,
     ...over,
   })
 
@@ -251,6 +255,7 @@ describe("배치가 어떻게 끝났나 — 완료 · 되돌림 · 취소 · 미
     at: "2026-08-16T01:00:00", batchStatus: "committed", fetched: 128, created: 128,
     updated: 0, failed: 0, ownedByTable: {}, undo: "can", outcome: "done",
     undoneAt: null, blockedBy: null,
+    kind: "fact", outcomes: {}, seenCount: 1,
     ...over,
   })
 

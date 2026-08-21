@@ -158,13 +158,60 @@ export function entityLabel(byTable: Readonly<Record<string, number>>): string {
 }
 
 /**
- * 상태 칸 — 3상태를 **사유까지** 말한다.
+ * ★ 기준 데이터가 **무엇이 됐나** — batch가 없는 파일의 「개체」 칸 (015) ★
+ *
+ * Fact 파일은 `ownedByTable`이 답한다(「주문 1,352」). 기준 파일은 batch가 없어서
+ * 그 칸이 영원히 «—»였고, 그래서 원가 파일은 **기록에 서더라도 아무 말도 안 하는
+ * 줄**이 된다. `sighting_outcome`이 그 자리를 채운다 (LOCK 6).
+ *
+ * 문구는 여기가 소유한다 — core는 `cost`·`pending_cost` 같은 **코드값**만 날랐다
+ * (U-5 · 헌장 C-4).
+ */
+const OUTCOME_LABEL: Readonly<Record<string, string>> = {
+  cost: "원가",
+  cost_replaced: "원가 정정",
+  cost_skipped: "이미 있어 건너뜀",
+  pending_cost: "원가 대기",
+  bridged: "지난 판단으로 붙음",
+  sku_created: "SKU 신규",
+  bad_rows: "읽지 못한 행",
+}
+
+export function outcomeLabel(outcomes: Readonly<Record<string, number>>): string {
+  const parts = Object.entries(outcomes)
+    .filter(([k, n]) => n > 0 && k !== "nothing")
+    // 큰 것부터 — 사용자가 먼저 볼 것이 「원가 35건」이지 「읽지 못한 행 47」이 아니다.
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${OUTCOME_LABEL[k] ?? k} ${won(n)}`)
+  return parts.length === 0 ? "—" : parts.join(" · ")
+}
+
+/**
+ * 상태 칸 — 사유까지 말한다.
  *
  * 잠긴 이유를 여기 쓰는 것이 이 화면의 핵심이다. 버튼이 없는 자리에 아무 말도
  * 없으면 사용자는 «왜 나만 안 되지»를 묻게 되고, 그 답이 화면에 없으면 그건
  * 조용한 실패다 (LOCK 6 계열).
+ *
+ * ★ 015에서 두 상태가 늘었다 ★ 장부의 단위가 배치에서 파일로 올라가면서
+ * 「기준 데이터」·「훑기만 함」이 이 표에 선다. 둘 다 되돌리기 대상이 아닌데
+ * 기존 「잠김」으로 부르면 **먼저 무엇을 되돌리면 풀리는 줄** 알게 된다.
  */
 export function statusText(r: HistoryRow): { text: string; color: string } {
+  /**
+   * ★ batch가 없는 줄은 **되돌리기의 어휘를 쓰지 않는다** (015) ★
+   *
+   * `undo`가 `blocked`인 것은 맞지만 사유가 다르다 — Fact는 「이후 가져오기가 덮음」이고
+   * 기준 데이터는 **애초에 되돌리기 대상이 아니다**(`row_shadow`가 Fact 5종만 덮는다 — 002).
+   * 같은 「잠김」으로 부르면 사용자는 무엇을 먼저 되돌리면 풀리는 줄 안다.
+   */
+  if (r.kind === "reference") {
+    return { text: "되돌릴 수 없음 — 기준 데이터", color: DIM }
+  }
+  if (r.kind === "seen") {
+    // 「기록이 없다」와 「봤지만 안 넣었다」는 다르다. 후자를 말하려고 009가 생겼다.
+    return { text: "넣지 않음 — 훑기만 했습니다", color: DIM }
+  }
   if (r.undo === "undone") {
     /**
      * ★ 취소와 되돌리기를 가른다 ★
@@ -232,27 +279,58 @@ export function historyVals(
     const st = statusText(r)
     return {
       at: stamp(r.at),
-      conn: r.channel,
-      // 출처는 파일뿐이다. 목업의 «Incremental»은 존재하지 않는 동작이다 (LOCK 10)
-      type: "파일",
-      entity: entityLabel(r.ownedByTable),
-      fetched: won(r.fetched),
-      created: won(r.created),
-      updated: won(r.updated),
-      failed: String(r.failed),
+      /**
+       * ★ 기준 데이터에는 **연결이 없다** (015) ★
+       * 빈 칸으로 두면 「채널을 못 읽었다」로 읽힌다. 없는 것과 못 읽은 것을
+       * 가른다 — 원가 파일은 애초에 마켓에서 온 것이 아니다 (§22).
+       */
+      conn: r.channel === "" ? (r.kind === "fact" ? "—" : "채널 없음") : r.channel,
+      /**
+       * ★ 「유형」 칸이 드디어 유형을 말한다 (015) ★
+       *
+       * 목업의 «Incremental / Initial»은 존재하지 않는 동작이라 상수 「파일」로
+       * 눌러 뒀었다 (LOCK 10). 그런데 전 행이 같은 글자면 **정보량이 0인 칸**이다.
+       * 장부의 단위가 파일로 올라가면서 진짜로 갈리는 축이 생겼다 — 이 파일이
+       * 사실로 들어갔나, 기준으로 들어갔나, 훑기만 했나.
+       *
+       * ⚠ **파일 이름 칸은 아직 없다.** 동결 목업의 이 표에는 「시각·연결·유형·대상·
+       * 조회·신규·갱신·실패·결과·소요」뿐이고 머리글이 `Template.tsx`에 하드코딩돼
+       * 있다. 이름을 여기 넣으면 **머리글과 내용이 어긋난다** — 그건 §21 항목이지
+       * 배선으로 우겨넣을 일이 아니다 (남은일에 올렸다).
+       */
+      type: r.kind === "fact" ? "파일" : r.kind === "reference" ? "기준 데이터" : "훑기만",
+      // Fact는 표별 행 수가, 기준 데이터는 「무엇이 됐나」가 답한다 (015).
+      entity: r.kind === "fact" ? entityLabel(r.ownedByTable) : outcomeLabel(r.outcomes),
+      /**
+       * ★ 행 수 칸은 **배치의 어휘**다 — 없으면 «—»이지 0이 아니다 (§22) ★
+       * 0을 그리면 「0행 들어갔다」로 읽히는데 원가 35건이 들어간 파일에 그건 거짓이다.
+       */
+      fetched: r.kind === "fact" ? won(r.fetched) : "—",
+      created: r.kind === "fact" ? won(r.created) : "—",
+      updated: r.kind === "fact" ? won(r.updated) : "—",
+      failed: r.kind === "fact" || r.failed > 0 ? String(r.failed) : "—",
       failColor: r.failed > 0 ? NEG : DIM,
       status: st.text,
       statusColor: st.color,
       // 소요 시간을 재지 않는다. 「0.0s」를 지어내지 않고 없음을 표시한다
       dur: "—",
-      canUndo: r.undo === "can",
-      undone: r.undo === "undone",
+      // ★ 못 누르는 버튼을 그려놓고 막지 않는다 (§21-1 · U-3) ★
+      // 기준 데이터·훑기만 한 파일은 되돌리기 대상이 아니다. 사유는 상태 칸이 쓴다.
+      canUndo: r.kind === "fact" && r.undo === "can",
+      undone: r.kind === "fact" && r.undo === "undone",
       undo: (e?: { stopPropagation?: () => void }) => {
         e?.stopPropagation?.()
         act.askUndo(r)
       },
-      // 눌러서 이 batch가 넣은 행을 편다 (§21 «history-rows»).
-      click: () => act.openRows(r),
+      /**
+       * 눌러서 이 batch가 넣은 행을 편다 (§21 «history-rows»).
+       * **batch가 없으면 펼 행이 없다** — 원본 표 보관(깊은 층)이 서면 그때
+       * 이 자리가 「파일을 표로 다시 연다」가 된다 (ADR-023 · 016).
+       */
+      click: () => {
+        if (r.kind !== "fact") return
+        act.openRows(r)
+      },
     }
   })
 
@@ -477,10 +555,22 @@ const NOOP_SCOPE: ScopeActions = {
 
 export function scopeVals(
   vals: TemplateVals,
-  rows: readonly HistoryRow[],
+  allRows: readonly HistoryRow[],
   st: ScopeState,
   act: ScopeActions = NOOP_SCOPE,
 ): void {
+  /**
+   * ★ 묶음은 **batch**를 묶는다 — 통 줄을 섞지 않는다 (015) ★
+   *
+   * 장부의 단위가 파일로 올라가면서 이 배열에 기준 데이터·훑기만 한 파일이 함께
+   * 온다. 그런데 `collection_batch.batch_id`가 batch를 가리키므로(013), 그 줄들을
+   * 후보로 그리면 **고를 수는 있는데 담기지 않는** 체크박스가 된다 — 못 누르는
+   * 것을 그려놓고 막는 그 모양이다 (U-3).
+   *
+   * 「파일을 묶어야 맞다」는 013 확장 항목으로 열려 있다(대기목록 8). 그 확장이
+   * 오기 전까지 여기는 **batch가 붙은 줄만** 본다.
+   */
+  const rows = allRows.filter((r) => r.kind === "fact")
   const total = rows.length
   const active = st.bundles.find((b) => b.id === st.activeId) ?? null
   const inScope = active === null ? total : st.inScope

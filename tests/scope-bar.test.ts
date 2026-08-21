@@ -34,6 +34,10 @@ const file = (id: string, name: string, blocked = false): HistoryRow => ({
   outcome: "done",
   undoneAt: null,
   blockedBy: blocked ? { sourceName: "나중.xlsx", at: "2026-08-01T00:00:00" } : null,
+  // 015 — 범위 막대는 **배치 줄**만 담는다. 통이 척추가 돼도 그 모양은 남는다.
+  kind: "fact",
+  outcomes: {},
+  seenCount: 1,
 })
 
 const ROWS = [file("b1", "7월 매출.xlsx"), file("b2", "8월 매출.xlsx"), file("b3", "광고.xlsx")]

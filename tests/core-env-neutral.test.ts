@@ -119,3 +119,63 @@ describe("어댑터 짝이 갖춰져 있다", () => {
     }
   })
 })
+
+// ─────────────────────────────────────────────────────────────
+// 의존 **방향** — 이름이 아니라 import를 본다 (2026-08-21)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * ★ 왜 위 검사만으로는 부족한가 ★
+ *
+ * 위 「마켓을 모른다」는 core 파일의 **코드와 문자열**에서 마켓 이름을 찾는다.
+ * 그건 LOCK 4의 *내용* 차원이고, **의존 방향**은 안 본다. `core/`가
+ * `packs/`에서 무언가를 import해도 그 이름이 「쿠팡」이 아니면 통과한다 —
+ * 예: `import { krLinkingMatcher } from "../packs/kr-marketplace/linking-matcher.js"`.
+ *
+ * 그 한 줄이면 **core가 팩을 알게 되고** 「매처는 주입받는다」가 무너진다
+ * (`linking-matcher.ts`의 머리 주석: 「팩이 core를 import하지 core가 팩을
+ * import하지 않는다」). 지금까지 그게 안 난 것은 규율이었지 게이트가 아니었다.
+ *
+ * ★ 지금 0이라 못박는다 — 깨끗할 때 박으면 첫 위반이 즉시 잡힌다 ★
+ * (`user-invariants`의 localStorage 검사와 같은 관용구다. 나중에 세면 이미 늦다.)
+ *
+ * 새 의존성을 붙이지 않는다. 위 `walk`가 이미 전 파일을 훑고 있고, 필요한 것은
+ * 정규식 하나다 — 도구를 들이는 비용보다 이 열 줄이 싸다.
+ */
+describe("의존 방향 — 안쪽이 바깥쪽을 모른다 (LOCK 4 · 헌장 B-8)", () => {
+  /** `from "…"` · `import("…")` · `require("…")`의 경로만 뽑는다. */
+  const specifiers = (src: string): string[] => [
+    ...src.matchAll(/(?:from|import|require)\s*\(?\s*["']([^"']+)["']/g),
+  ].map((m) => m[1] ?? "")
+
+  /** 경로가 그 층을 가리키나 — 상대(`../packs/`)와 별칭(`@packs/`) 둘 다. */
+  const points = (spec: string, layer: string): boolean =>
+    new RegExp(`(^|/)${layer}/`).test(spec) || spec.startsWith(`@${layer}/`)
+
+  const PACK_FILES = walk("src/packs")
+
+  it("훑을 파일이 실제로 있다 — 빈 통과를 막는다", () => {
+    expect(FILES.length).toBeGreaterThan(20)
+    expect(PACK_FILES.length).toBeGreaterThan(0)
+  })
+
+  for (const [label, files, banned] of [
+    ["src/core", FILES, ["packs", "app"]],
+    ["src/packs", PACK_FILES, ["app"]],
+  ] as const) {
+    for (const layer of banned) {
+      it(`${label} → ${layer} import 0건`, () => {
+        const hits: string[] = []
+        for (const file of files) {
+          for (const spec of specifiers(readFileSync(file, "utf8"))) {
+            if (points(spec, layer)) hits.push(`${file.replace(/\\/g, "/")} → ${spec}`)
+          }
+        }
+        expect(
+          hits,
+          `${label}가 ${layer}를 import한다 — 안쪽 층은 바깥쪽을 모른다 (LOCK 4):\n${hits.join("\n")}`,
+        ).toEqual([])
+      })
+    }
+  }
+})

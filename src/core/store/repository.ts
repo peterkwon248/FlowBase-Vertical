@@ -254,6 +254,25 @@ export interface ConnectionUpsert {
 /**
  * 가져오기 이력 한 줄 (`batchHistory`). 되돌리기 버튼의 3상태 판정 재료를 포함한다.
  */
+/** 통의 한 줄 — **파일 × 시트**다 (009의 키). */
+export interface IntakeHistoryRow {
+  readonly id: number
+  readonly sourceHash: string
+  readonly sourceName: string
+  readonly sheetName: string | null
+  readonly sheetIndex: number
+  /** 맞은 양식. **`null`이 정상값이다** — 「맞는 양식이 없었다」도 기록할 사실이다. */
+  readonly profileId: string | null
+  /** 적재까지 갔으면 그 배치. 기준 데이터는 `null`이고 그것이 정상이다. */
+  readonly batchId: string | null
+  readonly firstSeenAt: string
+  readonly lastSeenAt: string
+  readonly seenCount: number
+  readonly columnCount: number
+  /** batch가 못 담는 결과 (015). Fact 파일은 비어 있고, 그것도 결손이 아니다. */
+  readonly outcomes: Readonly<Record<string, number>>
+}
+
 export interface BatchHistoryRow {
   readonly id: string
   readonly connectionId: string
@@ -2594,6 +2613,65 @@ export class Repository {
    * 것이다 — 확인 다이얼로그가 «행 N개가 사라지고 M개가 이전 판으로 돌아갑니다»를
    * 지어내지 않고 말할 수 있어야 한다 (헌장 A-5).
    */
+  /**
+   * ★ 통(通)의 목록 — **넣은 파일은 전부 한 줄** (015 · ADR-023 결정 1) ★
+   *
+   * 「가져오기 기록」이 `batch`만 읽어서 **원가 파일이 한 줄도 안 나왔다.** 기준
+   * 데이터는 batch를 만들지 않기 때문이다 — 결함이 아니라 batch의 성질이다
+   * (append-only · 되돌리기 단위 · 연결에 매달림 — LOCK 2).
+   *
+   * 여기서 돌려주는 것은 **파일 × 시트**다(009의 키). 배치가 붙었으면 그 id를 함께
+   * 주고, 배치가 담는 수(행 수·되돌리기)는 **여기서 다시 세지 않는다** —
+   * `batchHistory`가 이미 그 일을 하고 두 곳이 같은 수를 세면 갈린다.
+   */
+  async intakeHistory(libraryId: string): Promise<readonly IntakeHistoryRow[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT s.id, s.source_hash, s.source_name, s.sheet_name, s.sheet_index,
+                s.profile_id, s.batch_id, s.first_seen_at, s.last_seen_at, s.seen_count,
+                s.column_count
+           FROM file_sighting s
+          WHERE s.library_id = ?
+          ORDER BY s.last_seen_at DESC, s.id DESC`,
+      )
+      .all(libraryId)
+
+    const outRows = await this.db
+      .prepare(
+        `SELECT o.sighting_id AS sid, o.kind, o.count
+           FROM sighting_outcome o
+           JOIN file_sighting s ON s.id = o.sighting_id
+          WHERE s.library_id = ?`,
+      )
+      .all(libraryId)
+
+    const byId = new Map<number, Record<string, number>>()
+    for (const r of outRows) {
+      const sid = Number(r["sid"] ?? 0)
+      const per = byId.get(sid) ?? {}
+      per[String(r["kind"] ?? "")] = Number(r["count"] ?? 0)
+      byId.set(sid, per)
+    }
+
+    return rows.map((r): IntakeHistoryRow => {
+      const id = Number(r["id"] ?? 0)
+      return {
+        id,
+        sourceHash: String(r["source_hash"] ?? ""),
+        sourceName: String(r["source_name"] ?? ""),
+        sheetName: r["sheet_name"] == null ? null : String(r["sheet_name"]),
+        sheetIndex: Number(r["sheet_index"] ?? 0),
+        profileId: r["profile_id"] == null ? null : String(r["profile_id"]),
+        batchId: r["batch_id"] == null ? null : String(r["batch_id"]),
+        firstSeenAt: String(r["first_seen_at"] ?? ""),
+        lastSeenAt: String(r["last_seen_at"] ?? ""),
+        seenCount: Number(r["seen_count"] ?? 1),
+        columnCount: Number(r["column_count"] ?? 0),
+        outcomes: byId.get(id) ?? {},
+      }
+    })
+  }
+
   async batchHistory(libraryId: string): Promise<readonly BatchHistoryRow[]> {
     // Fact 테이블 목록에서 UNION을 만든다 — 테이블이 늘면 자동으로 따라온다.
     // (ADR-004 재검토 트리거 3의 «빠뜨리면 그 테이블만 조용히 옛 동작» 교훈)

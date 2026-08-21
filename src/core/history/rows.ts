@@ -80,6 +80,23 @@ export interface HistoryRow {
    * (헌장 C-4). 사람이 알아보는 것은 파일 이름과 시각이다.
    */
   readonly blockedBy: { readonly sourceName: string; readonly at: string | null } | null
+  /**
+   * ★ 이 줄이 **무엇인가** (015 · ADR-023 결정 1) ★
+   *
+   * `fact`      배치가 붙었다. 위 행 수·되돌리기가 전부 그 배치의 것이다
+   * `reference` 기준 데이터(원가 등). **batch가 없고 되돌릴 수 없다** — 결함이 아니라
+   *             batch의 성질이다(LOCK 2). 결과는 `outcomes`가 든다
+   * `seen`      봤지만 안 넣었다. 판정만 지나간 파일 — **이것도 기록할 사실이다**
+   *             (009가 생긴 이유). 「기록이 없다」와 「안 넣었다」는 다르다
+   */
+  readonly kind: "fact" | "reference" | "seen"
+  /**
+   * batch가 못 담는 결과 (015). `reference`에서만 찬다 —
+   * `cost 35 · pending_cost 171 · sku_created 35` 꼴이다. 문구는 화면이 만든다.
+   */
+  readonly outcomes: Readonly<Record<string, number>>
+  /** 몇 번 봤나 (009). 재가져오기가 몇 번이었는지를 이 수가 말한다. */
+  readonly seenCount: number
 }
 
 export async function loadHistoryRows(
@@ -87,9 +104,19 @@ export async function loadHistoryRows(
   libraryId: string,
   resolveDocType: DocTypeResolver,
 ): Promise<readonly HistoryRow[]> {
-  const raw = await new Repository(db).batchHistory(libraryId)
+  const repo = new Repository(db)
+  const raw = await repo.batchHistory(libraryId)
+  const intake = await repo.intakeHistory(libraryId)
 
-  return raw.map((b): HistoryRow => {
+  const batchById = new Map(raw.map((b) => [b.id, b]))
+  /** 통이 이미 집어 간 배치 — 남는 것은 목격 없는 배치이고, 그건 아래에서 줍는다. */
+  const claimed = new Set<string>()
+
+  const fromBatch = (b: (typeof raw)[number], extra: {
+    kind: HistoryRow["kind"]
+    outcomes: Readonly<Record<string, number>>
+    seenCount: number
+  }): HistoryRow => {
     // 상태 판정 — `assertUndoable`의 세 조건 중 화면이 보여줄 둘.
     // (세 번째인 «배치가 존재하나»는 목록에 있다는 것 자체가 답이다)
     const undo: UndoState =
@@ -133,6 +160,70 @@ export async function loadHistoryRows(
       undoneAt: b.undoneAt,
       blockedBy:
         b.blockedBy === null ? null : { sourceName: b.blockedBy.sourceName, at: b.blockedBy.at },
+      ...extra,
     }
-  })
+  }
+
+  /**
+   * ★★ 장부의 단위가 **배치**에서 **파일**로 바뀐다 (015 · ADR-023 결정 1) ★★
+   *
+   * 전에는 `batch` 한 표만 읽어서 **원가 파일이 한 줄도 안 나왔다** — 사용자가
+   * 13MB 단가표를 넣고 겪은 그것이다. 이제 통(`file_sighting`)이 척추이고 배치는
+   * 그 줄에 달리는 「이 파일이 무엇이 됐나」 중 하나다.
+   */
+  const out: HistoryRow[] = []
+  for (const s of intake) {
+    const b = s.batchId === null ? null : (batchById.get(s.batchId) ?? null)
+    if (b !== null) {
+      claimed.add(b.id)
+      out.push(fromBatch(b, { kind: "fact", outcomes: s.outcomes, seenCount: s.seenCount }))
+      continue
+    }
+    // 배치가 없는 파일. **결과가 있으면 기준 데이터, 없으면 「봤을 뿐」이다.**
+    // 둘을 한 상태로 뭉개면 「원가를 넣었는데 아무 말이 없는 줄」이 된다 (LOCK 6).
+    const kinds = Object.keys(s.outcomes).filter((k) => k !== "nothing")
+    out.push({
+      // 내부 키를 화면에 내보내지 않는다 (헌장 C-4). 이 id는 화면이 행을 구분하는
+      // 데만 쓰고, 통의 줄은 배치가 아니므로 배치 id와 섞이지 않게 접두를 붙인다.
+      id: `intake:${s.id}`,
+      // 기준 데이터에는 연결이 없다. **빈 문자열이 「채널 없음」이고**, 문구는 화면이 만든다.
+      channel: "",
+      sourceName: s.sourceName,
+      sheetName: s.sheetName,
+      docType: s.profileId === null ? null : resolveDocType(s.profileId),
+      at: s.lastSeenAt,
+      batchStatus: "",
+      // 행 수는 배치의 어휘다. 기준 데이터는 `outcomes`로 말한다 — 0을 그리면
+      // 「0행 들어갔다」로 읽히는데 그건 거짓이다 (§22).
+      fetched: 0,
+      created: 0,
+      updated: 0,
+      failed: s.outcomes["bad_rows"] ?? 0,
+      ownedByTable: {},
+      // ★ 되돌릴 수 없다 ★ `row_shadow`가 Fact 5종만 덮는다(002). 못 누르는 버튼을
+      // 그려놓고 막지 않는다 — 화면이 사유를 상태 칸에 쓴다 (§21-1 · U-3).
+      undo: "blocked",
+      outcome: kinds.length > 0 ? "done" : "unfinished",
+      undoneAt: null,
+      blockedBy: null,
+      kind: kinds.length > 0 ? "reference" : "seen",
+      outcomes: s.outcomes,
+      seenCount: s.seenCount,
+    })
+  }
+
+  /**
+   * ★ 목격 없는 배치를 줍는다 — 조용히 사라지면 안 된다 (LOCK 6) ★
+   *
+   * 오늘 실측은 0건이다(2026-08-21 · 실 DB·데모 둘 다). 그래도 줍는 이유는,
+   * 통을 척추로 삼는 순간 **목격이 없는 배치는 장부에서 통째로 증발**하기 때문이다.
+   * 「지금 0이니 괜찮다」로 두면 그런 배치가 생기는 날 아무도 모른다.
+   */
+  for (const b of raw) {
+    if (claimed.has(b.id)) continue
+    out.push(fromBatch(b, { kind: "fact", outcomes: {}, seenCount: 1 }))
+  }
+
+  // 최근 순. 통과 배치가 섞이므로 여기서 한 번 정렬한다.
+  return out.sort((x, y) => (x.at < y.at ? 1 : x.at > y.at ? -1 : 0))
 }

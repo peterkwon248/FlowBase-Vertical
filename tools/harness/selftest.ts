@@ -76,6 +76,22 @@ const CASES: readonly Case[] = [
     verify: `npx vitest run tests/wiring-coverage.test.ts -t "배선된 필드를 덮는 컷"`,
   },
   {
+    id: "layer-direction",
+    guards:
+      "안쪽 층이 바깥쪽을 import한다 — core가 팩을 알면 「매처는 주입받는다」가 무너진다. " +
+      "이름 검사(마켓 이름 10종)는 이걸 **못 잡는다**: import 경로에 「쿠팡」이 없기 때문이다 " +
+      "(2026-08-21 신설 — 그전까지 방향은 규율이었지 게이트가 아니었다)",
+    file: "src/core/linking/view.ts",
+    find: `import type { Driver } from "../store/driver.js"`,
+    replace:
+      `import type { Driver } from "../store/driver.js"
+` +
+      `import { krLinkingMatcher } from "../../packs/kr-marketplace/linking-matcher.js"
+` +
+      `void krLinkingMatcher`,
+    verify: `npx vitest run tests/core-env-neutral.test.ts -t "src/core → packs import 0건"`,
+  },
+  {
     id: "db-path-baked",
     guards:
       "앱이 **빌드한 기계의 절대경로**를 연다 — 다른 PC에 설치하면 첫 열기에서 끝난다 " +
