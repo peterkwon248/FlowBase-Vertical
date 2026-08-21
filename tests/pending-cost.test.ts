@@ -75,8 +75,20 @@ run("원가 대기 — 못 붙은 행이 남는다", () => {
     expect(r.stashed, "못 붙은 행이 대기실에 안 남았다").toBe(r.unmatched)
     expect(r.bridged).toBe(0)
 
+    /**
+     * ★ 대기실에는 «주 종류 + 곁가지»가 함께 앉는다 (ADR-029) ★
+     * 같은 원가표가 `원가`(COGS)와 `배송비`(LOGISTICS)를 함께 들고 온다. `r.stashed`는
+     * **주 종류만** 세므로(수를 뭉치면 화면이 「원가 382건」이라고 거짓말한다) 표의 행
+     * 수는 둘의 합이다. 곁가지를 안 쌓으면 나중에 이어질 때 배송비가 조용히 사라진다.
+     */
+    const extraStashed = r.extras.reduce((a, e) => a + e.stashed, 0)
+    expect(extraStashed, "곁가지(배송비)가 대기실에 안 쌓였다").toBeGreaterThan(0)
     const rows = await repo.pendingCosts(LIB, "pending")
-    expect(rows.length).toBe(r.stashed)
+    expect(rows.length).toBe(r.stashed + extraStashed)
+    expect(
+      rows.filter((x) => x.kind === "COGS").length,
+      "주 종류만 세면 stashed와 같아야 한다",
+    ).toBe(r.stashed)
     // 사람이 판단할 재료가 실려 있다 — 품명·금액·적용일
     const one = rows[0]!
     expect(one.title).not.toBe("")
@@ -89,7 +101,9 @@ run("원가 대기 — 못 붙은 행이 남는다", () => {
     const second = await importCost()
     expect(second.stashed).toBe(first.stashed)
     const rows = await repo.pendingCosts(LIB)
-    expect(rows.length, "재가져오기가 대기 행을 복제했다").toBe(first.stashed)
+    // 곁가지도 함께 멱등이다 — 두 번 넣어도 배송비 대기 행이 안 불어난다 (ADR-029)
+    const extras = first.extras.reduce((a, e) => a + e.stashed, 0)
+    expect(rows.length, "재가져오기가 대기 행을 복제했다").toBe(first.stashed + extras)
   })
 
   it("★★ resolved가 다리 사전이다 — 한 번 이으면 다음 파일부터 저절로 붙는다 ★★", async () => {

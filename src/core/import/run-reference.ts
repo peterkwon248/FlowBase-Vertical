@@ -154,13 +154,21 @@ export interface ReferenceRunResult {
    * 어느 종류로 들어갔나 (`cost_history.kind`). **화면이 이걸 되짚을 길이 없다** —
    * 결과만 들고는 «원가»인지 «물류비»인지 알 수 없어서 결과에 싣는다.
    */
-  readonly kind: "COGS" | "PACKAGING" | "LOGISTICS" | "OTHER"
+  readonly kind: ReferenceKind
+  /**
+   * ★ 곁가지로 함께 들어간 종류들 (ADR-029) ★ 「원가 206건」과 「배송비 223건」을
+   * **한 수로 뭉개지 않는다** — 뭉치면 화면이 「원가 429건」이라고 거짓말한다.
+   */
+  readonly extras: readonly { readonly kind: ReferenceKind; readonly added: number; readonly stashed: number }[]
   /** 시트별 결과 — 실패 시트도 여기 사유와 함께 실린다 (일급 항목). */
   readonly perSheet: readonly ReferenceSheetResult[]
   /** 시트 간 금액 충돌 표본 (≤10). 전체 수는 `conflictCount`. */
   readonly conflicts: readonly ReferenceConflict[]
   readonly conflictCount: number
 }
+
+/** `cost_history.kind`. 스키마(001)가 CHECK로 닫아 둔 네 종. */
+export type ReferenceKind = "COGS" | "PACKAGING" | "LOGISTICS" | "OTHER"
 
 const hex = (b: Uint8Array): string =>
   Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")
@@ -214,6 +222,17 @@ export async function runReferenceImport(
       if (conflicts.length < 10) conflicts.push(c)
     }
     const perSheet: ReferenceSheetResult[] = []
+    /**
+     * ★ 곁가지 종류별 누적 (ADR-029) ★ 시트를 가로질러 모은다. `ReferenceSheetResult`에
+     * 칸을 더하지 않는 이유는 그 구조가 **시트별 실패 표시**의 정본이기 때문이다 —
+     * 곁가지는 시트마다 갈리는 사실이 아니라 파일 하나의 부산물이다.
+     */
+    const extraTally = new Map<ReferenceKind, { added: number; stashed: number }>()
+    const tallyExtra = (k: ReferenceKind, field: "added" | "stashed"): void => {
+      const cur = extraTally.get(k) ?? { added: 0, stashed: 0 }
+      cur[field]++
+      extraTally.set(k, cur)
+    }
     const excludedAll: ExcludedRow[] = []
     /**
      * 시트별 「장부에 어떻게 섰나」 — 루프 뒤의 결과 기록이 이걸 읽는다.
@@ -337,6 +356,12 @@ export async function runReferenceImport(
         let amountCol = -1
         let titleCol = -1
         let modelCol = -1
+        /**
+         * 곁가지 금액 열 (ADR-029 결정 3) — 「배송비 → LOGISTICS」.
+         * **못 찾은 열은 조용히 뺀다.** 배송비 없는 원가표가 정상이고, 그것을
+         * 실패로 부르면 열 하나 뺀 표가 통째로 안 들어간다 (§22).
+         */
+        let extraCols: { idx: number; kind: ReferenceKind }[] = []
         /** 프로파일의 `sourceKey.columns` 인덱스 — 대기 행의 정체성이 여기서 나온다. */
         let skCols: number[] = []
 
@@ -379,6 +404,9 @@ export async function runReferenceImport(
             amountCol = at(rule.amountColumn)
             titleCol = at(rule.titleColumn)
             modelCol = at(rule.modelColumn)
+            extraCols = (rule.extraAmounts ?? [])
+              .map((e) => ({ idx: at(e.column), kind: e.kind }))
+              .filter((e) => e.idx >= 0)
             skCols =
               o.profile.sourceKey.strategy === "natural"
                 ? (o.profile.sourceKey.columns ?? []).map(at)
@@ -405,6 +433,20 @@ export async function runReferenceImport(
               badRows++
               continue
             }
+
+            /**
+             * 곁가지 금액. **주 금액과 운명을 같이하지 않는다** — 배송비 칸이 비어도
+             * 원가는 들어가야 한다. 0은 «안 든다»로 본다: 실측에서 253행 중 30행이
+             * 0이었고 그건 「이 상품은 배송비를 안 쓴다」이지 「0원을 청구했다」가 아니다.
+             */
+            const extras = extraCols
+              .map((e) => ({
+                kind: e.kind,
+                amount: toWon(chunk.values[base + e.idx] ?? null, chunk.raws[base + e.idx] ?? null),
+              }))
+              .filter((e): e is { kind: ReferenceKind; amount: number } =>
+                e.amount !== null && e.amount !== 0,
+              )
 
             /**
              * ★ 못 찾는 것이 정상이다 ★
@@ -493,6 +535,29 @@ export async function runReferenceImport(
                 now: o.now,
               })
               stashedHere++
+
+              /**
+               * ★ 대기실에도 곁가지를 함께 쌓는다 ★ 안 쌓으면 **조용히 사라진다** —
+               * 나중에 리스팅이 이어져 대기 행이 확정될 때 원가만 들어가고 배송비는
+               * 없다. 그 자리는 사용자가 «파일에 있었는데?»라고 물을 자리이고,
+               * 011의 `kind` 칸이 처음부터 그것을 담을 수 있게 돼 있었다 (LOCK 6).
+               */
+              for (const ex of extras) {
+                stash.push({
+                  libraryId: o.libraryId,
+                  sourceKey,
+                  kind: ex.kind,
+                  title: title === "" ? key : title,
+                  modelCode: model === "" ? null : model,
+                  amount: ex.amount,
+                  effectiveFrom: o.effectiveFrom,
+                  sourceHash,
+                  sourceName: o.fileName,
+                  profileVersion: profileVersion(o.profile),
+                  now: o.now,
+                })
+                tallyExtra(ex.kind, "stashed")
+              }
               continue
             }
 
@@ -535,6 +600,30 @@ export async function runReferenceImport(
               sourceHash,
               ...(o.replace === true ? { replace: true } : {}),
             })
+            /**
+             * ★ 곁가지는 **주 원가가 들어간 뒤에** 넣는다 (ADR-029) ★
+             * 순서가 뜻을 갖는다 — 주 금액이 실패해 `continue`로 빠지면 곁가지도
+             * 안 들어간다. 「배송비만 있고 원가는 없는 SKU」를 만들지 않는다.
+             *
+             * 세는 것은 **한 칸에 뭉치지 않는다.** `inserted`에 더하면 화면이
+             * 「원가 429건」이라고 말하는데 실제 원가는 206건이다.
+             */
+            for (const ex of extras) {
+              const er = await repo.addCost({
+                libraryId: o.libraryId,
+                skuId,
+                kind: ex.kind,
+                amount: ex.amount,
+                effectiveFrom: o.effectiveFrom,
+                note: `${o.fileName} · ${profileVersion(o.profile)}`,
+                now: o.now,
+                enteredBy: "import",
+                sourceHash,
+                ...(o.replace === true ? { replace: true } : {}),
+              })
+              if (er.inserted || er.replaced) tallyExtra(ex.kind, "added")
+            }
+
             if (r.inserted) inserted++
             else if (r.replaced) replaced++
             else {
@@ -684,6 +773,7 @@ export async function runReferenceImport(
       warnings: [...src.warnings, ...rec.identityNotes],
       unmatchedSample,
       kind: rule.kind,
+      extras: [...extraTally].map(([kind, v]) => ({ kind, added: v.added, stashed: v.stashed })),
       perSheet,
       conflicts,
       conflictCount,

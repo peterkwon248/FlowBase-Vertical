@@ -29,6 +29,7 @@ export type PnlGapId =
   | "period-aggregated"
   | "period-spilling"
   | "cogs-missing"
+  | "shipping-source"
   /** 원가를 넣어도 곱할 품목이 없다 — «미입력»과 전혀 다른 처방을 요구한다 (③④). */
   | "cogs-unappliable"
   /** 품목은 있는데 리스팅이 SKU에 안 이어졌다 — 처방은 «연결»이지 «원가»가 아니다. */
@@ -279,6 +280,35 @@ export function pnlGaps(snap: PnlSnapshot): PnlGap[] {
           `광고비 ${ad.noKey.toLocaleString("ko-KR")}원은 **어느 상품 것인지 파일 자체가 ` +
           `말해주지 않는다** (일자별 집계만 주는 양식). 이건 «0원»이 아니라 «모름»이고, ` +
           `연결을 아무리 해도 상품까지 내려가지 않는다 — 채널 단위로만 볼 수 있다`,
+      })
+    }
+
+    /**
+     * ★ 배송비의 **출처를 가른다** (ADR-029 결정 2 · LOCK 6) ★
+     *
+     * 3층의 «배송» 줄에는 두 사건이 합산돼 있다 — 마켓이 정산에서 공제한 돈과, 내가
+     * 택배사에 낸 돈(원가표의 `배송비` → `LOGISTICS`). 합쳐서 빼는 것은 맞지만
+     * **합쳐서 말하면** 사용자는 틀렸을 때 어느 파일을 고쳐야 할지 모른다.
+     *
+     * `tone: "info"` — 결핍이 아니라 **구성의 설명**이다. 원가표에 배송비가 없으면
+     * 이 줄은 아예 안 뜬다 (없는 것을 결핍으로 부르지 않는다 · §22).
+     */
+    const sb = snap.shippingBasis
+    if (sb.costTable > 0) {
+      gaps.push({
+        id: "shipping-source",
+        label: "배송비",
+        state: sb.settlement === 0 ? "원가표에서만" : "출처 둘",
+        note: won(sb.settlement + sb.costTable),
+        tone: "info",
+        detail:
+          `배송비 ${won(sb.settlement + sb.costTable)}은 **두 사건의 합**이다 — ` +
+          `정산 공제 ${won(sb.settlement)} · 원가표 ${won(sb.costTable)}. ` +
+          `앞은 마켓이 떼 간 돈이고 뒤는 내가 택배사에 낸 돈이라 **이중 계상이 아니다.** ` +
+          (sb.settlement === 0
+            ? `지금 정산 파일은 배송비를 주지 않아 0이다 — 그래서 이 숫자는 전부 원가표에서 왔다. `
+            : ``) +
+          `원가표 쪽이 틀렸으면 그 파일의 「배송비」 열을, 정산 쪽이 틀렸으면 정산 파일을 본다`,
       })
     }
 

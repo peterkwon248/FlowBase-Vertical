@@ -173,6 +173,7 @@ describe("기준 데이터 결과 — 못 찾은 것을 실패로 부르지 않�
     stashed: 171,
     bridged: 0,
     kind: "COGS",
+    extras: [],
     perSheet: [],
     conflicts: [],
     conflictCount: 0,
@@ -355,7 +356,7 @@ describe("일치한 시트 전부 넣기 — 대상 계산과 토글", () => {
     const done: ReferenceRunResult = {
       inserted: 1, skipped: 0, replaced: 0, unmatched: 0, createdSkus: 0, badRows: 0,
       excluded: [], warnings: [], unmatchedSample: [], stashed: 0, bridged: 0,
-      kind: "COGS", perSheet: [], conflicts: [], conflictCount: 0,
+      kind: "COGS", extras: [], perSheet: [], conflicts: [], conflictCount: 0,
     }
     const v = vals({
       ...EMPTY_WIZARD,
