@@ -211,6 +211,12 @@ export async function runImport(
     let offset = 0
     let unmappedColumnCount = 0
     /**
+     * ★ 「안 받는다」고 지목한 컬럼에 실제로 돈이 실렸나 (조사 2.13 · LOCK 6) ★
+     * 11번가 정산 59컬럼 중 8개만 받는다. 나머지는 수 하나로 뭉개져서, 도서산간
+     * 배송비가 0인 달과 100만 원인 달을 **화면이 구분하지 못했다.**
+     */
+    const watchedNonZero = new Map<string, number>()
+    /**
      * 「신규 + 갱신 + 병합 + 제외 = 파일 행」의 앞 셋. 마이그레이션 007 참조.
      *
      * `merged`만 사고다 — 앞의 둘은 재가져오기의 정상 동작이라, 뭉뚱그리면
@@ -275,6 +281,10 @@ export async function runImport(
       offset += chunk.rowCount
       errors.push(...mapped.errors)
       unmappedColumnCount = mapped.unmappedColumnCount
+      // 파일 전체로 모은다 — 청크 경계에서 사건이 갈리면 안 된다 (조사 2.13).
+      for (const [name, sum] of mapped.watchedNonZero) {
+        watchedNonZero.set(name, (watchedNonZero.get(name) ?? 0) + sum)
+      }
       merged += mapped.merged
 
       // ★ `byTable`로 읽는다. `rows`만 보면 라우팅으로 다른 테이블에 간 행을
@@ -422,6 +432,25 @@ export async function runImport(
      * 생긴 위험은 아니지만, 실제로 그런 파일이 나타나면 **청크마다 흘려보내는 것**이
      * 처방이다(한 행의 치명 여부는 그 행의 청크 안에서 이미 정해진다).
      */
+    /**
+     * ★ 안 받은 컬럼에 돈이 실렸으면 **여기서 한 번** 말한다 (조사 2.13) ★
+     *
+     * 컬럼 이름은 **파일의 이름 그대로** 쓴다 — 사용자가 아는 이름은 「도서산간배송비」이지
+     * `shipping_amount`가 아니다 (헌장 C-4). 금액을 함께 적는 것은 「안 받았다」만으로는
+     * 손댈 수 없기 때문이다 (LOCK 6 · §22-3의 3절 문법).
+     */
+    if (watchedNonZero.size > 0) {
+      const parts = [...watchedNonZero]
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, sum]) => `${name} ${Math.round(sum).toLocaleString("ko-KR")}원`)
+      errors.push({
+        rowIndex: 0, // 파일 사건이라 행 번호를 쓰지 않는다 (008 scope)
+        field: "",
+        reason: parts.join(" · "),
+        code: "unmapped_money",
+      })
+    }
+
     const issues: IssueRecord[] = []
     const fileSeen = new Set<string>()
     for (const e of errors) {

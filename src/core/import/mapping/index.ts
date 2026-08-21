@@ -347,7 +347,21 @@ export interface MappingProfile {
     }[]
   }
   readonly validationRules: readonly Record<string, unknown>[]
-  readonly unmappedColumns?: { readonly policy: string }
+  readonly unmappedColumns?: {
+    readonly policy: string
+    /**
+     * ★ 「안 받는다」고 **지목한** 컬럼 (2026-08-21 · 조사 2.13) ★
+     *
+     * 여기 이름이 오른 컬럼에 0이 아닌 값이 들어오면 `unmapped_money` 사건이 난다.
+     * **미매핑 숫자 컬럼 전부를 감시하지 않는 이유**는 `issues.ts`의 그 코드 주석에
+     * 있다 — 이미 집계에 든 컬럼(`판매가`·`수량`)이 매 파일마다 울리면 사람이
+     * 오류 목록 자체를 안 본다.
+     *
+     * 무엇을 지목할지는 **마켓 지식**이라 프로파일(팩)이 정한다. core는 이름을
+     * 모른 채 「이 목록을 감시하라」만 안다 (LOCK 4).
+     */
+    readonly watch?: readonly string[]
+  }
 }
 
 /** `mapping_version` 문자열 — 각 batch가 기록한다 (헌장 B-6). */
@@ -690,6 +704,11 @@ export interface MappingResult {
   /** 매핑하지 않고 버린 컬럼 수. 조용히 빠뜨리지 않기 위해 센다 (헌장 A-5). */
   readonly unmappedColumnCount: number
   /**
+   * 「안 받는다」고 지목한 컬럼 중 이 청크에서 0이 아니었던 것의 합 (조사 2.13).
+   * 비어 있으면 할 말이 없다는 뜻이다.
+   */
+  readonly watchedNonZero: ReadonlyMap<string, number>
+  /**
    * **같은 파일 안에서** 앞 행과 같은 `source_key`를 얻은 행 수 — UPSERT가 이
    * 행들을 앞 행에 합친다.
    *
@@ -822,6 +841,18 @@ export function mapRows(
   const { byColumn: columnUse } = columnRoles(profile)
   const unmappedColumnCount = headers.filter((h) => !columnUse.has(h.trim())).length
 
+  /**
+   * ★ 안 받는다고 지목한 컬럼을 지켜본다 (조사 2.13 · LOCK 6) ★
+   *
+   * **이미 매핑된 컬럼은 목록에 있어도 안 본다** — 프로파일이 나중에 그 컬럼을
+   * 받기 시작했는데 감시 목록에서 빼는 걸 잊으면, 정상 적재를 두고 「안 받았다」고
+   * 울린다. 선언이 둘로 갈릴 수 있는 자리는 코드가 닫는다.
+   */
+  const watched = (profile.unmappedColumns?.watch ?? [])
+    .map((name) => ({ name, col: index.get(name.trim()) }))
+    .filter((w): w is { name: string; col: number } => w.col !== undefined && !columnUse.has(w.name.trim()))
+  const watchedSum = new Map<string, number>()
+
   /** 테이블별 버킷. 기본 경로는 `profile.targetTable`이다. */
   const byTable = new Map<string, MappedRow[]>()
   const bucket = (t: string): MappedRow[] => {
@@ -900,6 +931,17 @@ export function mapRows(
     // 청크가 못 알려주는 합성 입력에서만 옛 계산으로 물러난다.
     const rowIndex = chunk.rowIndices[i] ?? startRowIndex + i
     const base = i * chunk.width
+
+    // 안 받는다고 지목한 컬럼의 값을 **더하기만** 한다 (조사 2.13). 여기서 판단하지
+    // 않는 것은, 한 행이 0이 아닌 것과 파일 전체가 0이 아닌 것이 다른 사건이라서다 —
+    // 「컬럼 하나가 전 행에서 빈다」를 행 사건으로 세면 안 되는 것과 같은 이유(008 scope).
+    for (const w of watched) {
+      if (w.col >= chunk.width) continue
+      const v = coerce(chunk.values[base + w.col] ?? null, chunk.raws[base + w.col] ?? null, "number")
+      if (typeof v === "number" && v !== 0) {
+        watchedSum.set(w.name, (watchedSum.get(w.name) ?? 0) + Math.abs(v))
+      }
+    }
 
     /**
      * 여러 열의 곱. **전부 숫자로 읽혔을 때만** 값이 된다 (`derive.from === "multiply"`).
@@ -1142,7 +1184,9 @@ export function mapRows(
     }
   }
 
-  return { rows: out, errors, items, rowsLoaded, unmappedColumnCount, byTable, merged }
+  // 파일 사건이라 **여기서 판단하지 않는다** — 청크 하나가 0이어도 파일은 0이 아닐
+  // 수 있다. 합계만 돌려주고 `run.ts`가 파일 전체로 모은 뒤 한 번 낸다 (조사 2.13).
+  return { rows: out, errors, items, rowsLoaded, unmappedColumnCount, byTable, merged, watchedNonZero: watchedSum }
 }
 
 /**
