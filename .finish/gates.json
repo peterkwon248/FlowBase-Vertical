@@ -4,12 +4,6 @@
   "max_loop": 5,
   "gates": [
     {
-      "id": "build",
-      "run": "npm run build",
-      "stage": "dev",
-      "timeout_s": 600
-    },
-    {
       "id": "typecheck",
       "run": "npm run typecheck",
       "stage": "dev"
@@ -26,6 +20,13 @@
       "stage": "dev",
       "enabled": false,
       "_note": "설계이탈 게이트. .dependency-cruiser.cjs 설정 후 enabled:true"
+    },
+    {
+      "id": "build",
+      "run": "npm run build",
+      "stage": "ship",
+      "timeout_s": 600,
+      "_note": "CI(ci.yml 마지막 스텝)가 매 푸시마다 돌린다. dev에서는 typecheck가 tsc --noEmit을 이미 본다 — 매 응답 34초를 두 번 낼 이유가 없다"
     },
     {
       "id": "deploy",

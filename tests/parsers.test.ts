@@ -280,12 +280,28 @@ describe.runIf(fixturesPresent())("파서 4종 — 픽스처 15개", () => {
     // #13(80,138행)에서 미리보기가 전체를 읽으면 헌장 B-9 위반이다.
     const f = FIXTURES.find((x) => x.id === 13)!
     const bytes = readFixture(f)
-    const t0 = performance.now()
     const preview = await parserFor("xlsx").preview(bytes, 20)
-    const previewMs = performance.now() - t0
     expect(preview.length).toBeLessThanOrEqual(20)
     expect(preview[0]?.[0]).toBe("과금 방식")
-    // 전체 파싱 대비 확연히 빨라야 한다 — 같은 비용이면 분리가 무의미하다.
-    expect(previewMs).toBeLessThan(5_000)
+
+    // ★ 시간이 아니라 «읽은 양»을 센다 (2026-08-21) ★
+    //
+    // 전에는 `previewMs < 5_000`이었다. 이름은 「적게 읽는다」인데 잰 것은
+    // 「빨리 끝난다」였고, 벽시계는 코드가 아니라 **그때 이 기계가 얼마나 바쁜가**를
+    // 함께 잰다. 한가할 때 2,476ms이던 것이 다른 작업과 겹치자 5,290ms가 되어
+    // 빨개졌다 — 코드는 한 글자도 안 바뀌었다. B-3(메모리 절대 상한이 환경을
+    // 재고 있다)과 같은 병이고, 처방도 같다: 절대값을 버린다.
+    //
+    // `previewWorkbook`의 계약이 「워크북은 이미 sheetRows로 잘려 들어와야
+    // 한다」이므로, 잘렸는지는 워크시트의 범위(`!ref`)가 그대로 말해 준다.
+    // 실측: sheetRows=20 → `A1:AQ20` · 전체 → `A1:AQ80138`.
+    const wb = readWorkbook(bytes, { sheetRows: 20 })
+    const ws = wb.Sheets[wb.SheetNames[0]!]!
+    const ref = ws["!ref"] ?? ""
+    const rowsParsed = Number((ref.split(":")[1] ?? "").replace(/[A-Z]/g, "")) || 0
+    expect(rowsParsed, `!ref=${ref} — sheetRows가 안 먹었다`).toBeGreaterThan(0)
+    expect(rowsParsed).toBeLessThanOrEqual(20)
+    // 전체(80,138행)의 1%도 안 읽어야 한다 — 같은 비용이면 분리가 무의미하다.
+    expect(rowsParsed).toBeLessThan(80_138 / 100)
   })
 })
