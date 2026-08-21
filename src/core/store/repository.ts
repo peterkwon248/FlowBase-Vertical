@@ -10,6 +10,7 @@
  */
 
 import type { Driver, Row, SqlValue } from "./driver.js"
+import { readPage, type SheetBlock, type SheetCell } from "./sheet-block.js"
 /**
  * ★ 타입만 가져온다 ★ `core/import`는 이 파일을 값으로 import하므로, 값을 되가져오면
  * 순환이 된다. `import type`은 컴파일에서 지워져 런타임 간선이 생기지 않는다.
@@ -220,6 +221,17 @@ export interface FileSightingRecord {
   readonly batchId: string | null
   readonly at: string
   readonly columns: readonly ColumnSighting[]
+  /**
+   * ★ 「몇 번 봤나」를 올리나 (016) ★ 기본은 `true`.
+   *
+   * 적재 경로는 이 함수를 **한 번의 가져오기에 두 번** 부른다 — 표를 담으려면
+   * `sighting_id`가 루프 **전에** 필요하고(LOCK 5: 전 행을 모아 뒀다 담을 수 없다),
+   * 배치 id와 열 목록은 루프 **뒤에**야 손에 들어오기 때문이다.
+   *
+   * 두 번 다 올리면 파일 하나를 넣었는데 「2번 봤다」가 된다. 두 번째 호출이
+   * `false`를 준다 — **같은 목격 사건의 마무리**이지 새로 본 것이 아니다.
+   */
+  readonly countAsSeen?: boolean
 }
 
 /**
@@ -1724,7 +1736,7 @@ export class Repository {
              -- 사실이라, 뒤이은 «그냥 열어보기»가 그것을 NULL로 지우면 안 된다.
              batch_id         = COALESCE(excluded.batch_id, file_sighting.batch_id),
              last_seen_at     = excluded.last_seen_at,
-             seen_count       = file_sighting.seen_count + 1`,
+             seen_count       = file_sighting.seen_count + ?`,
         )
         .run(
           s.libraryId,
@@ -1740,6 +1752,7 @@ export class Repository {
           s.batchId,
           s.at,
           s.at,
+          s.countAsSeen === false ? 0 : 1,
         )
 
       // 드라이버 계약은 `lastInsertRowid`를 노출하지 않는다(`RunResult`는 `changes`
@@ -2624,6 +2637,67 @@ export class Repository {
    * 주고, 배치가 담는 수(행 수·되돌리기)는 **여기서 다시 세지 않는다** —
    * `batchHistory`가 이미 그 일을 하고 두 곳이 같은 수를 세면 갈린다.
    */
+  /**
+   * ★ 파싱된 표의 한 블록을 담는다 (016 · ADR-027) ★
+   *
+   * **갈아치우기다.** 같은 목격의 같은 시작 행이 두 블록이면 페이지가 두 번 그려진다 —
+   * 재가져오기가 쌓이지 않게 하는 것은 015 `recordOutcomes`와 같은 판단이다.
+   */
+  async putSheetBlock(sightingId: number, block: SheetBlock): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO sheet_block (sighting_id, first_row, row_count, gz)
+         VALUES (?,?,?,?)
+         ON CONFLICT(sighting_id, first_row) DO UPDATE SET
+           row_count = excluded.row_count,
+           gz        = excluded.gz`,
+      )
+      .run(sightingId, block.firstRow, block.rowCount, block.gz)
+  }
+
+  /**
+   * 이 목격의 보관된 표에서 **한 페이지**를 꺼낸다.
+   *
+   * ★ 겹치는 블록만 읽는다 (LOCK 5) ★ `WHERE`로 잘라서 가져온다 — 전 블록을 SELECT해
+   * 놓고 JS로 거르면 8만 행짜리 파일에서 그 자체가 전체 적재다.
+   */
+  async sheetPage(
+    sightingId: number,
+    offset: number,
+    limit: number,
+  ): Promise<{ readonly rows: readonly (readonly SheetCell[])[]; readonly total: number }> {
+    const totalRow = await this.db
+      .prepare(`SELECT COALESCE(SUM(row_count), 0) AS n FROM sheet_block WHERE sighting_id = ?`)
+      .get(sightingId)
+    const total = Number(totalRow?.["n"] ?? 0)
+    if (limit <= 0 || total === 0) return { rows: [], total }
+
+    const raw = await this.db
+      .prepare(
+        `SELECT first_row, row_count, gz FROM sheet_block
+          WHERE sighting_id = ?
+            AND first_row < ?
+            AND first_row + row_count > ?
+          ORDER BY first_row`,
+      )
+      .all(sightingId, offset + limit, offset)
+
+    const blocks: SheetBlock[] = raw.map((r) => ({
+      firstRow: Number(r["first_row"] ?? 0),
+      rowCount: Number(r["row_count"] ?? 0),
+      gz: String(r["gz"] ?? ""),
+    }))
+    return { rows: await readPage(blocks, offset, limit), total }
+  }
+
+  /** 이 목격에 보관된 표가 몇 행인가. 0이면 «아직 안 담았다»이다. */
+  async sheetRowCount(sightingId: number): Promise<number> {
+    const r = await this.db
+      .prepare(`SELECT COALESCE(SUM(row_count), 0) AS n FROM sheet_block WHERE sighting_id = ?`)
+      .get(sightingId)
+    return Number(r?.["n"] ?? 0)
+  }
+
   async intakeHistory(libraryId: string): Promise<readonly IntakeHistoryRow[]> {
     const rows = await this.db
       .prepare(

@@ -49,6 +49,7 @@ import { sha1Bytes } from "./mapping/sha1.js"
 import { isFatal, scopeOf } from "./issues.js"
 import type { ExcludedRow, HeaderDetection, RawRow, SheetInfo } from "./types.js"
 import { describeColumns, SAMPLE_ROWS } from "./columns.js"
+import { blockAccumulator, type SheetCell } from "../store/sheet-block.js"
 import {
   listingIdFor,
   type BatchOpen,
@@ -241,8 +242,56 @@ export async function runImport(
         : { inserted: listingStats.inserted + s.inserted, updated: listingStats.updated + s.updated }
     }
 
+    /**
+     * ★★ 통의 깊은 층 — 파싱된 표를 **흘려보내며** 담는다 (016 · ADR-027) ★★
+     *
+     * 목격을 **루프 전에** 만든다. 블록이 `sighting_id`를 필요로 하는데, 전 행을
+     * 모아 뒀다가 나중에 담으면 그 자체가 「전체 메모리 적재」다 (LOCK 5) —
+     * 광고 파일 하나가 80,138행이다.
+     *
+     * 열 목록과 배치 id는 루프 **뒤에** 손에 들어오므로 같은 함수를 한 번 더 부른다.
+     * 그쪽이 `countAsSeen: false`를 준다 — **같은 목격 사건의 마무리**이지 새로 본
+     * 것이 아니다. 안 그러면 파일 하나를 넣었는데 「2번 봤다」가 된다.
+     */
+    let sheetFailed: string | null = null
+    const sightingId = await repo.recordFileSighting({
+      libraryId: o.libraryId,
+      sourceHash,
+      sourceName: o.fileName,
+      sourceBytes: o.bytes.length,
+      containerFormat: top.format,
+      sheetIndex: o.sheetIndex,
+      sheetName: sheet.name,
+      headerRowIndex: getSummary().header.rowIndex,
+      profileId: o.profile.id,
+      batchId: null,
+      at: o.now,
+      columns: [],
+    })
+    const sheetAcc = blockAccumulator(async (b) => {
+      await repo.putSheetBlock(sightingId, b)
+    })
+
     for await (const chunk of chunks) {
       if (headers.length === 0) headers = [...getSummary().header.columns]
+
+      /**
+       * 담기가 실패해도 **적재는 계속된다** — 표를 다시 못 보는 것과 손익이 안
+       * 들어가는 것은 무게가 다르다. 다만 **실패했다는 사실은 말한다** (LOCK 6):
+       * 「이 파일만 표로 다시 보기가 안 된다」의 이유가 화면에 있어야 한다.
+       */
+      if (sheetFailed === null) {
+        try {
+          const rows: (readonly SheetCell[])[] = []
+          for (let i = 0; i < chunk.rowCount; i++) {
+            const at = i * chunk.width
+            rows.push(chunk.values.slice(at, at + chunk.width) as readonly SheetCell[])
+          }
+          await sheetAcc.push(rows)
+        } catch (e) {
+          sheetFailed = e instanceof Error ? e.message : String(e)
+        }
+      }
 
       // 첫 청크에서만 채운다. `raws`는 원본 표현이라 화면이 파일과 같은 값을 보인다.
       for (let i = 0; sampleRows.length < SAMPLE_ROWS && i < chunk.rowCount; i++) {
@@ -517,6 +566,24 @@ export async function runImport(
      * 판정 단계에서 이미 남겼을 수 있다(위저드가 그렇게 한다). 그때는 `batch_id`가
      * 붙으면서 갱신될 뿐 행이 늘지 않는다 — 키가 `(라이브러리, 지문, 시트)`다.
      */
+    // 꼬리 블록을 내보낸다. 담기가 이미 실패했으면 더 시도하지 않는다.
+    if (sheetFailed === null) {
+      try {
+        await sheetAcc.flush()
+      } catch (e) {
+        sheetFailed = e instanceof Error ? e.message : String(e)
+      }
+    }
+    if (sheetFailed !== null) {
+      // 「표로 다시 보기」가 왜 안 되는지 화면이 말할 수 있게 남긴다 (LOCK 6).
+      errors.push({
+        rowIndex: 0,
+        field: "",
+        reason: `원본 표를 보관하지 못했습니다 — ${sheetFailed}`,
+        code: "sheet_store_failed",
+      })
+    }
+
     await repo.recordFileSighting({
       libraryId: o.libraryId,
       sourceHash,
@@ -530,6 +597,8 @@ export async function runImport(
       batchId: batch.id,
       at: o.now,
       columns: describeColumns(headers, sampleRows),
+      // 같은 목격 사건의 마무리다 — 새로 본 것이 아니다 (위 루프 전 호출 참조).
+      countAsSeen: false,
     })
 
     await repo.commitBatch(batch.id, o.now)

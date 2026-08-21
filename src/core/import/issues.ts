@@ -112,6 +112,18 @@ export const ISSUE_KINDS = {
     scope: "file",
     what: "프로파일이 «안 받는다»고 지목한 컬럼에 0이 아닌 값이 있다 — 그 금액은 손익에 안 들어간다",
   },
+  /**
+   * ★ 원본 표 보관에 실패했다 (016 · ADR-027) ★
+   *
+   * 적재는 성공했고 손익은 온전하다. 안 되는 것은 **「이 파일을 표로 다시 보기」**뿐이다.
+   * 그래도 말한다 — 다른 파일은 되는데 이 파일만 안 되는 이유가 화면에 없으면
+   * 사용자는 앱이 고장 난 줄 안다 (LOCK 6).
+   */
+  sheet_store_failed: {
+    fatal: false,
+    scope: "file",
+    what: "파싱된 표를 보관하지 못했다 — 적재는 됐고 «표로 다시 보기»만 안 된다",
+  },
   stale_batch_aborted: {
     fatal: false,
     scope: "file",

@@ -1146,6 +1146,8 @@ const ISSUE_LABEL: Record<string, string> = {
    */
   unmapped_money:
     "이 파일에 받지 않은 금액 컬럼이 있습니다 — 아래 금액은 손익에 들어가지 않았습니다",
+  sheet_store_failed:
+    "원본 표를 보관하지 못했습니다 — 데이터는 정상 적재됐고, 이 파일만 «표로 다시 보기»가 안 됩니다",
   // 조용히 치우지 않는다 — 무엇을 치웠는지 이 줄이 말한다 (대열 4 ③)
   stale_batch_aborted: "끝나지 않았던 이전 가져오기를 취소했습니다",
   stale_batch_blocked: "끝나지 않은 이전 가져오기가 남아 있습니다 — 치우지 못했습니다",
