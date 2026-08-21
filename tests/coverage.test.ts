@@ -9,7 +9,8 @@
 import { describe, expect, it } from "vitest"
 import { existsSync, readFileSync } from "node:fs"
 import { coverage, openedBy, PNL_METRICS, type DocType } from "../src/core/coverage/index.js"
-import { loadCoverage, type ConnectionCoverage } from "../src/core/coverage/load.js"
+import { loadCoverage, scopeCoverage, type ConnectionCoverage } from "../src/core/coverage/load.js"
+import { scopeGapRow } from "../src/app/dashboard.js"
 import { coverageNote, coverageStrip } from "../src/app/channel.js"
 import { digestRows } from "../src/app/import.js"
 import { krDocTypeResolver } from "../src/packs/kr-marketplace/markets/index.js"
@@ -549,5 +550,80 @@ run("§22 실파일 — 반쪽씩 들어온 두 채널", () => {
     } finally {
       await db.close()
     }
+  })
+})
+
+/**
+ * ★★ 범위 자격이 대시보드에 선다 (ADR-023 결정 2의 소비처 · 20번 (a)) ★★
+ *
+ * 19번이 `scopeCoverage()`를 세웠지만 화면이 없었다. 여기가 그 화면이다 —
+ * 「담지 못한 것」 카드의 **맨 앞 줄**이 「이 대시보드가 무엇을 못 답하나」를 말한다.
+ *
+ * ★ 연결별 줄과 다른 답을 낸다 ★ 그게 이 줄이 존재하는 이유다.
+ */
+describe("범위 자격 한 줄 — 대시보드가 자기 자격을 안다", () => {
+  const conn = (
+    held: DocType[],
+    counts: Partial<Record<DocType, number>>,
+    gross = 0,
+    skuCount = 0,
+  ): ConnectionCoverage => ({
+    connectionId: `c-${held.join("-")}`,
+    channel: "채널",
+    marketplaceKey: "11st",
+    state: "CONNECTED",
+    counts: { order: 0, settlement: 0, ad: 0, cost: 0, ...counts },
+    skuCount,
+    lastImportAt: null,
+    settlementGross: gross,
+    coverage: coverage(held, {
+      settlementGross: gross,
+      partial: { cost: { have: counts.cost ?? 0, need: skuCount } },
+    }),
+  })
+
+  it("★ 연결 셋 전부에서 잠긴 지표가 **범위로는 열린다** — 그래서 줄이 없다 ★", () => {
+    // 데모 DB의 실제 모양이다: 11번가는 정산만 · ESM은 주문+원가 · 자사몰은 주문만
+    const list = [
+      conn(["settlement"], { settlement: 128 }, 4_969_100),
+      conn(["order", "cost"], { order: 155, cost: 35 }, 0, 35),
+      conn(["order"], { order: 1197 }),
+    ]
+    // 연결별로는 셋 다 기여이익이 잠겨 있다
+    for (const c of list) {
+      expect(c.coverage.entries.find((e) => e.metric === "contribution")!.open).toBe(false)
+    }
+    // 그런데 범위(합집합)로는 전부 열린다 → 「담지 못한 것」에 쓸 말이 없다
+    expect(scopeGapRow(scopeCoverage(list, null)), "할 말이 없으면 줄을 안 만든다").toBeNull()
+  })
+
+  it("범위에서 잠긴 것은 이름과 크기를 말한다 — 묶음 이름을 그대로 쓴다", () => {
+    const row = scopeGapRow(scopeCoverage([conn(["settlement"], { settlement: 128 }, 4_969_100)], "7월 결산"))!
+    expect(row.name, "id가 아니라 사람의 말이다 (U-5)").toBe("묶음 「7월 결산」")
+    expect(row.state).toContain("매출")
+    expect(row.state).toContain("잠김")
+    expect(row.last, "정산이 들고 있는 «인식되지 못한 매출»의 크기").toContain("4,969,100")
+  })
+
+  it("묶음이 없으면 「전체 범위」다 — 「전체」를 값으로 저장하지 않는다 (013)", () => {
+    const row = scopeGapRow(scopeCoverage([conn(["settlement"], { settlement: 1 })], null))!
+    expect(row.name).toBe("전체 범위")
+    expect(row.last, "크기를 모르면 숫자를 지어내지 않는다 (A-5)").toBe("")
+  })
+
+  it("★ 광고비는 이 줄에 안 나온다 — 광고 안 하는 셀러에게 잔소리다 (§22-3 ②) ★", () => {
+    // 주문·정산·원가가 다 있고 광고만 없는 판. 광고비만 잠겨 있다.
+    const full = conn(["order", "settlement", "cost"], { order: 9, settlement: 9, cost: 3 }, 0, 3)
+    expect(full.coverage.entries.find((e) => e.metric === "ad-spend")!.open).toBe(false)
+    expect(scopeGapRow(scopeCoverage([full], null)), "광고비만 잠겼으면 줄이 없다").toBeNull()
+  })
+
+  it("★ 원가 부족분은 이 줄이 말하지 않는다 — pnlGaps와 모집단이 다르다 ★", () => {
+    // 236/261이면 열린다(19번). 열렸으므로 이 줄에는 안 뜬다 — 기간 손익이 얼마나
+    // 부풀었나는 `cogs-missing`이 **실제로 팔린 품목** 모집단으로 답한다.
+    const partial = conn(["order", "settlement", "cost"], { order: 9, settlement: 9, cost: 236 }, 0, 261)
+    const scope = scopeCoverage([partial], null)
+    expect(scope.coverage.hasPartial, "부분은 부분대로 세고 있다").toBe(true)
+    expect(scopeGapRow(scope), "그래도 「담지 못한 것」에는 안 쓴다").toBeNull()
   })
 })

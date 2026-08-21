@@ -29,7 +29,7 @@ import {
 import { loadSettlementRows, type SettlementRow } from "@core/settlement/rows.js"
 import { loadOrderRows, type OrderRow } from "@core/order/rows.js"
 import { loadLinkingView, type LinkingView } from "@core/linking/view.js"
-import { loadCoverage, type ConnectionCoverage } from "@core/coverage/load.js"
+import { activeCollectionName, loadCoverage, type ConnectionCoverage } from "@core/coverage/load.js"
 import type { CostsView } from "./costs.js"
 import type { BatchRowPage, FactTable } from "@core/store/repository.js"
 import { loadPendingCostView, type PendingCostView } from "@core/linking/pending-cost.js"
@@ -126,6 +126,13 @@ export interface LoadResult {
    * `linking`이 기간을 안 받는 것과 같은 이유다.
    */
   coverage: readonly ConnectionCoverage[]
+  /**
+   * 지금 활성인 묶음의 **이름**. `null`이면 「전체」다 (013 — 「전체」는 행이 아니다).
+   *
+   * id가 아니라 이름을 들고 다닌다 — 화면이 쓸 것은 사람의 말이고, 저장 분류를
+   * 화면까지 데려가지 않는다 (U-5). 대시보드의 범위 자격 줄이 이것을 쓴다.
+   */
+  scopeName: string | null
   /**
    * 가져오기 기록. 기간을 받지 않는다 — «7월 파일을 언제 넣었나»는 8월을 보고
    * 있어도 답이 같고, 되돌리기는 기간과 무관한 행위다.
@@ -418,6 +425,7 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
       const fieldmap = await loadFieldmapView(repo, world.merged, DEV_LIBRARY, world.userVersions)
       const resolveDocType = world.resolveDocType
       const coverage = await loadCoverage(db, DEV_LIBRARY, resolveDocType)
+      const scopeName = await activeCollectionName(db, DEV_LIBRARY)
       const history = await loadHistoryRows(db, DEV_LIBRARY, resolveDocType)
       /**
        * ★ 기준일은 **보고 있는 기간의 끝**이지 오늘이 아니다 ★
@@ -496,6 +504,7 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
         pendingCost,
         fieldmap,
         coverage,
+        scopeName,
         history,
         excluded,
         excludedAck: await new Repository(db).noticeAck(DEV_LIBRARY, EXCLUDED_NOTICE),
@@ -533,6 +542,7 @@ function failed(e: unknown, want?: Month): LoadResult {
     pendingCost: null,
     fieldmap: null,
     coverage: [],
+    scopeName: null,
     history: [],
     // 못 읽었으면 «제외가 없다»가 아니라 «모른다»이고, 배너는 그때 뜨지 않는다.
     excluded: { files: 0, rows: 0, reasons: [] },
