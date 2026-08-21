@@ -65,6 +65,43 @@ function facts(): Record<string, string> {
   }
 }
 
+/**
+ * ★ 만료 — **넣는 비용이 0이고 빼는 비용이 크면 문서는 단조 증가한다** (2026-08-21) ★
+ *
+ * ```
+ * <!-- expires: 2026-09-30 reason: 코드 훑기를 다 소비하면 지운다 -->
+ * ```
+ *
+ * 한시 문서 둘이 스스로 「소비되면 지운다」고 적어 놓고 몇 주째 남아 있었다.
+ * 선언이 있는데 집행이 없으면 그건 규칙이 아니라 소망이다 — 만료가 **나가는 문**이다.
+ *
+ * ★ 날짜가 지나면 «경고»가 아니라 «실패»다 ★ 경고는 읽히지 않는다. 연장하려면
+ * 날짜를 손으로 늘려야 하고, 그때 「정말 아직 필요한가」를 한 번 묻게 된다. 그 질문이
+ * 이 장치의 전부다.
+ *
+ * ★ 선언한 블록만 본다 ★ 태그가 없는 문서는 검사 대상이 아니다 — 오탐이 0이어야
+ * 사람이 이 시험을 안 끈다.
+ */
+export interface Expiry {
+  readonly file: string
+  readonly on: string
+  readonly reason: string
+}
+
+export function expiries(files: readonly string[]): readonly Expiry[] {
+  const re = /<!--\s*expires:\s*(\d{4}-\d{2}-\d{2})\s+reason:\s*([^>]*?)\s*-->/g
+  const out: Expiry[] = []
+  for (const f of files) {
+    for (const m of readFileSync(f, "utf8").matchAll(re))
+      out.push({ file: f, on: m[1]!, reason: m[2]! })
+  }
+  return out
+}
+
+/** 오늘(KST) 기준으로 지난 것. 날짜는 문자열 비교로 충분하다 — `YYYY-MM-DD`는 사전순이 시간순이다. */
+export const overdue = (all: readonly Expiry[], today: string): readonly Expiry[] =>
+  all.filter((e) => e.on < today)
+
 /** `<!-- facts:id -->…<!-- /facts -->` 사이를 찾는다. */
 const block = (id: string): RegExp =>
   new RegExp(`(<!-- facts:${id} -->)([\\s\\S]*?)(<!-- /facts -->)`, "g")

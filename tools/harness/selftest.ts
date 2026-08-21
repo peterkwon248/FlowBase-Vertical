@@ -166,6 +166,16 @@ const CASES: readonly Case[] = [
     verify: `npx vitest run tests/sign-policy.test.ts -t "적재하지도 않는다"`,
   },
   {
+    id: "doc-expired",
+    guards:
+      "한시 문서의 만료가 지났는데 아무도 안 문다 — 한시 문서 둘이 스스로 「소비되면 " +
+      "지운다」고 적고 몇 주째 남아 있었다. 선언만 있고 집행이 없으면 규칙이 아니라 소망이다",
+    file: "docs/코드-남은일-2026-08-20.md",
+    find: "expires: 2026-09-30",
+    replace: "expires: 2026-08-01",
+    verify: `npx vitest run tests/doc-facts.test.ts -t "지난 만료"`,
+  },
+  {
     id: "db-parent-dir",
     guards:
       "설치본의 첫 열기 — 앱 데이터 폴더가 **없는 채로** 시작한다. " +
