@@ -85,9 +85,17 @@ export function coverageStrip(
   return STRIP.map((dt) => {
     const label = docLabel(dt, dict)
     if (dt === "cost") {
+      /**
+       * ★ 2026-08-21 — 「보유」가 아니라 **「부분」**이 노란 점을 정한다 ★
+       *
+       * 옛 판정에서는 `held.has("cost")`가 곧 «전부 채웠다»였다(100% 절단점).
+       * [ADR-023](docs/ADR-023-통-묶음-자격-입구순서.md) 확인 ②가 그 절단점을
+       * 걷어내면서 **1/2도 보유**가 됐고, 그래서 보유만 보면 반쪽 원가가 초록으로
+       * 그려진다 — 스트립이 «다 됐다»고 거짓말하는 자리다. 부족분을 직접 본다.
+       */
+      const short = costShortfall(cc)
+      if (short !== null) return { label, via: `${won(short.have)}/${won(short.need)}`, color: YELLOW }
       if (held.has("cost")) return { label, via: "수동", color: GREEN }
-      // 반쯤 채워진 원가는 «없음»과 다르다. 노란 점이 그 사실을 그대로 말한다.
-      if (cc.counts.cost > 0) return { label, via: `${won(cc.counts.cost)}/${won(cc.skuCount)}`, color: YELLOW }
       return { label, via: "미입력", color: DIM }
     }
     if (held.has(dt)) return { label, via: "파일", color: GREEN }
@@ -100,13 +108,34 @@ export function coverageStrip(
 }
 
 /**
- * 3절 문장 (§22-3). 잠긴 것이 없으면 **빈 문자열** — 할 말이 없으면 안 한다.
+ * 이 연결의 원가 부족분 — 없으면 `null`.
  *
- * ① 있다 · ② 잠겼다 + 값 · ③ 하면 된다.
+ * 판정을 여기서 다시 하지 않는다. `coverage()`가 이미 3상태(부재·부분·완전)로
+ * 갈라 놨고(ADR-023 따름 조건 5 — 판정은 한 곳에서만), 화면은 그 결과를 읽기만
+ * 한다. 지표 여럿이 같은 `cost` 부족을 지므로 **첫 하나만** 집어 온다 — 수는 같다.
+ */
+function costShortfall(cc: ConnectionCoverage): { have: number; need: number; short: number } | null {
+  for (const e of cc.coverage.entries) {
+    const p = e.partial.find((x) => x.docType === "cost")
+    if (p !== undefined) return { have: p.have, need: p.need, short: p.short }
+  }
+  return null
+}
+
+/**
+ * 3절 문장 (§22-3). **할 말이 없으면 빈 문자열** — 잠긴 것도 빈 것도 없을 때다.
+ *
+ * ① 있다 · ② 잠겼다 + 값 · ②′ 열렸는데 비었다 · ③ 하면 된다.
+ *
+ * ★ ②′가 2026-08-21에 생겼다 (ADR-023 확인 ②) ★ 옛 §22-3 ①은 반쪽 원가를 **잠가서**
+ * 침묵시켰다 — 문이 닫혀 있으니 할 말이 「넣으세요」 하나였다. 이제 문을 열므로
+ * **열린 문 뒤의 숫자가 어느 쪽으로 틀렸는지**를 말해야 한다. 안 말하면 그게 LOCK 6이
+ * 금지한 조용한 실패다: 화면은 초록인데 이익만 부풀어 있다.
  */
 export function coverageNote(cc: ConnectionCoverage, dict: MarketDict | null): string {
   const locked = cc.coverage.entries.filter((e) => !e.open && NOTABLE.includes(e.metric))
-  if (locked.length === 0) return ""
+  const short = costShortfall(cc)
+  if (locked.length === 0 && short === null) return ""
 
   // ① 있다
   const heldParts = cc.coverage.held.map((dt) =>
@@ -139,6 +168,20 @@ export function coverageNote(cc: ConnectionCoverage, dict: MarketDict | null): s
     })
     .join(" ")
 
+  /**
+   * ②′ 열렸는데 비었다 — 방향까지 말한다.
+   *
+   * ★ «이익이 실제보다 큽니다»는 되고 «매입원가가 실제보다 큽니다»는 안 된다 ★
+   * 원가를 덜 넣으면 매입원가는 **작아지고** 기여이익이 **커진다.** 한 부족이 두
+   * 지표를 반대 방향으로 틀리게 하므로, 지표 이름을 기계적으로 끼워 넣으면 문장이
+   * 거짓이 된다. 그래서 방향을 문장에 박아 둔다.
+   */
+  const s2b =
+    short === null
+      ? ""
+      : `원가 미입력 ${won(short.short)}건 — 매입원가가 그만큼 덜 잡혀 ` +
+        `상품 기여이익이 실제보다 큽니다.`
+
   // ③ 하면 된다 — 파일은 바로 옆 [파일 가져오기] 버튼이 동선이다.
   //
   //    ★ 원가 입력 화면은 생겼지만(③, 2026-08-14) 그래도 «넣으면 열립니다»라고
@@ -167,11 +210,17 @@ export function coverageNote(cc: ConnectionCoverage, dict: MarketDict | null): s
         `이 양식의 매핑 프로파일이 없습니다.`,
     )
   }
-  if (parts.length === 0) {
+  // ★ 잠긴 것이 없으면 ③을 만들지 않는다 ★ 부족분만 있는 상태에서 «넣으면
+  // 열립니다»를 붙이면 **이미 열려 있는 문**을 가리키게 된다. 그때의 처방은
+  // 아래 한 줄뿐이다 — 원가는 파일이 아니라 사람이 넣는 값이다.
+  if (parts.length === 0 && locked.length > 0) {
     parts.push("원가는 마켓이 주지 않는 값이라 직접 입력해야 합니다.")
   }
+  if (parts.length === 0 && short !== null) {
+    parts.push("상품 화면에서 나머지 SKU의 원가를 넣으면 채워집니다.")
+  }
 
-  return `${s1} ${s2} ${parts.join(" ")}`
+  return [s1, s2, s2b, parts.join(" ")].filter((x) => x !== "").join(" ")
 }
 
 export interface ChannelActions {

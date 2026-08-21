@@ -72,6 +72,30 @@ export const PNL_METRICS: readonly MetricSpec[] = [
  */
 export interface CoverageEvidence {
   readonly settlementGross: number
+  /**
+   * ★ 갖췄지만 **일부만** 갖춘 입력 — 「원가 236/261」 (ADR-023 확인 ②) ★
+   *
+   * 여기 **없는** docType은 «완전»이 아니라 **«완전성을 잴 수 없다»**이다. 주문
+   * 파일이 몇 개여야 하는지 앱은 알 길이 없다 — 셀러가 이번 달에 파일을 셋 받는지
+   * 넷 받는지는 앱 밖의 사실이다. 오늘 분모를 아는 것은 `cost` 하나뿐이고(연결에
+   * 붙은 SKU 수), 그래서 이 자리는 **아는 것만** 채운다 (`lockedValue`와 같은 규율).
+   *
+   * 부재(`held`에 없음)와 **다른 축**이다: 부재는 문을 잠그고, 부분은 문을 열되
+   * 말하게 한다. 접으면 §22의 각주(「부재는 boolean이 아니다」)를 어긴다.
+   */
+  readonly partial?: PartialInputs
+}
+
+/** docType별 «갖춘 것 / 갖춰야 할 것». 분모를 아는 성격만 들어온다. */
+export type PartialInputs = Readonly<Partial<Record<DocType, { readonly have: number; readonly need: number }>>>
+
+/** 열려 있는 지표가 «이만큼 비었다»고 말할 재료. 화면이 문장을 만든다 (LOCK 4). */
+export interface PartialInput {
+  readonly docType: DocType
+  readonly have: number
+  readonly need: number
+  /** 모자란 수. `need - have`를 화면마다 다시 빼지 않게 여기서 낸다. */
+  readonly short: number
 }
 
 export interface CoverageEntry {
@@ -85,6 +109,15 @@ export interface CoverageEntry {
    * `null`은 «0»이 아니라 «모른다»이고, 화면은 지표 이름만 말해야 한다 (A-5).
    */
   readonly lockedValue: number | null
+  /**
+   * ★ 열려 있지만 **일부만 갖춘** 입력들 (ADR-023 확인 ②가 §22-3 ①을 뒤집었다) ★
+   *
+   * 옛 규칙은 «원가는 전부여야 열린다»였다 — 236/261이면 잠갔다. 그것은 100%짜리
+   * **비율 절단점**이고, 부분을 «없음»으로 접는다. 지금은 **열되 이 배열로 말한다.**
+   * 잠긴 지표(`open === false`)에서는 늘 비어 있다 — 잠긴 것에 대고 «일부 있다»를
+   * 덧붙이면 화면이 두 말을 한다.
+   */
+  readonly partial: readonly PartialInput[]
 }
 
 export interface Coverage {
@@ -92,6 +125,12 @@ export interface Coverage {
   readonly entries: readonly CoverageEntry[]
   /** 하나라도 잠긴 것이 있는가 — 화면이 «완결»을 말할 수 있는지의 근거. */
   readonly hasLocked: boolean
+  /**
+   * 열렸는데 **비어 있는** 것이 하나라도 있는가. `hasLocked`와 따로 두는 이유는
+   * 처방이 다르기 때문이다 — 잠김은 «파일을 넣으세요», 부분은 «이 숫자는 지금
+   * 실제보다 큽니다». 하나로 접으면 화면이 엉뚱한 안내를 한다.
+   */
+  readonly hasPartial: boolean
 }
 
 /**
@@ -110,12 +149,16 @@ export function coverage(
 
   const entries = metrics.map((m): CoverageEntry => {
     const missing = m.requires.filter((d) => !have.has(d))
+    const open = missing.length === 0
     return {
       metric: m.id,
       label: m.label,
-      open: missing.length === 0,
+      open,
       missing,
       lockedValue: lockedSize(m.id, missing, have, evidence),
+      // 잠긴 지표에는 부분을 달지 않는다 — 문이 닫힌 것에 대고 «이만큼 찼다»를
+      // 말하면 화면이 두 말을 한다. 열린 것만 «이만큼 비었다»를 말한다.
+      partial: open ? shortfalls(m.requires, evidence.partial) : [],
     }
   })
 
@@ -123,7 +166,27 @@ export function coverage(
     held: DOC_TYPES.filter((d) => have.has(d)),
     entries,
     hasLocked: entries.some((e) => !e.open),
+    hasPartial: entries.some((e) => e.partial.length > 0),
   }
+}
+
+/**
+ * 이 지표가 요구하는 입력 중 **덜 갖춰진 것**만 골라 낸다.
+ *
+ * `have >= need`면 아무것도 안 낸다 — 「35/35」를 부분이라 부르면 완전한 것을
+ * 결핍처럼 그린다. `need === 0`도 마찬가지다: 붙은 SKU가 하나도 없으면 «원가를
+ * 덜 넣었다»가 아니라 **넣을 자리가 아직 없다**는 뜻이고, 그 처방은 상품 연결이지
+ * 원가 입력이 아니다 (`cogs-unlinked`가 그쪽을 이미 말한다).
+ */
+function shortfalls(requires: readonly DocType[], partial: PartialInputs | undefined): readonly PartialInput[] {
+  if (partial === undefined) return []
+  const out: PartialInput[] = []
+  for (const d of requires) {
+    const p = partial[d]
+    if (p === undefined || p.need <= 0 || p.have >= p.need) continue
+    out.push({ docType: d, have: p.have, need: p.need, short: p.need - p.have })
+  }
+  return out
 }
 
 /**
