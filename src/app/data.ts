@@ -53,8 +53,40 @@ declare const __PROJECT_ROOT__: string
 
 const root = __PROJECT_ROOT__.replace(/\\/g, "/").replace(/\/$/, "")
 
-/** 3b-0 CLI가 만드는 DB. 실파일 3종이 들어 있다. */
+/**
+ * 개발 DB. 3b-0 CLI(`tools/harness/pnl.ts`)가 만들고 실파일 3종이 들어 있다.
+ * 하네스·시험·스모크가 전부 이 자리를 본다 — **도구는 사용자 DB를 안 건드린다**
+ * (ADR-024 따름 조건 2).
+ */
 export const DEV_DB_PATH = `${root}/.tmp/pnl.sqlite`
+
+/**
+ * ★ 앱이 열 DB의 자리 — **한 곳에서만 정한다** (ADR-024 · 2026-08-21) ★
+ *
+ * 여기가 없던 동안 앱은 `DEV_DB_PATH`를 그대로 열었다. 그 경로에는 **빌드한
+ * 기계의 절대경로**가 구워져 있어서(`vite.config.ts:35`) **다른 PC에 설치하면
+ * 첫 열기에서 끝났다** — 그 기계에 그 폴더는 없고 `Connection::open`은 부모를
+ * 만들지도 않는다 (조사 2.9).
+ *
+ * 가르는 신호는 `import.meta.env.DEV` 하나다. `npm run app`(= tauri dev)은 vite가
+ * dev 모드라 참이고 `tauri build`는 거짓이다.
+ *
+ * ★ Rust의 `debug_assertions`를 안 쓰는 이유 ★ `tauri build --no-bundle`로 구운
+ * **릴리즈 바이너리를 개발 기계에서 돌리는 것**이 이 결함의 재현 방법이다.
+ * 그때 dev 경로로 새면 재현이 안 된다. 판정은 **프론트 빌드 모드**를 따른다.
+ *
+ * 개발 DB를 앱 데이터 폴더로 **복사해 오지 않는다** — 새 설치의 첫 화면은 빈 DB이고
+ * 그게 참이다. 남의 기계에서 만든 것을 몰래 가져오면 「내가 넣은 적 없는 데이터」가
+ * 생긴다. 빈 것은 §22대로 「이 기간 파일 없음」이라고 말한다 (U-7).
+ *
+ * `import()`가 정적이 아니라 동적인 이유: 웹판(`isWebDemo`)은 이 경로를 영영 안
+ * 지나므로 `@tauri-apps/api/path`를 번들 첫 덩어리에 넣을 이유가 없다.
+ */
+async function appDbPath(): Promise<string> {
+  if (import.meta.env.DEV) return DEV_DB_PATH
+  const { appDataDir, join } = await import("@tauri-apps/api/path")
+  return join(await appDataDir(), "pnl.sqlite")
+}
 
 /**
  * ★ 기간은 이제 **상수가 아니라 데이터에서 온다** (2026-08-16, MVP 1) ★
@@ -280,7 +312,7 @@ async function open(): Promise<Driver> {
   if (isWebDemo()) return openWebDemo()
   const force = firstOpen
   firstOpen = false
-  return openTauriDriver(DEV_DB_PATH, {
+  return openTauriDriver(await appDbPath(), {
     force,
     // 넘겨받았다는 것은 이전 세션이 **동작 중에 끝났다**는 뜻이다. 데이터 쪽
     // 뒷정리는 이미 `abortStaleBatches`가 가져오기 시작에서 하고 다이제스트로

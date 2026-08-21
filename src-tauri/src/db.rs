@@ -171,6 +171,25 @@ fn open_conn(db: &Db, path: &str, force: bool) -> Result<Opened, String> {
         let _ = prev.conn.close();
     }
 
+    // ★ 부모 폴더를 만든다 (ADR-024 결정 3 · 2026-08-21) ★
+    //
+    // `Connection::open`은 파일은 만들어도 **폴더는 안 만든다.** 지금까지는 앱이
+    // 여는 자리가 늘 존재하는 프로젝트 폴더라 안 드러났는데, 설치본이 자기
+    // 데이터 폴더(`appDataDir`)를 열게 되면 **첫 실행에는 그 폴더가 없다.**
+    //
+    // 경로를 누가 정하든 「폴더가 없으면 못 연다」는 사실은 같으므로, 이 보정은
+    // 경로 결정과 독립이고 **JS가 어떤 경로를 주든** 성립해야 한다. 그래서 여기다.
+    // 도메인이 아니라 파일시스템 사실이라 「벙어리 실행기」 원칙도 안 깬다.
+    //
+    // 실패를 삼키지 않는다 (LOCK 6) — 못 만들었으면 `Connection::open`이 낼
+    // 오류보다 **여기서 나는 오류가 원인에 가깝다**(권한·읽기전용 볼륨).
+    if let Some(dir) = std::path::Path::new(path).parent() {
+        if !dir.as_os_str().is_empty() {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| format!("{} 폴더를 만들지 못했다: {e}", dir.display()))?;
+        }
+    }
+
     let conn = Connection::open(path).map_err(|e| format!("{path} 열기 실패: {e}"))?;
     guard.issued += 1;
     let lease = guard.issued;
@@ -334,6 +353,30 @@ mod tests {
 
         assert!(second.took_over, "넘겨받고도 말하지 않으면 조용한 정리다");
         assert_ne!(first.lease, second.lease, "번호가 같으면 옛 것이 계속 통한다");
+    }
+
+    /// ★ 조사 2.9 — 설치본의 첫 열기 ★
+    ///
+    /// 새 기계의 앱 데이터 폴더는 **없는 채로 시작한다**. `Connection::open`은
+    /// 파일은 만들어도 폴더는 안 만들므로, 이 보정이 없으면 첫 열기에서 끝난다
+    /// (「이 동작을 마치지 못했습니다」 모달 하나). 없는 폴더를 실제로 지어
+    /// **부러뜨려 확인한다** — 이 시험을 지우고 `create_dir_all`을 빼면 붉어진다.
+    #[test]
+    fn 없는_폴더에도_db를_연다() {
+        let base = std::env::temp_dir().join(format!("fb-adr024-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        // 두 겹이다 — 한 겹만 만들면 되는 구현(`create_dir`)도 통과해 버린다.
+        let path = base.join("깊은").join("자리").join("pnl.sqlite");
+        assert!(!path.parent().unwrap().exists(), "시험 전제: 폴더가 없어야 한다");
+
+        let db = Db::new();
+        // `Opened`에 `Debug`를 달지 않는다 — 시험 편의로 제품 타입을 넓히지 않는다.
+        if let Err(e) = open_conn(&db, path.to_str().unwrap(), false) {
+            panic!("없는 폴더에서 열기가 실패했다: {e}");
+        }
+        assert!(path.exists(), "파일이 안 생겼다 — 폴더는 만들었는데 열지 못한 것이다");
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
