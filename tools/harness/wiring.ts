@@ -59,7 +59,7 @@ const ASSIGNED = /\bvals\.([A-Za-z_$][\w$]*)\s*=[^=]/g
 const CUTS: { name: string; fields: RegExp; why: string }[] = [
   {
     name: "대시보드 3단 — 비교·워터폴·캘린더",
-    fields: /^(comparisons|hasCompare|heroCompare|heroDelta|kpiTip|bridge[A-Z]|cal[A-Z]|calendar|monthCells|yearCells|dowHead|dayTip|showCal|toggleCalView)/,
+    fields: /^(comparisons|heroCompare|heroDelta|kpiTip|bridge[A-Z]|cal[A-Z]|calendar|monthCells|yearCells|dowHead|dayTip|showCal|toggleCalView)/,
     why: "컷 목록 — «8월 실데이터 도착 후». 비교 대상이 DB에 없으면 지어도 렌더되지 않는다 (§21-4 워터폴 이행 시점)",
   },
   {
@@ -99,7 +99,7 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
      * 2026-08-19에도 절반이 이렇게 빠졌다(고정비 표·3층 표·`costTabs`).
      */
     name: "미구현 화면 — 비용 (원가 탭)",
-    fields: /^(cd[A-Z]|cost(Changes|Miss|Rows|Total)|ctCogs|set(CdCost|CdFrom|CdMemo))/,
+    fields: /^(cd[A-Z]|cost(Changes|Miss|Rows|Total)|set(CdCost|CdFrom|CdMemo))/,
     why:
       "컷 목록 — 비용 화면의 **원가 탭**. 원가는 상품 화면에 이미 있으므로 여기에 " +
       "두 번 그리지 않는다(U-3: 같은 일을 하는 자리를 둘 만들면 어느 쪽이 참인지 " +
@@ -107,14 +107,18 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
   },
   {
     /**
-     * ★ 커맨드 팔레트는 **더 이상 컷이 아니다** (2026-08-20 · 감사 A-2-3) ★
-     * `cmd*`·`closeCmd`·`onCmd*`가 배선됐다. 이름과 사유에서 뺀다 — 낡은 선언이
+     * ★ 커맨드 팔레트는 더 이상 컷이 아니다 (2026-08-20 · 감사 A-2-3) ★
+     * `cmd*`·`closeCmd`·`onCmd*`가 배선됐다. 이름과 사유에서 뺐다 — 낡은 선언이
      * 남아 있으면 다음 사람이 «팔레트는 안 만들기로 했구나»로 읽는다.
-     * 정규식에는 남겨 둔다: `openCmd`처럼 **목업에만 있고 우리가 안 쓰는 이름**이
-     * 아직 있고, 그건 여전히 안 만드는 것이 맞다.
+     *
+     * ⚠ **그때 「정규식에는 남겨 둔다 — `openCmd`는 목업에만 있고 우리가 안 쓰는
+     * 이름이다」고 적었는데 그것이 거짓이었다** (2026-08-21에 새 게이트가 잡았다).
+     * `palette.ts:91`이 `vals.openCmd = actions.open`으로 채우고 있고 사이드바의
+     * ⌘K 상자(`Template.tsx:88`)가 그걸 쓴다. **팔레트는 통째로 배선됐다.**
+     * 선언을 절반만 걷으면 나머지 절반이 그대로 썩는다 — 그 자리를 이제 기계가 문다.
      */
     name: "미구현 화면 — 설정·라이선스",
-    fields: /^(lic[A-Z]|setLicKey|ss[A-Z]|creds|genRows|adjRows|askReset|setSections|confirmType|setConfirmType|cmd[A-Z]|openCmd|closeCmd|onCmd[A-Z]|modal|modalOpen|closeModal|detail|hasDetail|closeDetail|closeQuadFull)/,
+    fields: /^(lic[A-Z]|setLicKey|ss[A-Z]|creds|genRows|adjRows|askReset|setSections|confirmType|setConfirmType|modal|modalOpen|closeModal|detail|hasDetail|closeDetail|closeQuadFull)/,
     why: "컷 목록 — 설정 화면. 배포 단계 일이다 (커맨드 팔레트는 2026-08-20에 배선됐다)",
   },
   {
@@ -141,7 +145,7 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
      * `exp[A-Z]`가 「표 필터」 컷에 접혀 있던 것과 같은 병이다.
      */
     name: "헤더 부가 — 배지·표시 메뉴",
-    fields: /^(attn[A-Z]|toggleAttn|disp[A-Z]|toggleDisp|closeDisp|[a-z]+Badge|pendingCount|unmappedCount|catItems)/,
+    fields: /^(attn[A-Z]|toggleAttn|disp[A-Z]|toggleDisp|closeDisp|(?!fm)[a-z]+Badge|pendingCount|unmappedCount|catItems)/,
     why: "MVP 세 동작에 없다. 배지는 «지금 몇 건»을 세는 조회가 화면마다 더 필요해 값보다 비용이 크다",
   },
   {
@@ -183,12 +187,12 @@ const CUTS: { name: string; fields: RegExp; why: string }[] = [
   },
   {
     name: "가져오기 — URL·직접 입력 경로",
-    fields: /^(fetchUrl|url[A-Z]|setUrl|man[A-Z]|clearImpChannel)/,
+    fields: /^(fetchUrl|url(?!Imported)[A-Z]|setUrl|man[A-Z]|clearImpChannel)/,
     why: "ADR-013 — 파일은 웹 표준 `<input type=file>`로 받는다. URL·수동 입력은 IPC 표면을 늘리므로 MVP 후",
   },
   {
     name: "이벤트 유틸 · 첫 실행 토글",
-    fields: /^(stopEvt|closeMenus|stop|js|firstRunLabel|toggleFirstRun|goFieldmap|hero(Bg|Color|Icon)|heroBasisGo|pnlCaption)/,
+    fields: /^(closeMenus|js|firstRunLabel|toggleFirstRun|hero(Bg|Color|Icon)|heroBasisGo|pnlCaption)/,
     why: "표시용 상수이거나 목업의 데모 토글이다. 값을 넣어도 화면이 달라지지 않는다",
   },
 ]
@@ -217,8 +221,28 @@ export interface WiringReport {
   readonly allUnwired: readonly string[]
   /** ★ 게이트가 지키는 수 — 선언되지 않은 미배선. */
   readonly allTodo: readonly string[]
-  /** 선언 이름 → 그 선언이 덮은 필드 수. 낡은 선언(0건)은 게이트가 잡는다. */
+  /** 선언 이름 → 그 선언이 덮은 **미배선** 필드 수. 통째로 낡은 선언(0건)을 잡는다. */
   readonly cutHits: Readonly<Record<string, number>>
+  /**
+   * ★ 선언 이름 → 그 선언이 덮는 **이미 배선된** 필드들 (2026-08-21) ★
+   *
+   * 컷은 「안 만들기로 한 것」이다. 그러니 **배선된 필드를 덮는 컷 선언은 그 자체로
+   * 거짓**이다 — 만들어 놓고 「안 만든다」고 적어 둔 상태다.
+   *
+   * ★ 왜 `cutHits === 0`으로는 부족했나 ★ 그건 **그룹이 통째로** 낡아야 잡는다.
+   * 오늘(2026-08-21) 「미구현 화면 — 비용 (광고비 탭·원가 탭)」은 원가 탭 필드
+   * 11개를 여전히 덮고 있어 `cutHits = 11`이었고, 그 사이 **광고비 탭은 배선됐는데도**
+   * 게이트가 조용했다. 한 그룹 안에서 **일부만 낡는 것**이 이 저장소가 반복해 겪은
+   * 모양이다 — 오늘로 **세 번째**다:
+   *
+   *   `exp[A-Z]`        → 「표 필터」 컷에 접혀 있었다 (2026-08-20 발견)
+   *   `toggleHeadMore`  → 「배지」 컷에 접혀 있었다     (같은 날)
+   *   `ad*` · `ctAd`    → 「미구현 화면 — 비용」 컷에   (2026-08-21)
+   *
+   * 세 번이면 우연이 아니라 구조다. 산문으로 「컷 선언이 낡는 것이 이 저장소가
+   * 반복해 겪은 병이다」라고 세 번 적는 대신 기계가 한 번 물게 한다.
+   */
+  readonly cutStale: Readonly<Record<string, readonly string[]>>
 }
 
 /** 배선 파일 전부에서 «채워지는 필드»를 모은다. */
@@ -285,18 +309,29 @@ export function wiringReport(): WiringReport {
   const allConsumed = [...seenAll].sort()
   const allUnwired = allConsumed.filter((f) => !wired.has(f))
   const cutHits: Record<string, number> = {}
-  for (const c of CUTS) cutHits[c.name] = 0
+  const cutStale: Record<string, string[]> = {}
+  for (const c of CUTS) {
+    cutHits[c.name] = 0
+    cutStale[c.name] = []
+  }
   for (const f of allUnwired) {
     const c = cutOf(f)
     if (c !== null) cutHits[c] = (cutHits[c] ?? 0) + 1
   }
+  const allWired = allConsumed.filter((f) => wired.has(f))
+  // 배선된 것을 덮는 컷 = 만들어 놓고 「안 만든다」고 적어 둔 선언. 위 주석 참조.
+  for (const f of allWired) {
+    const c = cutOf(f)
+    if (c !== null) cutStale[c]!.push(f)
+  }
   return {
     screens,
     allConsumed,
-    allWired: allConsumed.filter((f) => wired.has(f)),
+    allWired,
     allUnwired,
     allTodo: allUnwired.filter((f) => cutOf(f) === null),
     cutHits,
+    cutStale,
   }
 }
 
@@ -344,6 +379,17 @@ export function formatReport(r: WiringReport): string {
   out.push("")
   out.push("선언된 컷 — 세되 «남은 일»로 세지 않는다")
   for (const c of CUTS) out.push(`  ${String(r.cutHits[c.name] ?? 0).padStart(3)}  ${c.name}`)
+
+  const stale = Object.entries(r.cutStale).filter(([, fs]) => fs.length > 0)
+  if (stale.length > 0) {
+    out.push("")
+    out.push("✖ 낡은 컷 선언 — **배선된 것을 「안 만든다」고 적어 두었다**")
+    for (const [name, fs] of stale) {
+      out.push(`  ${name}`)
+      out.push(`     ${fs.join(" · ")}`)
+    }
+    out.push("  → 그 필드를 정규식에서 빼고, 선언문이 아직 참인지 다시 읽어라")
+  }
   return out.join("\n")
 }
 
