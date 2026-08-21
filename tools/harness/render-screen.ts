@@ -166,6 +166,19 @@ const withHistory = async (kind: "FIXED" | "OPS") =>
 const costs: CostsView = {
   fixed: await withHistory("FIXED"),
   ops: await withHistory("OPS"),
+  // 광고 캠페인도 실제로 읽는다 — 안 먹이면 이 도구로 본 광고비 탭이 영영 빈 화면이다.
+  ads: (await repo.adCampaigns("lib-1", PERIOD)).map((r) => ({
+    channel: String(r["channel"] ?? ""),
+    name: String(r["name"] ?? ""),
+    type: String(r["type"] ?? ""),
+    spend: Number(r["spend"] ?? 0),
+    clicks: Number(r["clicks"] ?? 0),
+    convRev: Number(r["conv_rev"] ?? 0),
+    direct: Number(r["direct"] ?? 0),
+    noKey: Number(r["no_key"] ?? 0),
+    noListing: Number(r["no_listing"] ?? 0),
+    noLink: Number(r["no_link"] ?? 0),
+  })),
   stance: {
     fixed: await repo.overheadStance("lib-1", "FIXED"),
     ops: await repo.overheadStance("lib-1", "OPS"),
@@ -179,8 +192,13 @@ const rowsPage = rowsHit
   ? await repo.batchRows(rowsHit.id, rowsTable as FactTable, ROWS_PER_PAGE, 0)
   : null
 
-await db.close()
-
+/**
+ * ★ 여기서 DB를 닫지 않는다 (2026-08-21) ★
+ * 닫혀 있었고, 그 아래 «보는 범위» 블록이 같은 DB로 `activeCollection`을 부른다 —
+ * 이 도구는 **어떤 화면도 못 그리는 상태**였다(`ERR_INVALID_STATE: database is not
+ * open`). 조회를 전부 마친 뒤로 옮긴다. 「DB가 닫히기 전에 읽어 둔다」는 위 주석의
+ * 규율은 그대로 유효하고, 닫는 자리만 뒤로 간다.
+ */
 const noop = (): void => {}
 const vals = shellVals(shellStateFor(false), {
   go: noop, toggleNav: noop, closeNav: noop, openNav: noop, goImport: noop, toggleTheme: noop,
@@ -262,7 +280,14 @@ if (rowsHit && rowsPage) {
 
 productVals(vals, products, "list", new Map(), PERIOD.to, undefined, PERIOD)
 // 초안은 비어 있다 — 상호작용은 이 층이 증명하지 못한다. 적용일도 고정한다.
-costsVals(vals, costs, snap.pnl, emptyCostsDraft(PERIOD.to))
+/**
+ * 비용 화면의 **탭**을 인자로 고를 수 있게 한다 — `render-screen.ts costs .tmp/pnl.sqlite ad`.
+ * 기본이 운영·고정비라, 이 도구로는 광고비 탭을 영영 못 본다(2026-08-21).
+ */
+costsVals(vals, costs, snap.pnl, {
+  ...emptyCostsDraft(PERIOD.to),
+  tab: STATE === "ad" ? "ad" : "ops",
+})
 // 선택은 상호작용이라 SSR에서는 첫 양식이다 (B1 배선 — 2026-08-19)
 fieldmapVals(vals, fieldmap, null)
 vals.firstRun = false
@@ -276,6 +301,9 @@ const css = embedFonts(
 )
 
 const out = `.tmp/${VIEW}.html`
+// 조회가 전부 끝난 뒤 닫는다 — 위 «이른 close» 주석 참조.
+await db.close()
+
 writeFileSync(
   out,
   `<!doctype html>

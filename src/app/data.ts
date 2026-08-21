@@ -435,6 +435,22 @@ export async function loadDevSnapshot(want?: Month): Promise<LoadResult> {
       const costs: CostsView = {
         fixed: await withHistory("FIXED"),
         ops: await withHistory("OPS"),
+        /**
+         * 광고 캠페인 — 8만 행이 **캠페인 8줄**로 접혀 온다 (LOCK 5: 집계는 SQL에).
+         * 금액은 원 단위 수 그대로 넘긴다. 포맷은 `costs.ts`가 한다.
+         */
+        ads: (await repo.adCampaigns(DEV_LIBRARY, period)).map((r) => ({
+          channel: String(r["channel"] ?? ""),
+          name: String(r["name"] ?? ""),
+          type: String(r["type"] ?? ""),
+          spend: Number(r["spend"] ?? 0),
+          clicks: Number(r["clicks"] ?? 0),
+          convRev: Number(r["conv_rev"] ?? 0),
+          direct: Number(r["direct"] ?? 0),
+          noKey: Number(r["no_key"] ?? 0),
+          noListing: Number(r["no_listing"] ?? 0),
+          noLink: Number(r["no_link"] ?? 0),
+        })),
         stance: {
           fixed: await repo.overheadStance(DEV_LIBRARY, "FIXED"),
           ops: await repo.overheadStance(DEV_LIBRARY, "OPS"),

@@ -910,6 +910,13 @@ export function App(): React.JSX.Element {
 
     toggleOpsNone: () => putStance("OPS", costs?.stance.ops ?? null, null),
     setOpsNoneReason: (reason) => putStance("OPS", costs?.stance.ops ?? null, reason),
+
+    /**
+     * 탭 전환 — **잠금을 묻지 않는다.** 읽기라 잃을 것이 없고, 여기에 「지금은
+     * 바쁩니다」를 띄우면 적재 중에 화면을 훑을 때마다 말이 튄다. `pickMonth`에서
+     * 세운 판단 그대로다 (A-4-2에서 「침묵이 옳은 자리는 선언한다」로 닫은 것).
+     */
+    pickTab: (t) => patchCosts({ tab: t }),
   }
 
   // ── 정산 조정 (ADR-020) ─────────────────────────────────────────

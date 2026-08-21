@@ -24,6 +24,7 @@ import {
   layerRows,
   parseAmount,
   saveGuard,
+  type AdCampaign,
   type CostsDraft,
   type CostsView,
 } from "../src/app/costs.js"
@@ -50,6 +51,7 @@ const pnlOf = (o: Partial<Parameters<typeof computePnl>[0]> = {}): Pnl =>
 const view = (o: Partial<CostsView> = {}): CostsView => ({
   fixed: [],
   ops: [],
+  ads: [],
   stance: { fixed: null, ops: null },
   ...o,
 })
@@ -222,12 +224,106 @@ describe("손익 3층 표 — 화면이 스스로를 반박하지 않는다", ()
 })
 
 describe("탭 — 없는 것을 그리지 않는다", () => {
-  it("★ 배선된 탭 하나만 둔다 — 눌러서 빈 화면이 나오는 것보다 낫다 ★", () => {
+  const labels = (v: { costTabs: readonly unknown[] }): string[] =>
+    v.costTabs.map((t) => (t as { label: string }).label)
+
+  /**
+   * ★ 규칙은 「하나만」이 아니라 「**배선된 것만**」이다 (2026-08-21) ★
+   *
+   * 이 시험은 원래 `toHaveLength(1)`이었다. 그때는 배선된 탭이 정말 하나였기
+   * 때문인데, 광고비 탭이 서면서 그 숫자가 **규칙이 아니라 그날의 사실**이었음이
+   * 드러났다. 숫자를 2로 고치면 다음에 또 낡으므로, 무는 자리를 옮긴다:
+   * **원가 탭은 여전히 없어야 한다**(상품 화면이 가져갔다).
+   */
+  it("★ 배선된 탭만 둔다 — 눌러서 빈 화면이 나오는 것보다 낫다 ★", () => {
     const v = render(view(), pnlOf())
-    expect(v.costTabs).toHaveLength(1)
-    expect((v.costTabs[0] as { label: string }).label).toBe("운영·고정비")
+    expect(labels(v)).toEqual(["광고비", "운영·고정비"])
+    expect(labels(v), "원가는 상품 화면이 가져갔다 — 여기 그리면 빈 탭이다").not.toContain("원가")
+    expect(v.ctCogs, "그리지 않는 탭의 몸체가 켜져 있으면 안 된다").toBe(false)
+  })
+
+  it("기본은 운영·고정비다 — 광고를 안 하는 셀러에게 광고비가 첫 화면이면 안 된다", () => {
+    const v = render(view(), pnlOf())
     expect(v.ctOps).toBe(true)
-    expect(v.ctCogs).toBe(false)
     expect(v.ctAd).toBe(false)
+  })
+
+  it("★ 몸체는 언제나 정확히 하나만 켜진다 — 둘이 켜지면 화면이 겹친다 ★", () => {
+    for (const tab of ["ad", "ops"] as const) {
+      const v = render(view({ ads: [] }), pnlOf(), { ...emptyCostsDraft("2026-07-31"), tab })
+      const on = [v.ctCogs, v.ctAd, v.ctOps].filter(Boolean).length
+      expect(on, `tab=${tab}에서 켜진 몸체가 ${on}개다`).toBe(1)
+    }
+  })
+})
+
+describe("★ 광고비 탭 — 숫자는 014부터 있었고 보여주는 자리만 없었다 (2.6) ★", () => {
+  const camp = (o: Partial<AdCampaign> = {}): AdCampaign => ({
+    channel: "쿠팡",
+    name: "맥세이프 셀카봉",
+    type: "GROWTH",
+    spend: 1_000_000,
+    clicks: 1_000,
+    convRev: 4_000_000,
+    direct: 1_000_000,
+    noKey: 0,
+    noListing: 0,
+    noLink: 0,
+    ...o,
+  })
+  const ad = (ads: AdCampaign[], d = { ...emptyCostsDraft("2026-07-31"), tab: "ad" as const }) =>
+    render(view({ ads }), pnlOf(), d)
+  const row = (v: ReturnType<typeof ad>, i = 0) =>
+    v.adRows[i] as Record<string, string>
+
+  it("KPI는 표와 **같은 행 집합**에서 나온다 — 갈리면 어느 쪽이 참인지 알 수 없다", () => {
+    const v = ad([camp({ spend: 700, direct: 500 }), camp({ spend: 300, direct: 0, noLink: 300 })])
+    expect(v.adTotal).toBe("1,000원")
+    expect(v.adCount).toBe("2")
+    expect(v.adAlloc).toBe("500원")
+    // 미배분은 **뺄셈**이다 — 세 갈래를 더해 만들면 하나를 빠뜨렸을 때 조용히 줄어든다
+    expect(v.adUnalloc).toBe("500원")
+  })
+
+  it("★ 전환매출이 없는 캠페인은 ROAS 분모에서 빠진다 — 넣으면 조용히 낮아진다 ★", () => {
+    const v = ad([
+      camp({ spend: 1_000, convRev: 4_000 }),
+      camp({ spend: 1_000, convRev: 0 }),
+    ])
+    // 4,000 / 1,000 = 4.00x. 분모에 전환매출 없는 1,000을 더하면 2.00x가 된다.
+    expect(v.adRoas).toBe("4.00x")
+    expect(row(v, 1).roas, "잴 수 없는 것을 0으로 그리면 안 된다 (LOCK 6)").toBe("—")
+    expect(row(v, 1).convRev).toBe("—")
+  })
+
+  it("잴 수 있는 캠페인이 하나도 없으면 «—»다 — «ROAS 0»이라 말하지 않는다", () => {
+    expect(ad([camp({ convRev: 0 })]).adRoas).toBe("—")
+    expect(ad([]).adRoas).toBe("—")
+  })
+
+  it("★ 저장 코드를 화면에 그대로 쓰지 않는다 (U-5) ★", () => {
+    expect(row(ad([camp()])).type).toBe("매출성장")
+    // 모르는 코드는 **지어내지 않고 원문 그대로** — 「기타」로 뭉개면 파일에서 못 찾는다 (U-7)
+    expect(row(ad([camp({ type: "NEW_KIND" })])).type).toBe("NEW_KIND")
+  })
+
+  it("★★ 「배분 규칙」 칸은 고르는 자리가 아니라 **할 일을 말하는 자리**다 (ADR-022) ★★", () => {
+    // 갈래마다 사용자가 할 일이 완전히 다르다. 한 덩어리로 «미배분»만 보이면 할 일을 모른다.
+    expect(row(ad([camp({ spend: 100, direct: 100 })])).rule).toContain("상품에 배분됨")
+    expect(row(ad([camp({ spend: 100, direct: 0, noLink: 100 })])).rule).toContain("상품 연결하면 붙는다")
+    expect(row(ad([camp({ spend: 100, direct: 0, noListing: 100 })])).rule).toContain("주문 파일이 없다")
+    expect(row(ad([camp({ spend: 100, direct: 0, noKey: 100 })])).rule).toContain("파일이 상품을 안 말한다")
+  })
+
+  it("섞여 있으면 **가장 큰 갈래와 그 비율**을 말한다 — 네 갈래를 다 적으면 칸이 문단이 된다", () => {
+    const r = row(ad([camp({ spend: 100, direct: 30, noLink: 70 })]))
+    expect(r.rule).toContain("상품 연결하면 붙는다")
+    expect(r.rule).toContain("70")
+  })
+
+  it("★ 광고가 없으면 광고비 탭을 **고를 수 없다** — 빈 탭을 그려 놓지 않는다 ★", () => {
+    const v = render(view({ ads: [] }), pnlOf())
+    expect(v.ctAd).toBe(false)
+    expect(v.ctOps).toBe(true)
   })
 })

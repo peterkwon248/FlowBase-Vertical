@@ -45,6 +45,7 @@ const pnlOf = (o: Partial<Pnl> = {}): Pnl =>
 const view = (o: Partial<CostsView> = {}): CostsView => ({
   fixed: [],
   ops: [],
+  ads: [],
   stance: { fixed: null, ops: null },
   ...o,
 })

@@ -3468,13 +3468,9 @@ export function Template({ vals }: { vals: TemplateVals }): React.JSX.Element {
                                         {a.roas}
                                       </td>
                                       <td className="db-td" style={{ whiteSpace: "nowrap" }}>
-                                        <select className="v-input" style={{ height: "26px", padding: "0 6px", fontSize: "11px", minWidth: "132px" }} value={a.rule} onChange={a.setRule}>
-                                          {a.opts.map((o: any, $index: number) => (
-                                              <option key={$index} value={o.v}>
-                                                {o.label}
-                                              </option>
-                                          ))}
-                                        </select>
+                                        <span data-s21="ad-rule" style={{ font: "var(--fw-medium) 11px var(--font-sans)", color: a.ruleColor }}>
+                                          {a.rule}
+                                        </span>
                                       </td>
                                     </tr>
                                 ))}

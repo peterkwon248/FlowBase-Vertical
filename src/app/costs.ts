@@ -46,9 +46,30 @@ export interface OverheadItem {
   readonly historyCount: number
 }
 
+/**
+ * 광고 캠페인 한 줄. 금액은 **원 단위 수**로 온다 — 포맷은 이 파일이 한다.
+ *
+ * `direct`·`noKey`·`noListing`·`noLink`는 ADR-022의 배분 3갈래(+직접)이고
+ * 넷의 합이 `spend`와 같다. 「배분 규칙」 칸이 이 넷을 문장으로 바꾼다.
+ */
+export interface AdCampaign {
+  readonly channel: string
+  readonly name: string
+  readonly type: string
+  readonly spend: number
+  readonly clicks: number
+  readonly convRev: number
+  readonly direct: number
+  readonly noKey: number
+  readonly noListing: number
+  readonly noLink: number
+}
+
 export interface CostsView {
   readonly fixed: readonly OverheadItem[]
   readonly ops: readonly OverheadItem[]
+  /** 이 기간의 광고 캠페인. **빈 배열과 «광고를 안 한다»는 다르다** (§22). */
+  readonly ads: readonly AdCampaign[]
   /**
    * 「두지 않습니다」 선언. **행이 없으면 미선언**이고, 그때만 앱이 묻는다 —
    * `null`과 `{stance:"none"}`은 다른 것이다 (§22 «부재는 boolean이 아니다»).
@@ -89,6 +110,12 @@ export interface CostsDraft {
    * 운영비는 사람이 골라야 한다: 택배비는 주문당, 포장재는 개당이다.
    */
   readonly opsNewBasis: "ORDER" | "UNIT"
+
+  /**
+   * 지금 보고 있는 탭. **초안에 둔다** — 화면 상태이지 저장할 값이 아니고,
+   * 달을 바꿔도(=view가 새로 와도) 보던 탭이 유지돼야 하기 때문이다.
+   */
+  readonly tab: "ad" | "ops"
 }
 
 export const emptyCostsDraft = (today: string): CostsDraft => ({
@@ -102,6 +129,8 @@ export const emptyCostsDraft = (today: string): CostsDraft => ({
   opsNewAmount: "",
   // 기본을 「주문당」으로 둔다 — 실물에서 가장 흔한 운영비가 택배비다.
   opsNewBasis: "ORDER",
+  // 기본은 운영·고정비 — 광고를 안 하는 셀러에게 광고비가 첫 화면이면 안 된다.
+  tab: "ops",
 })
 
 export interface CostsActions {
@@ -125,6 +154,8 @@ export interface CostsActions {
   readonly opsSave: () => void
   readonly opsAdd: () => void
   readonly toggleOpsNone: () => void
+  /** 탭 전환. 읽기라 잠금을 묻지 않는다 — `pickMonth`와 같은 판단이다. */
+  readonly pickTab: (t: "ad" | "ops") => void
   readonly setOpsNoneReason: (reason: string) => void
 }
 
@@ -146,6 +177,7 @@ const NOOP: CostsActions = {
   opsAdd: () => {},
   toggleOpsNone: () => {},
   setOpsNoneReason: () => {},
+  pickTab: () => {},
 }
 
 /** 쉼표·공백·「원」을 걷어낸다. `parseCostDraft`와 같은 관용이다. */
@@ -196,6 +228,105 @@ export function addGuard(
 /** `MONTH|ORDER|UNIT` → 사람 말. 운영비 표의 「주문당」 칸이 이걸 쓴다. */
 const BASIS_NOTE: Record<string, string> = { MONTH: "월", ORDER: "주문당", UNIT: "개당" }
 
+/** 채널 줄의 색 점. **구분색이지 의미색이 아니라** 순서대로 돌린다 (§21-4 · dashboard와 같은 판) */
+const CH_COLORS = ["#4C8DFF", "#4CB782", "#BB6BD9", "#F2994A", "#E879B9", "#F2C94C"] as const
+
+/**
+ * 저장 코드 → 화면 말. **`GROWTH`를 그대로 그리지 않는다** (U-5: 저장 분류가
+ * 화면의 언어를 지배하면 안 된다). 모르는 코드는 지어내지 않고 **원문 그대로**
+ * 보인다 — 「기타」로 뭉개면 사용자가 파일에서 그 캠페인을 다시 못 찾는다 (U-7).
+ */
+const AD_TYPE_LABEL: Record<string, string> = { GROWTH: "매출성장", MANUAL: "수동", AUTO: "자동" }
+
+/**
+ * ★ 「배분 규칙」 칸 — 고르는 자리가 아니라 **말하는 자리**다 ★
+ *
+ * 목업은 여기에 `<select>`를 그렸다. 그런데 ADR-022가 **「배분 규칙을 발명하지
+ * 않는다」**로 닫았다 — 배분은 파일의 「광고집행 옵션ID」가 이미 말하고 있고,
+ * 안분이나 전환매출 비율로 나누면 **비용의 임자가 바뀐다**(A 광고를 보고 B를
+ * 샀다고 B가 A의 광고비를 지는 게 아니다).
+ *
+ * 고를 것이 없는 select는 «못 누르는데 그려진 것»이라 U-3 위반이다. 그래서 이
+ * 칸은 **그 캠페인의 돈이 지금 어디 있는지와 무엇을 하면 상품에 붙는지**를
+ * 말한다. ADR-022가 미배분을 세 갈래로 센 이유가 정확히 그것이다 — 갈래마다
+ * 사용자가 할 일이 다르다.
+ */
+function ruleNote(a: AdCampaign): { text: string; tone: string } {
+  if (a.spend === 0) return { text: "—", tone: DIM }
+  // 섞여 있으면 **가장 큰 갈래**를 말한다. 한 캠페인이 여러 옵션을 파는 것이 정상이고,
+  // 네 갈래를 다 적으면 칸이 문단이 된다.
+  const parts = [
+    { k: "direct", v: a.direct },
+    { k: "noLink", v: a.noLink },
+    { k: "noListing", v: a.noListing },
+    { k: "noKey", v: a.noKey },
+  ].sort((x, y) => y.v - x.v)
+  const top = parts[0]!
+  const mixed = a.spend - top.v > 0 ? ` (${pct(top.v, a.spend)})` : ""
+  switch (top.k) {
+    case "direct":
+      return { text: `상품에 배분됨${mixed}`, tone: G }
+    case "noLink":
+      // 실측에서 이 갈래가 압도적이었다 — 「막힌 것」이 아니라 **한 동작 남은 것**이다.
+      return { text: `상품 연결하면 붙는다${mixed}`, tone: "var(--label-orange, #F2994A)" }
+    case "noListing":
+      return { text: `그 기간 주문 파일이 없다${mixed}`, tone: DIM }
+    default:
+      return { text: `파일이 상품을 안 말한다${mixed}`, tone: DIM }
+  }
+}
+
+/**
+ * 광고비 탭의 값. **새 조회는 캠페인 표 하나뿐이다** — KPI 넷은 손익 스냅샷의
+ * `adSplit`이 이미 세어 둔 것과 같은 규칙이라 여기서 다시 더한다.
+ *
+ * ★ 왜 `pnl`을 안 쓰고 `ads`에서 다시 더하나 ★ 표와 KPI가 **같은 행 집합**에서
+ * 나와야 「합이 안 맞는다」가 안 생긴다. 스냅샷은 기간·범위가 같아도 다른
+ * 경로로 오므로, 둘이 갈리는 날 사용자는 어느 쪽이 참인지 알 수 없다.
+ */
+function adVals(vals: TemplateVals, ads: readonly AdCampaign[]): void {
+  const sum = (f: (a: AdCampaign) => number): number => ads.reduce((s, a) => s + f(a), 0)
+  const total = sum((a) => a.spend)
+  const alloc = sum((a) => a.direct)
+
+  vals.adTotal = `${won(total)}원`
+  vals.adCount = String(ads.length)
+  vals.adAlloc = `${won(alloc)}원`
+  vals.adUnalloc = `${won(total - alloc)}원`
+
+  /**
+   * ROAS는 **전환매출이 있는 캠페인만**으로 낸다. 목업 부제가 「신규구매 캠페인
+   * 제외」인데, 판정을 캠페인 «유형»이 아니라 **데이터 유무**로 한다 — 유형
+   * 이름은 마켓마다 다르지만 「전환매출이 안 왔다」는 어디서나 같다 (LOCK 4).
+   * 전환매출 0인 캠페인의 광고비를 분모에 넣으면 ROAS가 조용히 낮아진다.
+   */
+  const conv = ads.filter((a) => a.convRev > 0)
+  const convRev = conv.reduce((s, a) => s + a.convRev, 0)
+  const convSpend = conv.reduce((s, a) => s + a.spend, 0)
+  // 0을 그리지 않는다 — 「ROAS 0」과 「잴 수 없다」는 다르다 (LOCK 6 · U-7).
+  vals.adRoas = convSpend > 0 ? `${(convRev / convSpend).toFixed(2)}x` : "—"
+
+  const channels = [...new Set(ads.map((a) => a.channel))]
+  vals.adRows = ads.map((a) => {
+    const rule = ruleNote(a)
+    return {
+      name: a.name,
+      ch: a.channel,
+      color: CH_COLORS[channels.indexOf(a.channel) % CH_COLORS.length],
+      type: AD_TYPE_LABEL[a.type] ?? a.type,
+      typeColor: DIM,
+      spend: `${won(a.spend)}원`,
+      clicks: a.clicks.toLocaleString(),
+      convRev: a.convRev > 0 ? `${won(a.convRev)}원` : "—",
+      // 전환매출이 없으면 ROAS 칸도 «—»다. 목업 각주가 그렇게 약속했다.
+      roas: a.convRev > 0 && a.spend > 0 ? `${(a.convRev / a.spend).toFixed(2)}x` : "—",
+      roasColor: a.convRev > a.spend ? G : a.convRev > 0 ? "var(--fg-2)" : DIM,
+      rule: rule.text,
+      ruleColor: rule.tone,
+    }
+  })
+}
+
 /** 「두지 않는다」의 이유 코드 → 화면 문장. core의 코드값을 그대로 내보내지 않는다. */
 export const NONE_REASON_LABEL: Record<string, string> = {
   "in-cogs": "원가에 이미 포함돼 있습니다",
@@ -210,16 +341,25 @@ export function costsVals(
   act: CostsActions = NOOP,
 ): void {
   /**
-   * ★ 탭이 하나다 ★
-   * 목업은 셋(원가·광고비·운영·고정비)을 그렸지만 배선된 것은 하나다. 없는 탭을
-   * 그려 놓고 누르면 빈 화면이 나오는 것보다 **하나만 두는 편이 정직하다** —
-   * 가져오기 위저드의 출처 탭(파일·URL·직접 입력 → 파일 하나)에서 세운 규율 그대로다.
-   * 원가는 상품 화면에, 광고비는 아직 화면이 없다.
+   * ★ 탭이 둘이다 (2026-08-21) ★
+   * 목업은 셋(원가·광고비·운영·고정비)을 그렸다. 원가는 상품 화면이 가져갔으므로
+   * 여기 남는 것은 **광고비와 운영·고정비 둘**이다. 없는 탭을 그려 놓고 누르면 빈
+   * 화면이 나오는 것보다 있는 것만 두는 편이 정직하다 (U-3).
+   *
+   * 광고비 탭이 여태 없던 사유는 「배분할 재료가 없다」였는데 **014가 그것을
+   * 무효로 만들었다** — `listing_key`가 열려 광고비가 상품까지 내려간다(ADR-022).
+   * `wiring.ts`가 그 사실을 스스로 적어 두고도 탭은 안 만든 상태로 남아 있었다.
    */
-  vals.costTabs = [{ label: "운영·고정비", on: "active", pick: () => {} }]
+  const tab = view.ads.length > 0 || draft.tab === "ad" ? draft.tab : "ops"
+  vals.costTabs = [
+    { label: "광고비", on: tab === "ad" ? "active" : "", pick: () => act.pickTab("ad") },
+    { label: "운영·고정비", on: tab === "ops" ? "active" : "", pick: () => act.pickTab("ops") },
+  ]
   vals.ctCogs = false
-  vals.ctAd = false
-  vals.ctOps = true
+  vals.ctAd = tab === "ad"
+  vals.ctOps = tab === "ops"
+
+  adVals(vals, view.ads)
 
   // ── 고정비 표 (목업 그대로) ──────────────────────────────────────
   vals.fixRows = view.fixed.map((f) => ({

@@ -2326,6 +2326,58 @@ export class Repository {
     return { all: Number(all?.["s"] ?? 0), inScope: Number(inScope?.["s"] ?? 0) }
   }
 
+  /**
+   * 광고 캠페인 한 줄 = 한 캠페인. 광고비 탭의 표가 쓴다.
+   *
+   * ★ 왜 캠페인으로 접는가 ★ `fact_ad_spend`는 **일자 × 캠페인**이라 실측에서
+   * 80,137행인데 고유 캠페인은 **8개**다. 8만 행을 화면에 흘리면 아무도 못 읽고
+   * LOCK 5(집계는 SQL에 위임)에도 어긋난다.
+   *
+   * ★ 배분 3갈래를 여기서도 센다 ★ `snapshot.ts`의 `adSplit`과 **같은 규칙**을
+   * 캠페인 단위로 되풀이한다 (ADR-022). 총계만 세 갈래로 알면 사용자는 「어느
+   * 캠페인을 손보면 되나」를 모른다 — 처방이 캠페인마다 다르기 때문이다.
+   * 조인에 `link_state`를 걸지 않는 이유도 그쪽과 같다: 걸면 미연결이
+   * 「리스팅 자체가 없다」로 세어져 처방이 뒤바뀐다.
+   *
+   * `campaign_key`만으로 묶지 않고 **연결과 함께** 묶는다 — 다른 마켓이 같은
+   * 캠페인 키를 쓰면 두 채널의 돈이 한 줄로 합쳐진다.
+   */
+  async adCampaigns(
+    libraryId: string,
+    period: { from: string; to: string },
+  ): Promise<readonly Row[]> {
+    return this.db
+      .prepare(
+        `SELECT a.connection_id                    AS connection_id,
+                COALESCE(c.display_name, a.connection_id) AS channel,
+                a.campaign_key                     AS campaign_key,
+                MAX(a.campaign_name)               AS name,
+                MAX(a.campaign_type)               AS type,
+                COALESCE(SUM(a.spend_amount),0)    AS spend,
+                COALESCE(SUM(a.clicks),0)          AS clicks,
+                COALESCE(SUM(a.conversion_amount),0) AS conv_rev,
+                COALESCE(SUM(CASE WHEN ml.link_state = 'linked' AND ml.sku_id IS NOT NULL
+                                  THEN a.spend_amount ELSE 0 END),0) AS direct,
+                COALESCE(SUM(CASE WHEN a.listing_key IS NULL
+                                  THEN a.spend_amount ELSE 0 END),0) AS no_key,
+                COALESCE(SUM(CASE WHEN a.listing_key IS NOT NULL AND ml.id IS NULL
+                                  THEN a.spend_amount ELSE 0 END),0) AS no_listing,
+                COALESCE(SUM(CASE WHEN ml.id IS NOT NULL
+                                   AND NOT (ml.link_state = 'linked' AND ml.sku_id IS NOT NULL)
+                                  THEN a.spend_amount ELSE 0 END),0) AS no_link
+           FROM active_ad_spend a
+           LEFT JOIN marketplace_listing ml
+                  ON ml.connection_id = a.connection_id
+                 AND ml.listing_key = a.listing_key
+           LEFT JOIN connection c ON c.id = a.connection_id
+          WHERE a.library_id = ?
+            AND a.spent_on >= ? AND a.spent_on < date(?, '+1 day')
+          GROUP BY a.connection_id, a.campaign_key
+          ORDER BY spend DESC`,
+      )
+      .all(libraryId, period.from, period.to)
+  }
+
   /** 묶음 변경 이력 — append-only. 최신이 먼저 온다. */
   async collectionEvents(libraryId: string, limit = 200): Promise<readonly Row[]> {
     return this.db
