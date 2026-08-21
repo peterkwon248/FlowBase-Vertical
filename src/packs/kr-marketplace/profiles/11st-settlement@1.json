@@ -90,14 +90,13 @@
       "source": "정산금액",
       "kind": "number",
       "default": 0,
-      "signPolicy": "magnitude",
       "note": "실측 항등식(128/128행 일치): 정산금액 = 판매금액합계 + 추가정산금액합계 − 공제금액합계. 2026-07 합계 3,838,398 = 4,969,100 + 0 − 1,130,702."
     }
   ],
 
   "validationRules": [
     { "kind": "required", "fields": ["order_source_key", "settled_on"] },
-    { "kind": "nonNegative", "fields": ["gross_amount", "fee_amount", "net_amount"] },
+    { "kind": "nonNegative", "fields": ["gross_amount", "fee_amount"] },
     { "kind": "parseRate", "min": 0.99 }
   ],
 

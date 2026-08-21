@@ -172,6 +172,36 @@ export function validateProfile(p: MappingProfile): readonly ProfileDefect[] {
     })
   }
 
+  /**
+   * ★ 부호 선언 충돌 — **프로파일이 타깃 사전을 못 뒤집는다** (ADR-025 결정 2) ★
+   *
+   * `net_amount`는 부호가 정보인 유일한 필드인데 `11st-settlement@1`이
+   * `signPolicy: "magnitude"`를 걸고 있었다. 그대로 두면 「마켓에 갚는 달」의
+   * −50,000이 **+50,000으로 뒤집혀** 받은 적 없는 지급액이 화면에 뜨고, 정산
+   * 항등식이 **우리 버그를 파일 탓으로** 지목한다.
+   *
+   * 조용히 어느 한쪽을 이기게 두지 않는 것이 요점이다 — 그게 이 사고를 만든 구조다.
+   */
+  const signClash = new Set<string>()
+  const scan = (ms: readonly { target: string; signPolicy?: string }[]): void => {
+    for (const m of ms) {
+      if (m.signPolicy !== "magnitude") continue
+      if (targetSpec(m.target)?.sign === "signed") signClash.add(m.target)
+    }
+  }
+  scan(p.fieldMappings)
+  for (const r of p.rowRouting?.routes ?? []) scan(r.fieldMappings)
+  scan(p.orderItem?.fieldMappings ?? [])
+  if (signClash.size > 0) {
+    out.push({
+      where: "target",
+      columns: [...signClash],
+      reason:
+        `타깃 사전이 \`signed\`로 선언한 필드에 프로파일이 \`signPolicy: "magnitude"\`를 ` +
+        `걸었다 — 부호가 정보인 자리라 abs()가 뜻을 뒤집는다. 프로파일에서 걷어라 (ADR-025)`,
+    })
+  }
+
   return out
 }
 

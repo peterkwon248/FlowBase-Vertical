@@ -35,6 +35,16 @@ export interface TargetSpec {
   readonly gloss: string
   /** 어느 표에 사는가. */
   readonly tables: readonly string[]
+  /**
+   * ★ 부호 규약 — **여기가 정본이다. 프로파일은 못 뒤집는다** (ADR-025) ★
+   *
+   * `magnitude` (기본)  저장은 양수. 차감 여부는 **타입 컬럼**이 정한다 (ADR-009 ②)
+   * `signed`            부호가 **정보**인 필드. 그대로 저장한다
+   *
+   * `signed`를 늘릴 때는 **왜 부호가 정보인지**를 그 자리에 적는다 —
+   * 안 적힌 예외는 사고다 (ADR-025 따름 조건 1).
+   */
+  readonly sign?: "magnitude" | "signed"
 }
 
 const T = (
@@ -42,7 +52,8 @@ const T = (
   kinds: readonly NormalizedKind[],
   gloss: string,
   tables: readonly string[],
-): TargetSpec => ({ name, kinds, gloss, tables })
+  sign?: "magnitude" | "signed",
+): TargetSpec => ({ name, kinds, gloss, tables, ...(sign === undefined ? {} : { sign }) })
 
 /**
  * 실사용 26종 — 프로파일 9장의 `fieldMappings`·`rowRouting.routes`·`orderItem`이
@@ -63,7 +74,16 @@ export const TARGETS: readonly TargetSpec[] = [
   // ── 정산 (fact_settlement) ─────────────────────────────────────
   T("gross_amount", ["number"], "판매 금액 — 공제 전", ["fact_settlement", "fact_order_item"]),
   T("fee_amount", ["number"], "마켓이 뗀 수수료·공제 합", ["fact_settlement"]),
-  T("net_amount", ["number"], "정산 금액 — 공제 후 실수령 (음수가 정상인 행이 있다)", ["fact_settlement"]),
+  /**
+   * ★ 유일한 `signed` — 부호가 관습이 아니라 **정보**다 (ADR-025) ★
+   *
+   * ADR-009 ②의 논거는 「같은 사실이 마켓마다 다른 부호로 쌓인다」였다.
+   * `net_amount`는 그 조건에 해당하지 않는다 — 판매−공제가 음수라는 것은
+   * 어느 마켓에서든 **「이번 달은 마켓에 갚는다」**는 같은 뜻이고, `abs()`는
+   * 그 빚을 **수입으로 뒤집는다.** 그러면 정산 항등식이 우리 버그를 파일 탓으로
+   * 지목한다 (`settlement.ts` · 7bbfba2).
+   */
+  T("net_amount", ["number"], "정산 금액 — 공제 후 실수령 (음수가 정상인 행이 있다)", ["fact_settlement"], "signed"),
   T("shipping_amount", ["number"], "배송비 (선결제 포함)", ["fact_settlement"]),
   T("vat_amount", ["number"], "부가세 (VAT)", ["fact_settlement"]),
   T("settled_on", ["date"], "정산이 확정된 날", ["fact_settlement"]),

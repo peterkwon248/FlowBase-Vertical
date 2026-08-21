@@ -142,6 +142,30 @@ const CASES: readonly Case[] = [
     verify: `npx vitest run tests/doc-facts.test.ts -t "실측과 같다"`,
   },
   {
+    id: "sign-signed-target",
+    guards:
+      "`net_amount`의 음수에 abs()가 걸린다 — 「마켓에 갚는 달」이 **받은 적 없는 지급액**이 " +
+      "되고, 정산 항등식이 우리 버그를 파일 탓으로 지목한다 (ADR-025 결정 1)",
+    file: "src/core/import/mapping/targets.ts",
+    find: '["fact_settlement"], "signed"),',
+    replace: '["fact_settlement"]),',
+    verify: `npx vitest run tests/sign-policy.test.ts -t "그대로 저장되고"`,
+  },
+  {
+    id: "sign-undeclared-loads",
+    guards:
+      "선언 없는 음수가 **적재된다** — Fact에 음수가 들어가면 `SUM()`이 조용히 틀린다. " +
+      "ADR-009 ②가 막으려던 그것이다 (ADR-025 결정 3)",
+    file: "src/core/import/issues.ts",
+    find: `    fatal: true,
+    scope: "row",
+    what: "음수인데 부호 규칙 선언이 없다 — 값을 지어내지 않고 그 행을 제외한다",`,
+    replace: `    fatal: false,
+    scope: "row",
+    what: "음수인데 부호 규칙 선언이 없다 — 값을 지어내지 않고 그 행을 제외한다",`,
+    verify: `npx vitest run tests/sign-policy.test.ts -t "적재하지도 않는다"`,
+  },
+  {
     id: "db-parent-dir",
     guards:
       "설치본의 첫 열기 — 앱 데이터 폴더가 **없는 채로** 시작한다. " +
@@ -177,8 +201,23 @@ function restoreLeftovers(): void {
 function runCase(c: Case): { ok: boolean; note: string } {
   const original = readFileSync(c.file, "utf8")
 
+  /**
+   * ★ 줄바꿈을 파일에 맞춘다 (2026-08-21) ★
+   *
+   * 이 저장소는 CRLF다. 케이스는 소스에 LF로 적히므로 **여러 줄 흠집이 전부 안 맞고**,
+   * 그 결과가 「케이스가 낡았다」로 보고된다 — 실제로는 가드가 멀쩡하고 하네스가 못 넣은 것이다.
+   * 두 실패를 구별하겠다고 만든 도구가 **셋째 실패(넣을 줄 몰랐다)를 둘째로 보고**하고 있었다.
+   */
+  const CR = String.fromCharCode(13)
+  const LF = String.fromCharCode(10)
+  const crlf = original.includes(CR + LF)
+  const fix = (t: string): string =>
+    crlf ? t.split(CR + LF).join(LF).split(LF).join(CR + LF) : t
+  const find = fix(c.find)
+  const replace = fix(c.replace)
+
   // ★ 케이스 만료 검사 — 자해를 «넣지도 못한 것»을 통과로 세지 않는다 ★
-  const hits = original.split(c.find).length - 1
+  const hits = original.split(find).length - 1
   if (hits === 0) return { ok: false, note: "흠집 자리를 못 찾았다 — **케이스가 낡았다**" }
   if (hits > 1) return { ok: false, note: `흠집 자리가 ${hits}곳이다 — 한 곳만 짚도록 좁혀라` }
 
@@ -188,7 +227,7 @@ function runCase(c: Case): { ok: boolean; note: string } {
 
   let verdict: { ok: boolean; note: string }
   try {
-    writeFileSync(c.file, original.replace(c.find, c.replace))
+    writeFileSync(c.file, original.replace(find, replace))
     const r = spawnSync(c.verify, {
       shell: true,
       encoding: "utf8",

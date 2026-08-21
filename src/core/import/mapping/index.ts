@@ -13,6 +13,10 @@
 import { readUInt48BE, sha1 } from "./sha1.js"
 import type { NormalizedChunk, RawCell } from "../types.js"
 import type { IssueCode } from "../issues.js"
+// ★ 치명 여부의 정본은 **등록부 하나**다 (2026-08-21) ★ 전에는 여기서 `fatal = true`를
+// 손으로 박았고 `issues.ts`도 같은 것을 선언했다. 지금은 우연히 일치하지만 둘이 갈리는
+// 날 어느 쪽이 참인지 알 수 없다 — 그래서 읽어 쓴다.
+import { isFatal } from "../issues.js"
 import { normalizeValue } from "../normalization/value.js"
 import { rowValuesInto } from "../normalization/chunk.js"
 
@@ -81,6 +85,14 @@ export interface FieldMapping {
 
 export type { ListingRule } from "./listing.js"
 import { KEY_SEP, type ListingRule } from "./listing.js"
+import { TARGETS } from "./targets.js"
+
+/**
+ * 타깃의 부호 규약 (ADR-025). **사전에 없으면 `magnitude`** — 기본이 양수 저장이고,
+ * 예외는 사전이 명시한 것뿐이다. 모르는 이름을 관대하게 통과시키지 않는다(ADR-010 계보).
+ */
+const SIGN = new Map(TARGETS.map((t) => [t.name, t.sign ?? "magnitude"] as const))
+const signOf = (target: string): "magnitude" | "signed" => SIGN.get(target) ?? "magnitude"
 
 export interface MappingProfile {
   readonly id: string
@@ -952,13 +964,24 @@ export function mapRows(
             value = coerce(chunk.values[base + col] ?? null, chunk.raws[base + col] ?? null, m.kind)
 
             /**
-             * ★ 음수 — 선언이 있으면 집행하고, 없으면 **손대지 않고 말한다** ★
+             * ★ 음수 — **타깃 사전이 정본이고, 없으면 제외하고 말한다** (ADR-025) ★
              *
              * 오늘 픽스처 4종에 음수 금액은 0건이다(실측). 즉 이 분기는 실파일이
              * 아니라 **합성으로만** 확인할 수 있다 (ADR-007 경계).
+             *
+             * 2026-08-21에 두 가지가 바뀌었다:
+             *   ① `signed` 타깃(`net_amount`)은 **손대지 않는다.** 그 부호는 마켓별
+             *      관습이 아니라 정보다 — `abs()`는 「마켓에 갚는 달」을 수입으로 뒤집고,
+             *      그러면 정산 항등식이 **우리 버그를 파일 탓으로** 지목한다
+             *   ② 선언 없는 음수는 **제외한다**(`fatal`). 전에는 기록만 하고 그대로
+             *      적재해서 `SUM()`이 조용히 틀렸다 — ADR-009 ②가 막으려던 그것이다.
+             *      죽이지 않고 **제외하고 표시한다**가 LOCK 6의 요구다
              */
             if (typeof value === "number" && value < 0) {
-              if (m.signPolicy === "magnitude") {
+              if (signOf(m.target) === "signed") {
+                // 그대로 둔다. 부호가 정보인 유일한 자리 — 조용한 통과가 아니라
+                // **선언된 통과**다 (`targets.ts`가 왜인지 적어 뒀다).
+              } else if (m.signPolicy === "magnitude") {
                 errors.push({
                   rowIndex,
                   field: m.target,
@@ -970,9 +993,11 @@ export function mapRows(
                 errors.push({
                   rowIndex,
                   field: m.target,
-                  reason: `${value}`,
+                  reason: `${value} — 부호 규약이 선언되지 않았다 (ADR-025)`,
                   code: "sign_undeclared",
                 })
+                // 적재하지 않는다. 음수가 들어가면 `SUM()`이 조용히 틀린다.
+                fatal = fatal || isFatal("sign_undeclared")
               }
             }
 
@@ -987,7 +1012,7 @@ export function mapRows(
                   reason: `사전에 없는 값: "${String(value)}"`,
                   code: "value_not_in_dict",
                 })
-                fatal = true
+                fatal = fatal || isFatal("value_not_in_dict")
               }
               value = mappedValue ?? null
             }
@@ -1003,7 +1028,7 @@ export function mapRows(
             reason: "필수 필드가 비었다",
             code: "required_empty",
           })
-          fatal = true
+          fatal = fatal || isFatal("required_empty")
         }
         fields[m.target] = value
       }

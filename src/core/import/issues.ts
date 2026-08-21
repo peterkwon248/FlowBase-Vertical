@@ -83,9 +83,13 @@ export const ISSUE_KINDS = {
     what: "음수를 선언(signPolicy=magnitude)대로 절대값으로 바꿔 저장했다 — 값을 바꿨으므로 말한다",
   },
   sign_undeclared: {
-    fatal: false,
+    // ★ 2026-08-21에 `false` → `true` (ADR-025) ★ 전에는 값을 그대로 두고 **적재까지**
+    // 했다. 그러면 음수가 Fact에 들어가 `SUM()`이 조용히 틀린다 — ADR-009 ②가 막으려던
+    // 바로 그것이다. `abs()`를 씌우지 않는 판단은 그대로 옳고(반품이 판매가 된다),
+    // 빠져 있던 셋째 길이 **제외하고 표시한다**였다 (LOCK 6).
+    fatal: true,
     scope: "row",
-    what: "음수인데 부호 규칙 선언이 없다 — 값을 그대로 두고 사람에게 넘긴다",
+    what: "음수인데 부호 규칙 선언이 없다 — 값을 지어내지 않고 그 행을 제외한다",
   },
   stale_batch_aborted: {
     fatal: false,
